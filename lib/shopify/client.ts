@@ -42,9 +42,9 @@ function normalizeShopDomain(shopDomain: string) {
 }
 
 function getShopifyConfig() {
-  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
-  const clientId = process.env.SHOPIFY_CLIENT_ID;
-  const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
+  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN?.trim();
+  const clientId = process.env.SHOPIFY_CLIENT_ID?.trim();
+  const clientSecret = process.env.SHOPIFY_CLIENT_SECRET?.trim();
 
   if (!storeDomain || !clientId || !clientSecret) {
     throw new Error("Missing Shopify app configuration");
