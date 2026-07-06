@@ -29,18 +29,29 @@ Private admin portal for Luun logistics. The first version replaces the working 
 
    ```bash
    NEXT_PUBLIC_SUPABASE_URL=
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=
-   SUPABASE_SERVICE_ROLE_KEY=
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+   SUPABASE_SECRET_KEY=
    SHOPIFY_STORE_DOMAIN=
    SHOPIFY_ADMIN_ACCESS_TOKEN=
    SHOPIFY_WEBHOOK_SECRET=
    ```
 
-   `SUPABASE_SERVICE_ROLE_KEY`, `SHOPIFY_ADMIN_ACCESS_TOKEN`, and `SHOPIFY_WEBHOOK_SECRET` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
+   `SUPABASE_SECRET_KEY`, `SHOPIFY_ADMIN_ACCESS_TOKEN`, and `SHOPIFY_WEBHOOK_SECRET` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
 
-4. Apply the Supabase migration in `supabase/migrations/20260706000000_initial_schema.sql`.
+   The app still supports older Supabase variable names for compatibility:
 
-5. Create the first Supabase Auth user, then promote that user in SQL:
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` is used only when `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is missing.
+   - `SUPABASE_SERVICE_ROLE_KEY` is used only when `SUPABASE_SECRET_KEY` is missing.
+
+4. In Supabase, go to **Settings > API Keys**:
+
+   - Copy the Project URL into `NEXT_PUBLIC_SUPABASE_URL`.
+   - Copy the publishable key into `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+   - Copy the secret key into `SUPABASE_SECRET_KEY`.
+
+5. Apply the Supabase migrations in `supabase/migrations`.
+
+6. Create the first Supabase Auth user, then promote that user in SQL:
 
    ```sql
    update public.profiles
@@ -48,7 +59,9 @@ Private admin portal for Luun logistics. The first version replaces the working 
    where email = 'you@example.com';
    ```
 
-6. Run the app:
+   The `public.profiles.id` value must match `auth.users.id`. The migrations create a trigger on `auth.users` that inserts a matching `public.profiles` row using `new.id` whenever a new auth user is created. Role checks read from `public.profiles`; browser/client code never queries `auth.users` directly.
+
+7. Run the app:
 
    ```bash
    npm run dev
@@ -59,9 +72,10 @@ Private admin portal for Luun logistics. The first version replaces the working 
 - `/login` signs staff in with Supabase Auth.
 - `/data` shows Shopify orders with search and status filters.
 - `/inventory` shows inventory rows. Owner/admin users can edit quantities and builder visibility.
-- `/settings/users` lets owner/admin users manage profile roles.
+- `/settings/users` lets owner/admin users manage profile roles and view safe Supabase diagnostics.
 - `/api/public-inventory` returns public builder-safe inventory JSON.
 - `POST /api/shopify/import-orders` manually imports recent Shopify orders for owner/admin users.
+- `GET /api/settings/diagnostics` returns safe Supabase configuration/profile diagnostics for owner/admin users.
 
 ## Shopify Manual Sync
 
@@ -98,8 +112,9 @@ The migration enables Row Level Security and grants the narrow browser permissio
 - Authenticated users can read orders and inventory.
 - Owner/admin users can manage inventory and profiles.
 - Owner/admin/logistics users can update only `logistics_status`, `internal_notes`, and `updated_at` on orders.
-- The public inventory endpoint uses the server-only Supabase service role key and returns only `builder_visible = true` rows.
+- The public inventory endpoint uses the server-only Supabase secret key and returns only `builder_visible = true` rows.
+- `public.profiles.id` references `auth.users(id)` and is created by the `public.handle_new_user()` trigger from `auth.users.new.id`.
 
 ## Deployment
 
-Deploy to Vercel and add the same environment variables there. Keep the service role and Shopify secrets scoped to server-side use only.
+Deploy to Vercel and add the same environment variables there. Keep `SUPABASE_SECRET_KEY` and Shopify secrets scoped to server-side use only.

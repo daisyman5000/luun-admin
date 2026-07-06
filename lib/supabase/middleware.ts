@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+import { getSupabasePublicConfig } from "@/lib/supabase/public-config";
 
 const protectedRoutes = ["/data", "/inventory", "/settings/users"];
 
@@ -11,10 +12,11 @@ type CookieToSet = {
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const { publishableKey, url } = getSupabasePublicConfig();
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    publishableKey,
     {
       cookies: {
         getAll() {

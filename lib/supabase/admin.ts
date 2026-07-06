@@ -1,15 +1,11 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseServerConfig } from "@/lib/supabase/server-config";
 
 export function createAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const { secretKey, url } = getSupabaseServerConfig();
 
-  if (!url || !serviceRoleKey) {
-    throw new Error("Missing Supabase service role configuration");
-  }
-
-  return createClient(url, serviceRoleKey, {
+  return createClient(url, secretKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false

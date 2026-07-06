@@ -1,4 +1,5 @@
 import { UsersTable } from "@/components/users-table";
+import { SupabaseDiagnostics } from "@/components/supabase-diagnostics";
 import { canManageUsers, requireUser } from "@/lib/auth";
 import type { Profile } from "@/lib/types";
 
@@ -20,6 +21,7 @@ export default async function UsersPage() {
         <h1 className="text-2xl font-semibold tracking-normal">Users</h1>
         <p className="mt-1 text-sm text-slate-600">Manage internal access roles.</p>
       </div>
+      <SupabaseDiagnostics />
       <UsersTable canManage={canManageUsers(profile?.role)} initialProfiles={profiles || []} />
     </main>
   );
