@@ -2,12 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { canManageInventory, getUserContext } from "@/lib/auth";
 import type { InventoryRow } from "@/lib/types";
 
-const numericFields = [
-  "available_qty",
-  "reserved_qty",
-  "incoming_qty",
-  "low_stock_threshold"
-] as const;
+const numericFields = ["available_qty"] as const;
 
 export async function PATCH(
   request: NextRequest,
@@ -35,10 +30,6 @@ export async function PATCH(
       }
       updates[field] = value;
     }
-  }
-
-  if (body.builder_visible !== undefined) {
-    updates.builder_visible = Boolean(body.builder_visible);
   }
 
   if (Object.keys(updates).length === 0) {

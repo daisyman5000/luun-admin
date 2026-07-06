@@ -1,15 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { formatDateTime } from "@/lib/format";
 import type { InventoryRow } from "@/lib/types";
 
-type EditableField =
-  | "available_qty"
-  | "reserved_qty"
-  | "incoming_qty"
-  | "low_stock_threshold"
-  | "builder_visible";
+type EditableField = "available_qty";
 
 export function InventoryTable({
   initialRows,
@@ -32,7 +26,7 @@ export function InventoryTable({
     [rows]
   );
 
-  function updateLocalRow(id: string, field: EditableField, value: number | boolean) {
+  function updateLocalRow(id: string, field: EditableField, value: number) {
     setRows((currentRows) =>
       currentRows.map((row) => (row.id === id ? { ...row, [field]: value } : row))
     );
@@ -48,11 +42,7 @@ export function InventoryTable({
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        available_qty: Number(row.available_qty || 0),
-        reserved_qty: Number(row.reserved_qty || 0),
-        incoming_qty: Number(row.incoming_qty || 0),
-        low_stock_threshold: Number(row.low_stock_threshold || 0),
-        builder_visible: Boolean(row.builder_visible)
+        available_qty: Number(row.available_qty || 0)
       })
     });
 
@@ -75,25 +65,15 @@ export function InventoryTable({
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-slate-600">
-          {canEdit ? "Inventory changes save per row." : "Your role can view inventory only."}
+          {canEdit ? "Available quantity saves per row." : "Your role can view inventory only."}
         </p>
         {message ? <p className="text-sm text-slate-700">{message}</p> : null}
       </div>
       <div className="overflow-x-auto rounded-lg border border-line bg-white">
-        <table className="min-w-[980px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[560px] w-full border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
             <tr>
-              {[
-                "Fabric",
-                "Module",
-                "Available",
-                "Reserved",
-                "Incoming",
-                "Low stock",
-                "Builder visible",
-                "Updated",
-                ""
-              ].map((heading) => (
+              {["Fabric", "Module", "Available", ""].map((heading) => (
                 <th className="border-b border-line px-3 py-3 font-semibold" key={heading}>
                   {heading}
                 </th>
@@ -105,34 +85,18 @@ export function InventoryTable({
               <tr className="border-b border-line last:border-0" key={row.id}>
                 <td className="px-3 py-3 font-medium">{row.fabric_slug}</td>
                 <td className="px-3 py-3">{row.module_slug}</td>
-                {(["available_qty", "reserved_qty", "incoming_qty", "low_stock_threshold"] as const).map(
-                  (field) => (
-                    <td className="px-3 py-3" key={field}>
-                      <input
-                        className="w-24 rounded-md border border-line bg-white px-2 py-1.5 disabled:border-transparent disabled:bg-transparent disabled:px-0"
-                        disabled={!canEdit}
-                        min={0}
-                        onChange={(event) =>
-                          updateLocalRow(row.id, field, Number(event.target.value))
-                        }
-                        type="number"
-                        value={row[field] ?? 0}
-                      />
-                    </td>
-                  )
-                )}
                 <td className="px-3 py-3">
                   <input
-                    checked={Boolean(row.builder_visible)}
-                    className="h-4 w-4"
+                    className="w-24 rounded-md border border-line bg-white px-2 py-1.5 disabled:border-transparent disabled:bg-transparent disabled:px-0"
                     disabled={!canEdit}
+                    min={0}
                     onChange={(event) =>
-                      updateLocalRow(row.id, "builder_visible", event.target.checked)
+                      updateLocalRow(row.id, "available_qty", Number(event.target.value))
                     }
-                    type="checkbox"
+                    type="number"
+                    value={row.available_qty ?? 0}
                   />
                 </td>
-                <td className="px-3 py-3 text-slate-600">{formatDateTime(row.updated_at)}</td>
                 <td className="px-3 py-3 text-right">
                   {canEdit ? (
                     <button
@@ -149,7 +113,7 @@ export function InventoryTable({
             ))}
             {sortedRows.length === 0 ? (
               <tr>
-                <td className="px-3 py-8 text-center text-slate-500" colSpan={9}>
+                <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>
                   No inventory rows yet.
                 </td>
               </tr>
