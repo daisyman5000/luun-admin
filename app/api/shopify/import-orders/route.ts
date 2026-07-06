@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { canSyncShopifyOrders, getUserContext } from "@/lib/auth";
 import {
   importRecentShopifyOrders,
-  normalizeImportLimit
+  normalizeImportLimit,
+  normalizeImportSinceDate
 } from "@/lib/shopify/orders";
 
 export async function POST(request: NextRequest) {
@@ -19,19 +20,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { limit?: unknown } = {};
+  let body: { limit?: unknown; sinceDate?: unknown } = {};
 
   try {
-    body = (await request.json()) as { limit?: unknown };
+    body = (await request.json()) as { limit?: unknown; sinceDate?: unknown };
   } catch {
     body = {};
   }
 
   try {
     const limit = normalizeImportLimit(body.limit ?? request.nextUrl.searchParams.get("limit"));
-    const summary = await importRecentShopifyOrders(limit);
+    const sinceDate = normalizeImportSinceDate(
+      body.sinceDate ?? request.nextUrl.searchParams.get("sinceDate")
+    );
+    const summary = await importRecentShopifyOrders(limit, sinceDate);
 
-    return NextResponse.json({ ...summary, limit });
+    return NextResponse.json({ ...summary, limit, sinceDate });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to import Shopify orders";
 

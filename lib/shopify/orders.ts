@@ -34,6 +34,16 @@ type ShopifyOrderNode = {
   } | null;
   shippingAddress?: ShopifyMailingAddress | null;
   billingAddress?: ShopifyMailingAddress | null;
+  lineItems?: {
+    edges: Array<{
+      node: {
+        title?: string | null;
+        quantity?: number | null;
+        sku?: string | null;
+        variantTitle?: string | null;
+      };
+    }>;
+  } | null;
 };
 
 type ShopifyOrdersResponse = {
@@ -51,9 +61,11 @@ export type ImportOrdersSummary = {
   errors: string[];
 };
 
+const DEFAULT_IMPORT_SINCE_DATE = "2026-06-24";
+
 const RECENT_ORDERS_QUERY = /* GraphQL */ `
-  query RecentOrders($first: Int!) {
-    orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+  query RecentOrders($first: Int!, $query: String) {
+    orders(first: $first, sortKey: CREATED_AT, reverse: true, query: $query) {
       edges {
         node {
           id
@@ -98,11 +110,90 @@ const RECENT_ORDERS_QUERY = /* GraphQL */ `
             zip
             phone
           }
+          lineItems(first: 100) {
+            edges {
+              node {
+                title
+                quantity
+                sku
+                variantTitle
+              }
+            }
+          }
         }
       }
     }
   }
 `;
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function moduleFromText(value: string) {
+  const text = value.toLowerCase();
+
+  if (/\bcorner\b/.test(text)) return "corner";
+  if (/\barmless\b/.test(text)) return "armless";
+  if (/\bottoman\b|\bpouf\b|\bfootstool\b/.test(text)) return "ottoman";
+
+  return null;
+}
+
+function extractFabricSlug(order: ShopifyOrderNode) {
+  const lineItems = order.lineItems?.edges || [];
+  const candidates = lineItems.flatMap(({ node }) =>
+    [node.variantTitle, node.sku, node.title].filter((value): value is string => Boolean(value))
+  );
+
+  for (const candidate of candidates) {
+    const parts = candidate
+      .split(/[|/,-]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const fabric = parts.find((part) => {
+      const lower = part.toLowerCase();
+      return (
+        !moduleFromText(lower) &&
+        !/\bsofa\b|\bluun\b|\bmodule\b|\bmodular\b|\bsectional\b/.test(lower)
+      );
+    });
+
+    if (fabric) {
+      return slugify(fabric);
+    }
+  }
+
+  return "";
+}
+
+function tallyModules(order: ShopifyOrderNode) {
+  const counts = {
+    corner_qty: 0,
+    armless_qty: 0,
+    ottoman_qty: 0
+  };
+
+  (order.lineItems?.edges || []).forEach(({ node }) => {
+    const quantity = Math.max(Number(node.quantity || 0), 0);
+    const text = [node.title, node.variantTitle, node.sku].filter(Boolean).join(" ");
+    const moduleSlug = moduleFromText(text);
+
+    if (moduleSlug === "corner") counts.corner_qty += quantity;
+    if (moduleSlug === "armless") counts.armless_qty += quantity;
+    if (moduleSlug === "ottoman") counts.ottoman_qty += quantity;
+  });
+
+  return {
+    ...counts,
+    total_modules: counts.corner_qty + counts.armless_qty + counts.ottoman_qty
+  };
+}
 
 function compactName(address?: ShopifyMailingAddress | null) {
   if (!address) return "";
@@ -116,6 +207,7 @@ function mapOrderToRow(order: ShopifyOrderNode) {
   const total = order.currentTotalPriceSet?.shopMoney;
   const shippingName = compactName(order.shippingAddress);
   const billingName = compactName(order.billingAddress);
+  const moduleCounts = tallyModules(order);
 
   return {
     shopify_order_id: order.id,
@@ -132,6 +224,8 @@ function mapOrderToRow(order: ShopifyOrderNode) {
     payment_status: order.displayFinancialStatus || "",
     fulfillment_status: order.displayFulfillmentStatus || "",
     shipping_address_json: order.shippingAddress || null,
+    fabric_slug: extractFabricSlug(order),
+    ...moduleCounts,
     raw_shopify_json: order,
     created_at: order.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString()
@@ -142,13 +236,24 @@ export function normalizeImportLimit(limit: unknown) {
   const parsed = Number(limit);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return 50;
+    return 100;
   }
 
-  return Math.min(Math.floor(parsed), 100);
+  return Math.min(Math.floor(parsed), 250);
 }
 
-export async function importRecentShopifyOrders(limit: number): Promise<ImportOrdersSummary> {
+export function normalizeImportSinceDate(sinceDate: unknown) {
+  if (typeof sinceDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(sinceDate)) {
+    return DEFAULT_IMPORT_SINCE_DATE;
+  }
+
+  return sinceDate;
+}
+
+export async function importRecentShopifyOrders(
+  limit: number,
+  sinceDate = DEFAULT_IMPORT_SINCE_DATE
+): Promise<ImportOrdersSummary> {
   const summary: ImportOrdersSummary = {
     imported: 0,
     updated: 0,
@@ -156,9 +261,13 @@ export async function importRecentShopifyOrders(limit: number): Promise<ImportOr
     errors: []
   };
 
-  const data = await shopifyAdminGraphQL<ShopifyOrdersResponse>(RECENT_ORDERS_QUERY, {
-    first: limit
-  });
+  const data = await shopifyAdminGraphQL<ShopifyOrdersResponse>(
+    RECENT_ORDERS_QUERY,
+    {
+      first: limit,
+      query: `created_at:>=${sinceDate}`
+    }
+  );
   const orders = data.orders.edges.map((edge) => edge.node);
   const rows = orders.flatMap((order) => {
     if (!order.id) {

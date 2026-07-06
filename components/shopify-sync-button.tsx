@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 type SyncSummary = {
   imported: number;
+  sinceDate?: string;
   updated: number;
   skipped: number;
   errors: string[];
@@ -62,7 +63,7 @@ export function ShopifySyncButton({ reason, status }: ShopifySyncButtonProps) {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ limit: 50 })
+      body: JSON.stringify({ limit: 250, sinceDate: "2026-06-24" })
     });
 
     const payload = (await response.json().catch(() => null)) as
@@ -76,7 +77,7 @@ export function ShopifySyncButton({ reason, status }: ShopifySyncButtonProps) {
     }
 
     setMessage(
-      `Sync complete. Imported ${payload?.imported || 0}, updated ${payload?.updated || 0}, skipped ${payload?.skipped || 0}.`
+      `Sync complete since ${payload?.sinceDate || "2026-06-24"}. Imported ${payload?.imported || 0}, updated ${payload?.updated || 0}, skipped ${payload?.skipped || 0}.`
     );
     router.refresh();
   }
@@ -95,7 +96,7 @@ export function ShopifySyncButton({ reason, status }: ShopifySyncButtonProps) {
         ) : null}
         {!message && !error ? (
           <p className="mt-1 text-sm text-slate-600">
-            Connect Shopify once, then import the latest 50 orders.
+            Connect Shopify once, then import orders since June 24.
           </p>
         ) : null}
       </div>
