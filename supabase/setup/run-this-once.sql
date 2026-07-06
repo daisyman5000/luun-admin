@@ -21,6 +21,13 @@ create table if not exists public.shopify_orders (
   fulfillment_status text,
   shipping_address_json jsonb,
   fabric_slug text,
+  delegate_order_id text,
+  postal_code text,
+  carrier text,
+  delegate_order_created_at text,
+  delivered_at text,
+  delivery_status text,
+  action_needed text,
   corner_qty integer default 0,
   armless_qty integer default 0,
   ottoman_qty integer default 0,
@@ -31,6 +38,15 @@ create table if not exists public.shopify_orders (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+alter table public.shopify_orders
+add column if not exists delegate_order_id text,
+add column if not exists postal_code text,
+add column if not exists carrier text,
+add column if not exists delegate_order_created_at text,
+add column if not exists delivered_at text,
+add column if not exists delivery_status text,
+add column if not exists action_needed text;
 
 create table if not exists public.inventory (
   id uuid primary key default gen_random_uuid(),
@@ -270,7 +286,18 @@ grant select on public.profiles to authenticated;
 grant insert, update, delete on public.profiles to authenticated;
 
 grant select on public.shopify_orders to authenticated;
-grant update (logistics_status, internal_notes, updated_at) on public.shopify_orders to authenticated;
+grant update (
+  delegate_order_id,
+  postal_code,
+  carrier,
+  delegate_order_created_at,
+  delivered_at,
+  delivery_status,
+  logistics_status,
+  internal_notes,
+  action_needed,
+  updated_at
+) on public.shopify_orders to authenticated;
 
 grant select on public.inventory to authenticated;
 grant insert, update, delete on public.inventory to authenticated;

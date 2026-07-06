@@ -135,6 +135,16 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeFabricSlug(value: string) {
+  const slug = slugify(value);
+
+  if (slug === "off" || slug === "off-white" || slug === "offwhite") {
+    return "offwhite";
+  }
+
+  return slug;
+}
+
 function moduleFromText(value: string) {
   const text = value.toLowerCase();
 
@@ -165,7 +175,7 @@ function extractFabricSlug(order: ShopifyOrderNode) {
     });
 
     if (fabric) {
-      return slugify(fabric);
+      return normalizeFabricSlug(fabric);
     }
   }
 

@@ -21,6 +21,13 @@ export type ShopifyOrder = {
   fulfillment_status: string | null;
   shipping_address_json: Record<string, unknown> | null;
   fabric_slug: string | null;
+  delegate_order_id: string | null;
+  postal_code: string | null;
+  carrier: string | null;
+  delegate_order_created_at: string | null;
+  delivered_at: string | null;
+  delivery_status: string | null;
+  action_needed: string | null;
   corner_qty: number | null;
   armless_qty: number | null;
   ottoman_qty: number | null;

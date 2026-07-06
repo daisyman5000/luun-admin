@@ -46,6 +46,10 @@ export function canSyncShopifyOrders(role?: string | null) {
   return role === "owner" || role === "admin";
 }
 
+export function canUpdateOrderLogistics(role?: string | null) {
+  return role === "owner" || role === "admin" || role === "logistics";
+}
+
 export function isKnownRole(role: unknown) {
   return role === "owner" || role === "admin" || role === "logistics" || role === "viewer";
 }
