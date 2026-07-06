@@ -1,5 +1,9 @@
 import { getUserContext } from "@/lib/auth";
 import {
+  checkShopifyAdminConnection,
+  getShopifyConfigStatus
+} from "@/lib/shopify/client";
+import {
   getSupabasePublishableKey,
   getSupabaseUrl
 } from "@/lib/supabase/public-config";
@@ -21,9 +25,17 @@ export async function SupabaseDiagnostics() {
     return null;
   }
 
+  const shopifyConfig = getShopifyConfigStatus();
+  const shopifyApiConnectionWorks =
+    shopifyConfig.storeDomainExists &&
+    shopifyConfig.clientIdExists &&
+    shopifyConfig.clientSecretExists
+      ? await checkShopifyAdminConnection()
+      : false;
+
   return (
     <section className="mb-5 rounded-lg border border-line bg-white p-4">
-      <h2 className="text-base font-semibold tracking-normal">Supabase diagnostics</h2>
+      <h2 className="text-base font-semibold tracking-normal">System diagnostics</h2>
       <div className="mt-3">
         <CheckRow label="Supabase URL" value={getSupabaseUrl() ? "Configured" : "Missing"} />
         <CheckRow
@@ -40,6 +52,22 @@ export async function SupabaseDiagnostics() {
           value={profile?.id === user.id ? "Found" : "Missing"}
         />
         <CheckRow label="Current role" value={profile?.role || "Missing"} />
+        <CheckRow
+          label="Shopify store domain"
+          value={shopifyConfig.storeDomainExists ? "Configured" : "Missing"}
+        />
+        <CheckRow
+          label="Shopify client ID"
+          value={shopifyConfig.clientIdExists ? "Configured" : "Missing"}
+        />
+        <CheckRow
+          label="Shopify client secret"
+          value={shopifyConfig.clientSecretExists ? "Configured" : "Missing"}
+        />
+        <CheckRow
+          label="Shopify API connection"
+          value={shopifyApiConnectionWorks ? "Working" : "Not connected"}
+        />
       </div>
     </section>
   );

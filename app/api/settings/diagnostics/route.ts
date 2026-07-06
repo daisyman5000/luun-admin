@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { canManageUsers, getUserContext } from "@/lib/auth";
 import {
+  checkShopifyAdminConnection,
+  getShopifyConfigStatus
+} from "@/lib/shopify/client";
+import {
   getSupabasePublishableKey,
   getSupabaseUrl
 } from "@/lib/supabase/public-config";
@@ -17,12 +21,24 @@ export async function GET() {
     return NextResponse.json({ error: "Not authorized to view diagnostics" }, { status: 403 });
   }
 
+  const shopifyConfig = getShopifyConfigStatus();
+  const shopifyApiConnectionWorks =
+    shopifyConfig.storeDomainExists &&
+    shopifyConfig.clientIdExists &&
+    shopifyConfig.clientSecretExists
+      ? await checkShopifyAdminConnection()
+      : false;
+
   return NextResponse.json({
     supabaseUrlExists: Boolean(getSupabaseUrl()),
     publishableKeyExists: Boolean(getSupabasePublishableKey()),
     serverSecretKeyExists: Boolean(getSupabaseSecretKey()),
     currentAuthUserId: user.id,
     matchingProfileExists: Boolean(profile && profile.id === user.id),
-    currentRole: profile?.role || null
+    currentRole: profile?.role || null,
+    shopifyStoreDomainExists: shopifyConfig.storeDomainExists,
+    shopifyClientIdExists: shopifyConfig.clientIdExists,
+    shopifyClientSecretExists: shopifyConfig.clientSecretExists,
+    shopifyApiConnectionWorks
   });
 }

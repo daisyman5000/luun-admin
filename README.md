@@ -32,11 +32,12 @@ Private admin portal for Luun logistics. The first version replaces the working 
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
    SUPABASE_SECRET_KEY=
    SHOPIFY_STORE_DOMAIN=
-   SHOPIFY_ADMIN_ACCESS_TOKEN=
+   SHOPIFY_CLIENT_ID=
+   SHOPIFY_CLIENT_SECRET=
    SHOPIFY_WEBHOOK_SECRET=
    ```
 
-   `SUPABASE_SECRET_KEY`, `SHOPIFY_ADMIN_ACCESS_TOKEN`, and `SHOPIFY_WEBHOOK_SECRET` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
+   `SUPABASE_SECRET_KEY`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, and `SHOPIFY_WEBHOOK_SECRET` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
 
    The app still supports older Supabase variable names for compatibility:
 
@@ -85,10 +86,13 @@ Required environment variables:
 
 ```bash
 SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
-SHOPIFY_ADMIN_ACCESS_TOKEN=shpat_...
+SHOPIFY_CLIENT_ID=
+SHOPIFY_CLIENT_SECRET=
 ```
 
-The Shopify Admin API access token needs read access to orders. In Shopify custom app permissions, enable:
+The app requests an Admin API access token server-side from Shopify using the client ID and client secret, then uses that generated token for Admin GraphQL requests. The generated token is kept server-side and is cached in memory when Shopify returns an expiry.
+
+The Shopify app needs read access to orders. In Shopify app permissions, enable:
 
 - `read_orders`
 
