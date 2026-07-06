@@ -13,7 +13,7 @@ export function InventoryTabs({ active }: { active: "manage" | "on-hand" }) {
           className={[
             "border-b-2 px-3 py-2 text-sm font-medium",
             active === tab.value
-              ? "border-ink text-ink"
+              ? "border-sky-300 text-sky-200"
               : "border-transparent text-slate-600 hover:text-slate-900"
           ].join(" ")}
           href={tab.href}
