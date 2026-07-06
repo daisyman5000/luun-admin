@@ -12,15 +12,41 @@ type SyncSummary = {
 };
 
 type ShopifySyncButtonProps = {
+  reason?: string | string[];
   status?: string | string[];
 };
 
-export function ShopifySyncButton({ status }: ShopifySyncButtonProps) {
+function getFailureMessage(reason?: string) {
+  if (reason === "state") {
+    return "Shopify connection failed because the login session expired. Click Connect Shopify again.";
+  }
+
+  if (reason === "signature") {
+    return "Shopify connection failed because the callback could not be verified. Check the Shopify Client Secret in Vercel.";
+  }
+
+  if (reason === "token") {
+    return "Shopify connection failed while creating the Admin API token. Check the Shopify Client ID, Client Secret, app scopes, and callback URL.";
+  }
+
+  if (reason === "save") {
+    return "Shopify connected, but the app could not save the token in Supabase. Check that the database setup SQL was run.";
+  }
+
+  if (reason) {
+    return `Shopify connection failed: ${reason}.`;
+  }
+
+  return "Shopify connection failed. Try connecting again.";
+}
+
+export function ShopifySyncButton({ reason, status }: ShopifySyncButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const shopifyStatus = Array.isArray(status) ? status[0] : status;
+  const shopifyReason = Array.isArray(reason) ? reason[0] : reason;
 
   async function syncOrders() {
     setLoading(true);
@@ -61,7 +87,7 @@ export function ShopifySyncButton({ status }: ShopifySyncButtonProps) {
           <p className="mt-1 text-sm text-green-700">Shopify is connected.</p>
         ) : null}
         {shopifyStatus === "failed" ? (
-          <p className="mt-1 text-sm text-red-700">Shopify connection failed. Try connecting again.</p>
+          <p className="mt-1 text-sm text-red-700">{getFailureMessage(shopifyReason)}</p>
         ) : null}
         {!message && !error ? (
           <p className="mt-1 text-sm text-slate-600">

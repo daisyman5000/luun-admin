@@ -8,8 +8,15 @@ import {
 
 export const runtime = "nodejs";
 
-function redirectToData(request: NextRequest, status: string) {
-  return NextResponse.redirect(new URL(`/data?shopify=${status}`, request.url));
+function redirectToData(request: NextRequest, status: string, reason?: string) {
+  const url = new URL("/data", request.url);
+  url.searchParams.set("shopify", status);
+
+  if (reason) {
+    url.searchParams.set("shopify_reason", reason);
+  }
+
+  return NextResponse.redirect(url);
 }
 
 export async function GET(request: NextRequest) {
@@ -29,15 +36,22 @@ export async function GET(request: NextRequest) {
   const expectedState = request.cookies.get("shopify_oauth_state")?.value;
   const returnedState = request.nextUrl.searchParams.get("state");
   const code = request.nextUrl.searchParams.get("code");
+  const shopifyError = request.nextUrl.searchParams.get("error");
 
-  if (!expectedState || !returnedState || expectedState !== returnedState || !code) {
-    const response = redirectToData(request, "failed");
+  if (shopifyError) {
+    const response = redirectToData(request, "failed", shopifyError);
     response.cookies.delete("shopify_oauth_state");
     return response;
   }
 
-  if (!verifyShopifyCallback(request.nextUrl.searchParams)) {
-    const response = redirectToData(request, "failed");
+  if (!expectedState || !returnedState || expectedState !== returnedState || !code) {
+    const response = redirectToData(request, "failed", "state");
+    response.cookies.delete("shopify_oauth_state");
+    return response;
+  }
+
+  if (!verifyShopifyCallback(request.nextUrl.search)) {
+    const response = redirectToData(request, "failed", "signature");
     response.cookies.delete("shopify_oauth_state");
     return response;
   }
@@ -49,8 +63,10 @@ export async function GET(request: NextRequest) {
     const response = redirectToData(request, "connected");
     response.cookies.delete("shopify_oauth_state");
     return response;
-  } catch {
-    const response = redirectToData(request, "failed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const reason = message.includes("save") ? "save" : "token";
+    const response = redirectToData(request, "failed", reason);
     response.cookies.delete("shopify_oauth_state");
     return response;
   }

@@ -79,8 +79,9 @@ export function buildShopifyInstallUrl(origin: string, state: string) {
   return authorizeUrl.toString();
 }
 
-export function verifyShopifyCallback(searchParams: URLSearchParams) {
+export function verifyShopifyCallback(search: string) {
   const { clientSecret, storeDomain } = getShopifyConfig();
+  const searchParams = new URLSearchParams(search);
   const shop = searchParams.get("shop");
   const hmac = searchParams.get("hmac");
 
@@ -92,13 +93,15 @@ export function verifyShopifyCallback(searchParams: URLSearchParams) {
     return false;
   }
 
-  const params = new URLSearchParams(searchParams);
-  params.delete("hmac");
-  params.delete("signature");
-
-  const message = Array.from(params.entries())
-    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
-    .map(([key, value]) => `${key}=${value}`)
+  const message = search
+    .replace(/^\?/, "")
+    .split("&")
+    .filter((part) => part && !part.startsWith("hmac=") && !part.startsWith("signature="))
+    .sort((left, right) => left.split("=")[0].localeCompare(right.split("=")[0]))
+    .map((part) => {
+      const [key, ...valueParts] = part.split("=");
+      return `${key}=${valueParts.join("=")}`;
+    })
     .join("&");
 
   const digest = createHmac("sha256", clientSecret).update(message).digest("hex");

@@ -7,6 +7,7 @@ import type { ShopifyOrder } from "@/lib/types";
 type DataPageProps = {
   searchParams?: Promise<{
     shopify?: string | string[];
+    shopify_reason?: string | string[];
   }>;
 };
 
@@ -27,7 +28,10 @@ export default async function DataPage({ searchParams }: DataPageProps) {
       </div>
       {canSyncShopifyOrders(profile?.role) ? (
         <div className="mb-5">
-          <ShopifySyncButton status={resolvedSearchParams?.shopify} />
+          <ShopifySyncButton
+            reason={resolvedSearchParams?.shopify_reason}
+            status={resolvedSearchParams?.shopify}
+          />
         </div>
       ) : null}
       {error ? (
