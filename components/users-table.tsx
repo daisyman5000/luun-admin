@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/browser";
 import { formatDate } from "@/lib/format";
 import type { Profile, UserRole } from "@/lib/types";
 
@@ -19,19 +18,21 @@ export function UsersTable({
 
   async function updateRole(profile: Profile, role: UserRole) {
     setMessage(null);
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("profiles")
-      .update({ role })
-      .eq("id", profile.id)
-      .select()
-      .single<Profile>();
+    const response = await fetch(`/api/profiles/${profile.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ role })
+    });
 
-    if (error) {
-      setMessage(error.message);
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setMessage(payload?.error || "Unable to update user role.");
       return;
     }
 
+    const data = (await response.json()) as Profile;
     setProfiles((currentProfiles) =>
       currentProfiles.map((currentProfile) =>
         currentProfile.id === profile.id ? data : currentProfile

@@ -2,14 +2,14 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 
-export async function requireUser() {
+export async function getUserContext() {
   const supabase = await createClient();
   const {
     data: { user }
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    return { supabase, user, profile: null };
   }
 
   const { data: profile } = await supabase
@@ -21,10 +21,27 @@ export async function requireUser() {
   return { supabase, user, profile };
 }
 
+export async function requireUser() {
+  const context = await getUserContext();
+
+  if (!context.user) {
+    redirect("/login");
+  }
+
+  return {
+    ...context,
+    user: context.user
+  };
+}
+
 export function canManageInventory(role?: string | null) {
   return role === "owner" || role === "admin";
 }
 
 export function canManageUsers(role?: string | null) {
   return role === "owner" || role === "admin";
+}
+
+export function isKnownRole(role: unknown) {
+  return role === "owner" || role === "admin" || role === "logistics" || role === "viewer";
 }

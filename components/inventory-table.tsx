@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/browser";
 import { formatDateTime } from "@/lib/format";
 import type { InventoryRow } from "@/lib/types";
 
@@ -43,28 +42,29 @@ export function InventoryTable({
     setSavingId(row.id);
     setMessage(null);
 
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("inventory")
-      .update({
+    const response = await fetch(`/api/inventory/${row.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
         available_qty: Number(row.available_qty || 0),
         reserved_qty: Number(row.reserved_qty || 0),
         incoming_qty: Number(row.incoming_qty || 0),
         low_stock_threshold: Number(row.low_stock_threshold || 0),
-        builder_visible: Boolean(row.builder_visible),
-        updated_at: new Date().toISOString()
+        builder_visible: Boolean(row.builder_visible)
       })
-      .eq("id", row.id)
-      .select()
-      .single<InventoryRow>();
+    });
 
     setSavingId(null);
 
-    if (error) {
-      setMessage(error.message);
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setMessage(payload?.error || "Unable to save inventory.");
       return;
     }
 
+    const data = (await response.json()) as InventoryRow;
     setRows((currentRows) =>
       currentRows.map((currentRow) => (currentRow.id === row.id ? data : currentRow))
     );
