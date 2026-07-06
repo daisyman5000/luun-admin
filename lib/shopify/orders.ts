@@ -32,11 +32,6 @@ type ShopifyOrderNode = {
       currencyCode?: string | null;
     } | null;
   } | null;
-  customer?: {
-    displayName?: string | null;
-    email?: string | null;
-    phone?: string | null;
-  } | null;
   shippingAddress?: ShopifyMailingAddress | null;
   billingAddress?: ShopifyMailingAddress | null;
 };
@@ -74,11 +69,6 @@ const RECENT_ORDERS_QUERY = /* GraphQL */ `
               amount
               currencyCode
             }
-          }
-          customer {
-            displayName
-            email
-            phone
           }
           shippingAddress {
             name
@@ -130,10 +120,9 @@ function mapOrderToRow(order: ShopifyOrderNode) {
   return {
     shopify_order_id: order.id,
     order_number: order.name || "",
-    customer_name: order.customer?.displayName || shippingName || billingName || "",
-    customer_email: order.customer?.email || order.email || "",
+    customer_name: shippingName || billingName || "",
+    customer_email: order.email || "",
     customer_phone:
-      order.customer?.phone ||
       order.phone ||
       order.shippingAddress?.phone ||
       order.billingAddress?.phone ||
