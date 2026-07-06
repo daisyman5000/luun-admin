@@ -1,4 +1,5 @@
 import { getUserContext } from "@/lib/auth";
+import { getPublicInventoryPayload } from "@/lib/public-inventory-data";
 import {
   checkShopifyAdminConnection,
   getShopifyConnectionStatus,
@@ -35,6 +36,9 @@ export async function SupabaseDiagnostics() {
     shopifyConnection.connected
       ? await checkShopifyAdminConnection()
       : false;
+  const publicInventoryPreview = await getPublicInventoryPayload().catch((error) => ({
+    error: error instanceof Error ? error.message : "Unable to load public inventory"
+  }));
 
   return (
     <section className="mb-5 rounded-lg border border-line bg-white p-4">
@@ -75,6 +79,12 @@ export async function SupabaseDiagnostics() {
           label="Shopify API connection"
           value={shopifyApiConnectionWorks ? "Working" : "Not connected"}
         />
+      </div>
+      <div className="mt-5">
+        <h3 className="text-sm font-semibold tracking-normal">Public inventory API response</h3>
+        <pre className="mt-2 max-h-80 overflow-auto rounded-md border border-line bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+          {JSON.stringify(publicInventoryPreview, null, 2)}
+        </pre>
       </div>
     </section>
   );
