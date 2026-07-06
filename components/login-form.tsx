@@ -1,0 +1,77 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/browser";
+
+export function LoginForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    const supabase = createClient();
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    setLoading(false);
+
+    if (authError) {
+      setError(authError.message);
+      return;
+    }
+
+    router.replace(searchParams.get("redirectedFrom") || "/data");
+    router.refresh();
+  }
+
+  return (
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="email">
+          Email
+        </label>
+        <input
+          autoComplete="email"
+          className="w-full rounded-md border border-line bg-white px-3 py-2 outline-none ring-0 focus:border-slate-500"
+          id="email"
+          onChange={(event) => setEmail(event.target.value)}
+          required
+          type="email"
+          value={email}
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="password">
+          Password
+        </label>
+        <input
+          autoComplete="current-password"
+          className="w-full rounded-md border border-line bg-white px-3 py-2 outline-none ring-0 focus:border-slate-500"
+          id="password"
+          onChange={(event) => setPassword(event.target.value)}
+          required
+          type="password"
+          value={password}
+        />
+      </div>
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      <button
+        className="w-full rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={loading}
+        type="submit"
+      >
+        {loading ? "Signing in..." : "Sign in"}
+      </button>
+    </form>
+  );
+}
