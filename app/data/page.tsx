@@ -1,4 +1,5 @@
 import { OrdersTable } from "@/components/orders-table";
+import { SetupError } from "@/components/setup-error";
 import { ShopifySyncButton } from "@/components/shopify-sync-button";
 import { canSyncShopifyOrders, requireUser } from "@/lib/auth";
 import type { ShopifyOrder } from "@/lib/types";
@@ -18,10 +19,6 @@ export default async function DataPage({ searchParams }: DataPageProps) {
     .order("created_at", { ascending: false })
     .returns<ShopifyOrder[]>();
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <div className="mb-5">
@@ -33,7 +30,11 @@ export default async function DataPage({ searchParams }: DataPageProps) {
           <ShopifySyncButton status={resolvedSearchParams?.shopify} />
         </div>
       ) : null}
-      <OrdersTable orders={orders || []} />
+      {error ? (
+        <SetupError message={error.message} title="Orders database issue" />
+      ) : (
+        <OrdersTable orders={orders || []} />
+      )}
     </main>
   );
 }

@@ -1,4 +1,5 @@
 import { InventoryTable } from "@/components/inventory-table";
+import { SetupError } from "@/components/setup-error";
 import { canManageInventory, requireUser } from "@/lib/auth";
 import type { InventoryRow } from "@/lib/types";
 
@@ -10,10 +11,6 @@ export default async function InventoryPage() {
     .order("fabric_slug", { ascending: true })
     .returns<InventoryRow[]>();
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <div className="mb-5">
@@ -22,7 +19,11 @@ export default async function InventoryPage() {
           Fabric and module quantities used by staff and the future builder feed.
         </p>
       </div>
-      <InventoryTable canEdit={canManageInventory(profile?.role)} initialRows={rows || []} />
+      {error ? (
+        <SetupError message={error.message} title="Inventory database issue" />
+      ) : (
+        <InventoryTable canEdit={canManageInventory(profile?.role)} initialRows={rows || []} />
+      )}
     </main>
   );
 }

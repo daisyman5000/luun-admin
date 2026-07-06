@@ -1,3 +1,4 @@
+import { SetupError } from "@/components/setup-error";
 import { UsersTable } from "@/components/users-table";
 import { SupabaseDiagnostics } from "@/components/supabase-diagnostics";
 import { canManageUsers, requireUser } from "@/lib/auth";
@@ -11,10 +12,6 @@ export default async function UsersPage() {
     .order("created_at", { ascending: false })
     .returns<Profile[]>();
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <div className="mb-5">
@@ -22,7 +19,11 @@ export default async function UsersPage() {
         <p className="mt-1 text-sm text-slate-600">Manage internal access roles.</p>
       </div>
       <SupabaseDiagnostics />
-      <UsersTable canManage={canManageUsers(profile?.role)} initialProfiles={profiles || []} />
+      {error ? (
+        <SetupError message={error.message} title="Users database issue" />
+      ) : (
+        <UsersTable canManage={canManageUsers(profile?.role)} initialProfiles={profiles || []} />
+      )}
     </main>
   );
 }
