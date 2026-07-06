@@ -41,6 +41,17 @@ function normalizeShopDomain(shopDomain: string) {
   return shopDomain.replace(/^https?:\/\//, "").replace(/\/$/, "").trim();
 }
 
+function safeCompareHex(left: string, right: string) {
+  if (!/^[a-f0-9]+$/i.test(left) || !/^[a-f0-9]+$/i.test(right)) {
+    return false;
+  }
+
+  const leftBuffer = Buffer.from(left, "hex");
+  const rightBuffer = Buffer.from(right, "hex");
+
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
 function getShopifyConfig() {
   const storeDomain = process.env.SHOPIFY_STORE_DOMAIN?.trim();
   const clientId = process.env.SHOPIFY_CLIENT_ID?.trim();
@@ -93,7 +104,7 @@ export function verifyShopifyCallback(search: string) {
     return false;
   }
 
-  const message = search
+  const rawMessage = search
     .replace(/^\?/, "")
     .split("&")
     .filter((part) => part && !part.startsWith("hmac=") && !part.startsWith("signature="))
@@ -104,11 +115,26 @@ export function verifyShopifyCallback(search: string) {
     })
     .join("&");
 
-  const digest = createHmac("sha256", clientSecret).update(message).digest("hex");
-  const expected = Buffer.from(digest, "hex");
-  const received = Buffer.from(hmac, "hex");
+  const sortedEntries = Array.from(searchParams.entries())
+    .filter(([key]) => key !== "hmac" && key !== "signature")
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
 
-  return expected.length === received.length && timingSafeEqual(expected, received);
+  const encodedParams = new URLSearchParams();
+  sortedEntries.forEach(([key, value]) => {
+    encodedParams.append(key, value);
+  });
+
+  const encodedMessage = encodedParams.toString();
+  const decodedMessage = sortedEntries
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+
+  const messages = Array.from(new Set([rawMessage, encodedMessage, decodedMessage]));
+
+  return messages.some((message) => {
+    const digest = createHmac("sha256", clientSecret).update(message).digest("hex");
+    return safeCompareHex(digest, hmac);
+  });
 }
 
 export async function exchangeShopifyCodeForToken(code: string) {
