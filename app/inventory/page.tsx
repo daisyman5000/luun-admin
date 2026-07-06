@@ -1,5 +1,4 @@
 import { InventoryTable } from "@/components/inventory-table";
-import { InventoryTabs } from "@/components/inventory-tabs";
 import { SetupError } from "@/components/setup-error";
 import { canManageInventory, requireUser } from "@/lib/auth";
 import type { InventoryRow } from "@/lib/types";
@@ -20,7 +19,6 @@ export default async function InventoryPage() {
           Fabric and module quantities used by staff and the future builder feed.
         </p>
       </div>
-      <InventoryTabs active="manage" />
       {error ? (
         <SetupError message={error.message} title="Inventory database issue" />
       ) : (

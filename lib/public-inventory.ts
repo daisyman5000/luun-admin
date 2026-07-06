@@ -10,7 +10,7 @@ function normalizeBuilderFabricSlug(value: string | null | undefined) {
 
   if (slug === "off" || slug === "offwhite") return "off-white";
   if (slug === "dark-gray") return "dark-grey";
-  if (slug === "aqua") return "skyblue";
+  if (slug === "skyblue" || slug === "sky-blue" || slug === "blue") return "aqua";
   if (slug === "bamboo") return "jade";
 
   return slug;
