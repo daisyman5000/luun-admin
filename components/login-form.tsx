@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
+import { hasSupabasePublicConfig } from "@/lib/supabase/public-config";
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isConfigured = hasSupabasePublicConfig();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +19,16 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const supabase = createClient();
+    let supabase: ReturnType<typeof createClient>;
+
+    try {
+      supabase = createClient();
+    } catch {
+      setLoading(false);
+      setError("Supabase is not configured in Vercel.");
+      return;
+    }
+
     const { error: authError } = await supabase.auth.signInWithPassword({
       email,
       password
@@ -64,10 +75,15 @@ export function LoginForm() {
           value={password}
         />
       </div>
+      {!isConfigured ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Supabase is not configured in Vercel.
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button
         className="w-full rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={loading}
+        disabled={loading || !isConfigured}
         type="submit"
       >
         {loading ? "Signing in..." : "Sign in"}

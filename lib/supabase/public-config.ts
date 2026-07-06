@@ -19,3 +19,7 @@ export function getSupabasePublicConfig() {
 
   return { publishableKey, url };
 }
+
+export function hasSupabasePublicConfig() {
+  return Boolean(getSupabaseUrl() && getSupabasePublishableKey());
+}

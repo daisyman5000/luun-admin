@@ -17,10 +17,17 @@ const protectedLinks = [
 ];
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const supabase = await createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  let user = null;
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user: currentUser }
+    } = await supabase.auth.getUser();
+    user = currentUser;
+  } catch {
+    user = null;
+  }
 
   return (
     <html lang="en">

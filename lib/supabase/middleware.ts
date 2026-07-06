@@ -12,7 +12,14 @@ type CookieToSet = {
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
-  const { publishableKey, url } = getSupabasePublicConfig();
+  let publishableKey: string;
+  let url: string;
+
+  try {
+    ({ publishableKey, url } = getSupabasePublicConfig());
+  } catch {
+    return response;
+  }
 
   const supabase = createServerClient(
     url,
