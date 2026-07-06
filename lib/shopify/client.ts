@@ -137,6 +137,13 @@ export function verifyShopifyCallback(search: string) {
   });
 }
 
+export function isExpectedShopifyCallbackShop(searchParams: URLSearchParams) {
+  const { storeDomain } = getShopifyConfig();
+  const shop = searchParams.get("shop");
+
+  return Boolean(shop && normalizeShopDomain(shop) === storeDomain);
+}
+
 export async function exchangeShopifyCodeForToken(code: string) {
   const { clientId, clientSecret, storeDomain } = getShopifyConfig();
   const response = await fetch(`https://${storeDomain}/admin/oauth/access_token`, {

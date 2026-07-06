@@ -25,6 +25,10 @@ function getFailureMessage(reason?: string) {
     return "Shopify connection failed because the callback could not be verified. Check the Shopify Client Secret in Vercel.";
   }
 
+  if (reason === "shop") {
+    return "Shopify connection failed because SHOPIFY_STORE_DOMAIN does not match the Shopify store.";
+  }
+
   if (reason === "token") {
     return "Shopify connection failed while creating the Admin API token. Check the Shopify Client ID, Client Secret, app scopes, and callback URL.";
   }

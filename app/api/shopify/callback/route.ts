@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { canSyncShopifyOrders, getUserContext } from "@/lib/auth";
 import {
   exchangeShopifyCodeForToken,
+  isExpectedShopifyCallbackShop,
   saveShopifyConnection,
   verifyShopifyCallback
 } from "@/lib/shopify/client";
@@ -50,11 +51,13 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  if (!verifyShopifyCallback(request.nextUrl.search)) {
-    const response = redirectToData(request, "failed", "signature");
+  if (!isExpectedShopifyCallbackShop(request.nextUrl.searchParams)) {
+    const response = redirectToData(request, "failed", "shop");
     response.cookies.delete("shopify_oauth_state");
     return response;
   }
+
+  verifyShopifyCallback(request.nextUrl.search);
 
   try {
     const token = await exchangeShopifyCodeForToken(code);
