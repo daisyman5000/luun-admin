@@ -1,0 +1,66 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+type SyncSummary = {
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+};
+
+export function ShopifySyncButton() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function syncOrders() {
+    setLoading(true);
+    setMessage(null);
+    setError(null);
+
+    const response = await fetch("/api/shopify/import-orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ limit: 50 })
+    });
+
+    const payload = (await response.json().catch(() => null)) as SyncSummary | null;
+    setLoading(false);
+
+    if (!response.ok) {
+      setError(payload?.errors?.[0] || "Unable to sync Shopify orders.");
+      return;
+    }
+
+    setMessage(
+      `Sync complete. Imported ${payload?.imported || 0}, updated ${payload?.updated || 0}, skipped ${payload?.skipped || 0}.`
+    );
+    router.refresh();
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-sm font-medium text-slate-800">Shopify order sync</p>
+        {message ? <p className="mt-1 text-sm text-green-700">{message}</p> : null}
+        {error ? <p className="mt-1 text-sm text-red-700">{error}</p> : null}
+        {!message && !error ? (
+          <p className="mt-1 text-sm text-slate-600">Import the latest 50 Shopify orders.</p>
+        ) : null}
+      </div>
+      <button
+        className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={loading}
+        onClick={syncOrders}
+        type="button"
+      >
+        {loading ? "Syncing..." : "Sync Shopify Orders"}
+      </button>
+    </div>
+  );
+}

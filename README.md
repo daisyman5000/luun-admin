@@ -61,6 +61,35 @@ Private admin portal for Luun logistics. The first version replaces the working 
 - `/inventory` shows inventory rows. Owner/admin users can edit quantities and builder visibility.
 - `/settings/users` lets owner/admin users manage profile roles.
 - `/api/public-inventory` returns public builder-safe inventory JSON.
+- `POST /api/shopify/import-orders` manually imports recent Shopify orders for owner/admin users.
+
+## Shopify Manual Sync
+
+Manual sync uses the Shopify Admin GraphQL API. It does not use webhooks and does not adjust inventory.
+
+Required environment variables:
+
+```bash
+SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
+SHOPIFY_ADMIN_ACCESS_TOKEN=shpat_...
+```
+
+The Shopify Admin API access token needs read access to orders. In Shopify custom app permissions, enable:
+
+- `read_orders`
+
+If Luun needs to import older orders beyond Shopify's normal recent order window, also enable the protected customer data/order history permissions required by the Shopify admin.
+
+Owner/admin users can run a sync from `/data` with the **Sync Shopify Orders** button. The button imports the latest 50 orders by default. The endpoint also accepts an optional capped limit:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 100}' \
+  https://your-admin-domain.com/api/shopify/import-orders
+```
+
+The endpoint requires a logged-in owner/admin session, so browser-based use from `/data` is the expected workflow.
 
 ## Database Notes
 

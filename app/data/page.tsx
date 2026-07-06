@@ -1,9 +1,10 @@
 import { OrdersTable } from "@/components/orders-table";
-import { requireUser } from "@/lib/auth";
+import { ShopifySyncButton } from "@/components/shopify-sync-button";
+import { canSyncShopifyOrders, requireUser } from "@/lib/auth";
 import type { ShopifyOrder } from "@/lib/types";
 
 export default async function DataPage() {
-  const { supabase } = await requireUser();
+  const { supabase, profile } = await requireUser();
   const { data: orders, error } = await supabase
     .from("shopify_orders")
     .select("*")
@@ -20,6 +21,11 @@ export default async function DataPage() {
         <h1 className="text-2xl font-semibold tracking-normal">Orders</h1>
         <p className="mt-1 text-sm text-slate-600">Shopify orders for logistics follow-up.</p>
       </div>
+      {canSyncShopifyOrders(profile?.role) ? (
+        <div className="mb-5">
+          <ShopifySyncButton />
+        </div>
+      ) : null}
       <OrdersTable orders={orders || []} />
     </main>
   );
