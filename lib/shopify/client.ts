@@ -25,6 +25,7 @@ type ShopifyTokenResponse = {
 type CachedConnection = {
   accessToken: string;
   scope: string | null;
+  storeDomain: string;
 };
 
 let cachedConnection: CachedConnection | null = null;
@@ -137,16 +138,21 @@ export function verifyShopifyCallback(search: string) {
   });
 }
 
-export function isExpectedShopifyCallbackShop(searchParams: URLSearchParams) {
-  const { storeDomain } = getShopifyConfig();
+export function getCallbackShopDomain(searchParams: URLSearchParams) {
   const shop = searchParams.get("shop");
+  const shopDomain = shop ? normalizeShopDomain(shop) : "";
 
-  return Boolean(shop && normalizeShopDomain(shop) === storeDomain);
+  if (!shopDomain || !SHOPIFY_DOMAIN_PATTERN.test(shopDomain)) {
+    throw new Error("Shopify returned an invalid shop domain");
+  }
+
+  return shopDomain;
 }
 
-export async function exchangeShopifyCodeForToken(code: string) {
+export async function exchangeShopifyCodeForToken(code: string, shopDomain?: string) {
   const { clientId, clientSecret, storeDomain } = getShopifyConfig();
-  const response = await fetch(`https://${storeDomain}/admin/oauth/access_token`, {
+  const tokenShopDomain = shopDomain || storeDomain;
+  const response = await fetch(`https://${tokenShopDomain}/admin/oauth/access_token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded"
@@ -177,10 +183,19 @@ export async function exchangeShopifyCodeForToken(code: string) {
 
 export async function saveShopifyConnection(accessToken: string, scope: string | null, userId: string) {
   const { storeDomain } = getShopifyConfig();
+  return saveShopifyConnectionForShop(storeDomain, accessToken, scope, userId);
+}
+
+export async function saveShopifyConnectionForShop(
+  shopDomain: string,
+  accessToken: string,
+  scope: string | null,
+  userId: string
+) {
   const supabase = createAdminClient();
   const { error } = await supabase.from("shopify_connections").upsert(
     {
-      shop_domain: storeDomain,
+      shop_domain: shopDomain,
       access_token: accessToken,
       scope,
       installed_by: userId,
@@ -193,18 +208,29 @@ export async function saveShopifyConnection(accessToken: string, scope: string |
     throw new Error("Unable to save Shopify connection");
   }
 
-  cachedConnection = { accessToken, scope };
+  cachedConnection = { accessToken, scope, storeDomain: shopDomain };
 }
 
 export async function getShopifyConnectionStatus() {
   try {
     const { storeDomain } = getShopifyConfig();
     const supabase = createAdminClient();
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("shopify_connections")
       .select("shop_domain, updated_at")
       .eq("shop_domain", storeDomain)
       .maybeSingle();
+
+    if (!data && !error) {
+      const latest = await supabase
+        .from("shopify_connections")
+        .select("shop_domain, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      data = latest.data;
+      error = latest.error;
+    }
 
     if (error) {
       return { connected: false, updatedAt: null };
@@ -219,18 +245,29 @@ export async function getShopifyConnectionStatus() {
   }
 }
 
-async function getStoredShopifyAccessToken() {
+async function getStoredShopifyConnection() {
   if (cachedConnection?.accessToken) {
-    return cachedConnection.accessToken;
+    return cachedConnection;
   }
 
   const { storeDomain } = getShopifyConfig();
   const supabase = createAdminClient();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("shopify_connections")
-    .select("access_token, scope")
+    .select("shop_domain, access_token, scope")
     .eq("shop_domain", storeDomain)
     .maybeSingle();
+
+  if (!data && !error) {
+    const latest = await supabase
+      .from("shopify_connections")
+      .select("shop_domain, access_token, scope")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    data = latest.data;
+    error = latest.error;
+  }
 
   if (error) {
     throw new Error("Unable to load Shopify connection");
@@ -242,25 +279,25 @@ async function getStoredShopifyAccessToken() {
 
   cachedConnection = {
     accessToken: data.access_token,
-    scope: data.scope || null
+    scope: data.scope || null,
+    storeDomain: data.shop_domain || storeDomain
   };
 
-  return cachedConnection.accessToken;
+  return cachedConnection;
 }
 
 export async function shopifyAdminGraphQL<T>(
   query: string,
   variables?: Record<string, unknown>
 ) {
-  const { storeDomain } = getShopifyConfig();
-  const accessToken = await getStoredShopifyAccessToken();
+  const connection = await getStoredShopifyConnection();
   const response = await fetch(
-    `https://${storeDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+    `https://${connection.storeDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken
+        "X-Shopify-Access-Token": connection.accessToken
       },
       body: JSON.stringify({ query, variables }),
       cache: "no-store"
