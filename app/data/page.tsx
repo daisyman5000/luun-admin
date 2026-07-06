@@ -3,8 +3,15 @@ import { ShopifySyncButton } from "@/components/shopify-sync-button";
 import { canSyncShopifyOrders, requireUser } from "@/lib/auth";
 import type { ShopifyOrder } from "@/lib/types";
 
-export default async function DataPage() {
+type DataPageProps = {
+  searchParams?: Promise<{
+    shopify?: string | string[];
+  }>;
+};
+
+export default async function DataPage({ searchParams }: DataPageProps) {
   const { supabase, profile } = await requireUser();
+  const resolvedSearchParams = await searchParams;
   const { data: orders, error } = await supabase
     .from("shopify_orders")
     .select("*")
@@ -23,7 +30,7 @@ export default async function DataPage() {
       </div>
       {canSyncShopifyOrders(profile?.role) ? (
         <div className="mb-5">
-          <ShopifySyncButton />
+          <ShopifySyncButton status={resolvedSearchParams?.shopify} />
         </div>
       ) : null}
       <OrdersTable orders={orders || []} />

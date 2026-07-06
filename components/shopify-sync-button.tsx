@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 type SyncSummary = {
@@ -10,11 +11,16 @@ type SyncSummary = {
   errors: string[];
 };
 
-export function ShopifySyncButton() {
+type ShopifySyncButtonProps = {
+  status?: string | string[];
+};
+
+export function ShopifySyncButton({ status }: ShopifySyncButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const shopifyStatus = Array.isArray(status) ? status[0] : status;
 
   async function syncOrders() {
     setLoading(true);
@@ -29,11 +35,13 @@ export function ShopifySyncButton() {
       body: JSON.stringify({ limit: 50 })
     });
 
-    const payload = (await response.json().catch(() => null)) as SyncSummary | null;
+    const payload = (await response.json().catch(() => null)) as
+      | (SyncSummary & { error?: string })
+      | null;
     setLoading(false);
 
     if (!response.ok) {
-      setError(payload?.errors?.[0] || "Unable to sync Shopify orders.");
+      setError(payload?.errors?.[0] || payload?.error || "Unable to sync Shopify orders.");
       return;
     }
 
@@ -44,23 +52,39 @@ export function ShopifySyncButton() {
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <p className="text-sm font-medium text-slate-800">Shopify order sync</p>
         {message ? <p className="mt-1 text-sm text-green-700">{message}</p> : null}
         {error ? <p className="mt-1 text-sm text-red-700">{error}</p> : null}
+        {shopifyStatus === "connected" ? (
+          <p className="mt-1 text-sm text-green-700">Shopify is connected.</p>
+        ) : null}
+        {shopifyStatus === "failed" ? (
+          <p className="mt-1 text-sm text-red-700">Shopify connection failed. Try connecting again.</p>
+        ) : null}
         {!message && !error ? (
-          <p className="mt-1 text-sm text-slate-600">Import the latest 50 Shopify orders.</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Connect Shopify once, then import the latest 50 orders.
+          </p>
         ) : null}
       </div>
-      <button
-        className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={loading}
-        onClick={syncOrders}
-        type="button"
-      >
-        {loading ? "Syncing..." : "Sync Shopify Orders"}
-      </button>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Link
+          className="rounded-md border border-line px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          href="/api/shopify/install"
+        >
+          Connect Shopify
+        </Link>
+        <button
+          className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={loading}
+          onClick={syncOrders}
+          type="button"
+        >
+          {loading ? "Syncing..." : "Sync Shopify Orders"}
+        </button>
+      </div>
     </div>
   );
 }

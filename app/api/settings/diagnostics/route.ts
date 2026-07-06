@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { canManageUsers, getUserContext } from "@/lib/auth";
 import {
   checkShopifyAdminConnection,
+  getShopifyConnectionStatus,
   getShopifyConfigStatus
 } from "@/lib/shopify/client";
 import {
@@ -22,10 +23,12 @@ export async function GET() {
   }
 
   const shopifyConfig = getShopifyConfigStatus();
+  const shopifyConnection = await getShopifyConnectionStatus();
   const shopifyApiConnectionWorks =
     shopifyConfig.storeDomainExists &&
     shopifyConfig.clientIdExists &&
-    shopifyConfig.clientSecretExists
+    shopifyConfig.clientSecretExists &&
+    shopifyConnection.connected
       ? await checkShopifyAdminConnection()
       : false;
 
@@ -39,6 +42,8 @@ export async function GET() {
     shopifyStoreDomainExists: shopifyConfig.storeDomainExists,
     shopifyClientIdExists: shopifyConfig.clientIdExists,
     shopifyClientSecretExists: shopifyConfig.clientSecretExists,
+    shopifyConnected: shopifyConnection.connected,
+    shopifyConnectedAt: shopifyConnection.updatedAt,
     shopifyApiConnectionWorks
   });
 }

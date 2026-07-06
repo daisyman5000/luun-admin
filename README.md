@@ -31,7 +31,7 @@ Private admin portal for Luun logistics. The first version replaces the working 
    NEXT_PUBLIC_SUPABASE_URL=
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
    SUPABASE_SECRET_KEY=
-   SHOPIFY_STORE_DOMAIN=
+   SHOPIFY_STORE_DOMAIN=luunsofa.myshopify.com
    SHOPIFY_CLIENT_ID=
    SHOPIFY_CLIENT_SECRET=
    SHOPIFY_WEBHOOK_SECRET=
@@ -85,12 +85,12 @@ Manual sync uses the Shopify Admin GraphQL API. It does not use webhooks and doe
 Required environment variables:
 
 ```bash
-SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
+SHOPIFY_STORE_DOMAIN=luunsofa.myshopify.com
 SHOPIFY_CLIENT_ID=
 SHOPIFY_CLIENT_SECRET=
 ```
 
-The app requests an Admin API access token server-side from Shopify using the client ID and client secret, then uses that generated token for Admin GraphQL requests. The generated token is kept server-side and is cached in memory when Shopify returns an expiry.
+The app uses Shopify's OAuth install flow. The Client ID and Client Secret are kept server-side. An owner/admin connects Shopify once from `/data`; Shopify redirects back to `/api/shopify/callback`; then the app stores the generated Admin API access token in `public.shopify_connections` using the server-only Supabase secret key.
 
 The Shopify app needs read access to orders. In Shopify app permissions, enable:
 
@@ -98,16 +98,21 @@ The Shopify app needs read access to orders. In Shopify app permissions, enable:
 
 If Luun needs to import older orders beyond Shopify's normal recent order window, also enable the protected customer data/order history permissions required by the Shopify admin.
 
-Owner/admin users can run a sync from `/data` with the **Sync Shopify Orders** button. The button imports the latest 50 orders by default. The endpoint also accepts an optional capped limit:
+In the Shopify app settings, add this allowed redirect URL:
 
-```bash
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"limit": 100}' \
-  https://your-admin-domain.com/api/shopify/import-orders
+```
+https://your-admin-domain.com/api/shopify/callback
 ```
 
-The endpoint requires a logged-in owner/admin session, so browser-based use from `/data` is the expected workflow.
+Owner/admin users can run a sync from `/data`:
+
+1. Click **Connect Shopify** once and approve the Shopify app.
+2. Return to `/data`.
+3. Click **Sync Shopify Orders**.
+
+The sync imports the latest 50 orders by default. `POST /api/shopify/import-orders` also accepts an optional `limit` value capped at 100. The endpoint requires a logged-in owner/admin session, so browser-based use from `/data` is the expected workflow.
+
+Diagnostics in `/settings/users` check whether the Shopify env vars exist, whether Shopify has been connected, and whether the Admin API responds.
 
 ## Database Notes
 
@@ -118,6 +123,7 @@ The migration enables Row Level Security and grants the narrow browser permissio
 - Owner/admin/logistics users can update only `logistics_status`, `internal_notes`, and `updated_at` on orders.
 - The public inventory endpoint uses the server-only Supabase secret key and returns only `builder_visible = true` rows.
 - `public.profiles.id` references `auth.users(id)` and is created by the `public.handle_new_user()` trigger from `auth.users.new.id`.
+- `public.shopify_connections` stores the Shopify Admin API token. RLS is enabled and browser roles receive no table grants.
 
 ## Deployment
 

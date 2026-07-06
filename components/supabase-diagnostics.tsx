@@ -1,6 +1,7 @@
 import { getUserContext } from "@/lib/auth";
 import {
   checkShopifyAdminConnection,
+  getShopifyConnectionStatus,
   getShopifyConfigStatus
 } from "@/lib/shopify/client";
 import {
@@ -26,10 +27,12 @@ export async function SupabaseDiagnostics() {
   }
 
   const shopifyConfig = getShopifyConfigStatus();
+  const shopifyConnection = await getShopifyConnectionStatus();
   const shopifyApiConnectionWorks =
     shopifyConfig.storeDomainExists &&
     shopifyConfig.clientIdExists &&
-    shopifyConfig.clientSecretExists
+    shopifyConfig.clientSecretExists &&
+    shopifyConnection.connected
       ? await checkShopifyAdminConnection()
       : false;
 
@@ -63,6 +66,10 @@ export async function SupabaseDiagnostics() {
         <CheckRow
           label="Shopify client secret"
           value={shopifyConfig.clientSecretExists ? "Configured" : "Missing"}
+        />
+        <CheckRow
+          label="Shopify app connection"
+          value={shopifyConnection.connected ? "Connected" : "Not connected"}
         />
         <CheckRow
           label="Shopify API connection"
