@@ -87,9 +87,9 @@ export function ShopifySyncButton({ reason, status }: ShopifySyncButtonProps) {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-line bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 rounded-lg border border-line bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p className="text-sm font-medium text-slate-800">Shopify order sync</p>
+        <p className="text-base font-semibold text-slate-800">Shopify orders</p>
         {message ? <p className="mt-1 text-sm text-green-700">{message}</p> : null}
         {error ? <p className="mt-1 text-sm text-red-700">{error}</p> : null}
         {shopifyStatus === "connected" ? (
@@ -104,15 +104,15 @@ export function ShopifySyncButton({ reason, status }: ShopifySyncButtonProps) {
           </p>
         ) : null}
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <Link
-          className="rounded-md border border-line px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          className="rounded-md border border-line px-5 py-3 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50"
           href="/api/shopify/install"
         >
           Connect Shopify
         </Link>
         <button
-          className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-ink px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={loading}
           onClick={syncOrders}
           type="button"

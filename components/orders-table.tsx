@@ -23,11 +23,13 @@ function addressPart(order: ShopifyOrder, key: "country" | "province" | "provinc
 
 function EditableCell({
   field,
+  label,
   multiline = false,
   onSave,
   order
 }: {
   field: EditableOrderField;
+  label: string;
   multiline?: boolean;
   onSave: (id: string, field: EditableOrderField, value: string) => Promise<void>;
   order: ShopifyOrder;
@@ -56,17 +58,20 @@ function EditableCell({
   }
 
   const className = [
-    "w-full min-w-28 rounded border bg-white px-2 py-1 text-sm outline-none focus:border-slate-500",
-    failed ? "border-red-300" : "border-transparent hover:border-line",
+    "w-full rounded-md border bg-white px-3 py-2 text-sm outline-none",
+    multiline ? "min-w-80" : "min-w-44",
+    failed ? "border-red-300" : "border-line",
     saving ? "opacity-60" : ""
   ].join(" ");
 
   if (multiline) {
     return (
       <textarea
-        className={`${className} min-h-16 min-w-72 resize-y`}
+        aria-label={label}
+        className={`${className} min-h-24 resize-y`}
         onBlur={save}
         onChange={(event) => setValue(event.target.value)}
+        placeholder={label}
         value={value}
       />
     );
@@ -74,9 +79,11 @@ function EditableCell({
 
   return (
     <input
+      aria-label={label}
       className={className}
       onBlur={save}
       onChange={(event) => setValue(event.target.value)}
+      placeholder={label}
       value={value}
     />
   );
@@ -142,11 +149,12 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-col gap-3 border-b border-line pb-4 md:flex-row md:items-end">
-        <label className="flex-1 text-sm font-medium text-slate-700">
+      <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
+        <div className="grid gap-4 md:grid-cols-[1fr_220px_220px] md:items-end">
+        <label className="text-sm font-medium text-slate-700">
           Search
           <input
-            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 font-normal outline-none focus:border-slate-500"
+            className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Order, customer, email, Delegate ID, carrier"
             value={query}
@@ -155,7 +163,7 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
         <label className="text-sm font-medium text-slate-700">
           Logistics
           <select
-            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 font-normal outline-none focus:border-slate-500 md:w-48"
+            className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
             onChange={(event) => setLogisticsStatus(event.target.value)}
             value={logisticsStatus}
           >
@@ -170,7 +178,7 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
         <label className="text-sm font-medium text-slate-700">
           Fulfillment
           <select
-            className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 font-normal outline-none focus:border-slate-500 md:w-48"
+            className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
             onChange={(event) => setFulfillmentStatus(event.target.value)}
             value={fulfillmentStatus}
           >
@@ -182,9 +190,10 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
             ))}
           </select>
         </label>
+        </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-line bg-white">
+      <div className="overflow-x-auto rounded-lg border border-line bg-white shadow-sm">
         <table className="min-w-[2300px] w-full border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
             <tr>
@@ -227,54 +236,92 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
 
               return (
                 <tr className="border-b border-line align-top last:border-0" key={order.id}>
-                  <td className="px-3 py-3 font-medium">{order.order_number}</td>
-                  <td className="px-3 py-3 text-slate-600">{formatDate(order.created_at)}</td>
-                  <td className="px-3 py-2">
-                    <EditableCell field="delegate_order_id" onSave={saveOrderField} order={order} />
+                  <td className="px-4 py-4 font-semibold">{order.order_number}</td>
+                  <td className="px-4 py-4 text-slate-600">{formatDate(order.created_at)}</td>
+                  <td className="px-4 py-3">
+                    <EditableCell
+                      field="delegate_order_id"
+                      label="Delegate ID"
+                      onSave={saveOrderField}
+                      order={order}
+                    />
                   </td>
-                  <td className="px-3 py-3">{order.customer_name}</td>
-                  <td className="px-3 py-3 text-slate-600">{order.customer_email}</td>
-                  <td className="px-3 py-3 text-slate-600">{order.customer_phone}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-4 py-4">{order.customer_name}</td>
+                  <td className="px-4 py-4 text-slate-600">{order.customer_email}</td>
+                  <td className="px-4 py-4 text-slate-600">{order.customer_phone}</td>
+                  <td className="px-4 py-3">
                     <EditableCell
                       field="postal_code"
+                      label="Postal code"
                       onSave={saveOrderField}
                       order={{ ...order, postal_code: postalCode }}
                     />
                   </td>
-                  <td className="px-3 py-3 text-slate-600">
+                  <td className="px-4 py-4 text-slate-600">
                     {[country, province].filter(Boolean).join(" / ")}
                   </td>
-                  <td className="px-3 py-2">
-                    <EditableCell field="carrier" onSave={saveOrderField} order={order} />
+                  <td className="px-4 py-3">
+                    <EditableCell field="carrier" label="Carrier" onSave={saveOrderField} order={order} />
                   </td>
-                  <td className="px-3 py-2">
-                    <EditableCell field="delegate_order_created_at" onSave={saveOrderField} order={order} />
+                  <td className="px-4 py-3">
+                    <EditableCell
+                      field="delegate_order_created_at"
+                      label="Order created date"
+                      onSave={saveOrderField}
+                      order={order}
+                    />
                   </td>
-                  <td className="px-3 py-2">
-                    <EditableCell field="delivered_at" onSave={saveOrderField} order={order} />
+                  <td className="px-4 py-3">
+                    <EditableCell
+                      field="delivered_at"
+                      label="Delivered date"
+                      onSave={saveOrderField}
+                      order={order}
+                    />
                   </td>
-                  <td className="px-3 py-2">
-                    <EditableCell field="delivery_status" onSave={saveOrderField} order={order} />
+                  <td className="px-4 py-3">
+                    <EditableCell
+                      field="delivery_status"
+                      label="Delivery status"
+                      onSave={saveOrderField}
+                      order={order}
+                    />
                   </td>
-                  <td className="px-3 py-3">{order.fabric_slug}</td>
-                  <td className="px-3 py-3">{order.corner_qty ?? 0}</td>
-                  <td className="px-3 py-3">{order.armless_qty ?? 0}</td>
-                  <td className="px-3 py-3">{order.ottoman_qty ?? 0}</td>
-                  <td className="px-3 py-3 font-medium">{order.total_modules ?? 0}</td>
-                  <td className="px-3 py-3">
+                  <td className="px-4 py-4">{order.fabric_slug}</td>
+                  <td className="px-4 py-4">{order.corner_qty ?? 0}</td>
+                  <td className="px-4 py-4">{order.armless_qty ?? 0}</td>
+                  <td className="px-4 py-4">{order.ottoman_qty ?? 0}</td>
+                  <td className="px-4 py-4 font-semibold">{order.total_modules ?? 0}</td>
+                  <td className="px-4 py-4">
                     {formatMoney(order.total_price, order.currency || "USD")}
                   </td>
-                  <td className="px-3 py-3">{order.payment_status}</td>
-                  <td className="px-3 py-3">{order.fulfillment_status}</td>
-                  <td className="px-3 py-2">
-                    <EditableCell field="logistics_status" onSave={saveOrderField} order={order} />
+                  <td className="px-4 py-4">{order.payment_status}</td>
+                  <td className="px-4 py-4">{order.fulfillment_status}</td>
+                  <td className="px-4 py-3">
+                    <EditableCell
+                      field="logistics_status"
+                      label="Logistics status"
+                      onSave={saveOrderField}
+                      order={order}
+                    />
                   </td>
-                  <td className="px-3 py-2">
-                    <EditableCell field="internal_notes" multiline onSave={saveOrderField} order={order} />
+                  <td className="px-4 py-3">
+                    <EditableCell
+                      field="internal_notes"
+                      label="Note"
+                      multiline
+                      onSave={saveOrderField}
+                      order={order}
+                    />
                   </td>
-                  <td className="px-3 py-2">
-                    <EditableCell field="action_needed" multiline onSave={saveOrderField} order={order} />
+                  <td className="px-4 py-3">
+                    <EditableCell
+                      field="action_needed"
+                      label="Action needed"
+                      multiline
+                      onSave={saveOrderField}
+                      order={order}
+                    />
                   </td>
                 </tr>
               );

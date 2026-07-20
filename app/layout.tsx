@@ -34,18 +34,18 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body>
         <div className="min-h-screen">
           {user ? (
-            <header className="sticky top-0 z-30 border-b border-line bg-white">
-              <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
+            <header className="sticky top-0 z-30 border-b border-line bg-white shadow-sm">
+              <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                 <Link href="/data" className="flex items-center gap-3 text-lg font-semibold tracking-normal">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-md border border-line bg-slate-50 text-sm text-sky-200">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-md bg-ink text-base font-bold text-white">
                     L
                   </span>
                   <span>Luun Admin</span>
                 </Link>
-                <nav className="flex items-center gap-2 text-sm">
+                <nav className="flex flex-wrap items-center gap-2 text-sm">
                   {protectedLinks.map((link) => (
                     <Link
-                      className="rounded-md border border-transparent px-3 py-2 text-slate-700 hover:border-line hover:bg-slate-100"
+                      className="rounded-md border border-transparent px-4 py-2.5 font-medium text-slate-700 hover:border-line hover:bg-slate-100"
                       href={link.href}
                       key={link.href}
                     >

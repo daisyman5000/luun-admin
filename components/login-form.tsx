@@ -53,7 +53,7 @@ export function LoginForm() {
         </label>
         <input
           autoComplete="email"
-          className="w-full rounded-md border border-line bg-white px-3 py-2 outline-none ring-0 focus:border-slate-500"
+          className="w-full rounded-md border border-line bg-white px-4 py-3 text-base outline-none ring-0"
           id="email"
           onChange={(event) => setEmail(event.target.value)}
           required
@@ -67,7 +67,7 @@ export function LoginForm() {
         </label>
         <input
           autoComplete="current-password"
-          className="w-full rounded-md border border-line bg-white px-3 py-2 outline-none ring-0 focus:border-slate-500"
+          className="w-full rounded-md border border-line bg-white px-4 py-3 text-base outline-none ring-0"
           id="password"
           onChange={(event) => setPassword(event.target.value)}
           required
@@ -82,7 +82,7 @@ export function LoginForm() {
       ) : null}
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button
-        className="w-full rounded-md bg-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-md bg-ink px-5 py-3 text-base font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={loading || !isConfigured}
         type="submit"
       >

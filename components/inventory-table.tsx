@@ -62,14 +62,14 @@ export function InventoryTable({
   }
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
+    <section className="space-y-4">
+      <div className="flex flex-col gap-2 rounded-lg border border-line bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-slate-600">
           {canEdit ? "Available quantity saves per row." : "Your role can view inventory only."}
         </p>
         {message ? <p className="text-sm text-slate-700">{message}</p> : null}
       </div>
-      <div className="overflow-x-auto rounded-lg border border-line bg-white">
+      <div className="overflow-x-auto rounded-lg border border-line bg-white shadow-sm">
         <table className="min-w-[560px] w-full border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
             <tr>
@@ -83,11 +83,12 @@ export function InventoryTable({
           <tbody>
             {sortedRows.map((row) => (
               <tr className="border-b border-line last:border-0" key={row.id}>
-                <td className="px-3 py-3 font-medium">{row.fabric_slug}</td>
-                <td className="px-3 py-3">{row.module_slug}</td>
-                <td className="px-3 py-3">
+                <td className="px-4 py-4 font-semibold">{row.fabric_slug}</td>
+                <td className="px-4 py-4">{row.module_slug}</td>
+                <td className="px-4 py-3">
                   <input
-                    className="w-24 rounded-md border border-line bg-white px-2 py-1.5 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                    aria-label={`${row.fabric_slug} ${row.module_slug} available quantity`}
+                    className="w-32 rounded-md border border-line bg-white px-4 py-3 text-base disabled:border-line disabled:bg-slate-50"
                     disabled={!canEdit}
                     min={0}
                     onChange={(event) =>
@@ -97,10 +98,10 @@ export function InventoryTable({
                     value={row.available_qty ?? 0}
                   />
                 </td>
-                <td className="px-3 py-3 text-right">
+                <td className="px-4 py-3 text-right">
                   {canEdit ? (
                     <button
-                      className="rounded-md border border-line px-3 py-1.5 font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md bg-ink px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={savingId === row.id}
                       onClick={() => saveRow(row)}
                       type="button"

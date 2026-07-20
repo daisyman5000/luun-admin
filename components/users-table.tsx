@@ -42,14 +42,14 @@ export function UsersTable({
   }
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
+    <section className="space-y-4">
+      <div className="flex flex-col gap-2 rounded-lg border border-line bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-slate-600">
           {canManage ? "Owner and admin users can change roles." : "Your role can view users only."}
         </p>
         {message ? <p className="text-sm text-slate-700">{message}</p> : null}
       </div>
-      <div className="overflow-x-auto rounded-lg border border-line bg-white">
+      <div className="overflow-x-auto rounded-lg border border-line bg-white shadow-sm">
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
             <tr>
@@ -66,7 +66,7 @@ export function UsersTable({
                 <td className="px-3 py-3 text-slate-600">{profile.email}</td>
                 <td className="px-3 py-3">
                   <select
-                    className="rounded-md border border-line bg-white px-2 py-1.5 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                    className="min-w-40 rounded-md border border-line bg-white px-4 py-3 disabled:border-line disabled:bg-slate-50"
                     disabled={!canManage}
                     onChange={(event) => updateRole(profile, event.target.value as UserRole)}
                     value={profile.role}
