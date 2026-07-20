@@ -20,7 +20,7 @@ const homeCards = [
   {
     href: "/forecasting",
     label: "Forecasting",
-    description: "Planned view for inventory and demand planning."
+    description: "See containers, warehouses, factories, and location SKU lists."
   },
   {
     href: "/financials",
