@@ -250,33 +250,6 @@ export function GlobeScene({
     setSelection(null);
   }
 
-  function createMarkerElement(point: object) {
-    const globePoint = point as GlobePoint;
-    const marker = document.createElement("button");
-    const isContainer = globePoint.kind === "container";
-
-    marker.type = "button";
-    marker.title = globePoint.label;
-    marker.setAttribute("aria-label", globePoint.label);
-    marker.className =
-      "grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-white bg-white/25 shadow-[0_0_20px_rgba(255,255,255,0.55)] backdrop-blur-sm transition hover:scale-110";
-    marker.style.cursor = "pointer";
-
-    const dot = document.createElement("span");
-    dot.className = isContainer ? "block h-3 w-3 rounded-full" : "block h-4 w-4 rounded-full";
-    dot.style.backgroundColor = globePoint.color;
-    dot.style.boxShadow = `0 0 18px ${globePoint.color}`;
-    marker.appendChild(dot);
-
-    marker.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      handlePointClick(globePoint);
-    });
-
-    return marker;
-  }
-
   if (!webGlSupported) {
     return <WebGlFallback />;
   }
@@ -311,11 +284,6 @@ export function GlobeScene({
         pointAltitude="altitude"
         pointRadius="radius"
         pointColor="color"
-        htmlElementsData={points}
-        htmlLat="lat"
-        htmlLng="lng"
-        htmlAltitude="altitude"
-        htmlElement={createMarkerElement}
         labelsData={points}
         labelLat="lat"
         labelLng="lng"
