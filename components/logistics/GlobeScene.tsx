@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Globe from "react-globe.gl";
+import * as THREE from "three";
 
 import { LogisticsDetailsPanel } from "@/components/logistics/LogisticsDetailsPanel";
 import { getContainerPosition } from "@/lib/globe/shipment-position";
@@ -68,7 +69,7 @@ type GlobeApi = {
   controls: () => GlobeControlApi;
 };
 
-const EARTH_TEXTURE_URL = "https://unpkg.com/three-globe/example/img/earth-day.jpg";
+const EARTH_TEXTURE_URL = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
 const EARTH_BUMP_URL = "https://unpkg.com/three-globe/example/img/earth-topology.png";
 const SPACE_BACKGROUND_URL = "https://unpkg.com/three-globe/example/img/night-sky.png";
 const COUNTRIES_URL =
@@ -115,15 +116,53 @@ export function GlobeScene({
   const [isReady, setIsReady] = useState(false);
   const [webGlSupported, setWebGlSupported] = useState(true);
   const [size, setSize] = useState({ width: 1200, height: 720 });
+  const [textureVersion, setTextureVersion] = useState(0);
   const [containerPositions, setContainerPositions] = useState(() =>
     containers.map((container) => ({
       container,
       position: getContainerPosition(container)
     }))
   );
+  const globeMaterial = useMemo(
+    () =>
+      new THREE.MeshPhongMaterial({
+        color: "#1a73e8",
+        emissive: "#061a36",
+        emissiveIntensity: 0.2,
+        shininess: 12
+      }),
+    []
+  );
+
   useEffect(() => {
     setWebGlSupported(hasWebGlSupport());
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loader = new THREE.TextureLoader();
+
+    loader.load(
+      EARTH_TEXTURE_URL,
+      (texture) => {
+        if (cancelled) return;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        globeMaterial.map = texture;
+        globeMaterial.needsUpdate = true;
+        setTextureVersion((version) => version + 1);
+      },
+      undefined,
+      () => {
+        globeMaterial.color = new THREE.Color("#1a73e8");
+        globeMaterial.needsUpdate = true;
+        setTextureVersion((version) => version + 1);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [globeMaterial]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -289,14 +328,15 @@ export function GlobeScene({
       ) : null}
 
       <Globe
+        key={`globe-${textureVersion}`}
         ref={globeRef}
         width={size.width}
         height={size.height}
         animateIn
         backgroundColor="rgba(2, 6, 23, 1)"
         backgroundImageUrl={SPACE_BACKGROUND_URL}
-        globeImageUrl={EARTH_TEXTURE_URL}
         bumpImageUrl={EARTH_BUMP_URL}
+        globeMaterial={globeMaterial}
         showAtmosphere
         atmosphereColor="#8ab4f8"
         atmosphereAltitude={0.18}
