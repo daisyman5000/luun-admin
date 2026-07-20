@@ -68,7 +68,7 @@ type GlobeApi = {
   controls: () => GlobeControlApi;
 };
 
-const EARTH_TEXTURE_URL = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
+const EARTH_TEXTURE_URL = "https://unpkg.com/three-globe/example/img/earth-day.jpg";
 const EARTH_BUMP_URL = "https://unpkg.com/three-globe/example/img/earth-topology.png";
 const SPACE_BACKGROUND_URL = "https://unpkg.com/three-globe/example/img/night-sky.png";
 const COUNTRIES_URL =
@@ -108,11 +108,13 @@ export function GlobeScene({
   containers,
   routes
 }: GlobeSceneProps) {
+  const shellRef = useRef<HTMLElement | null>(null);
   const globeRef = useRef<GlobeApi | undefined>(undefined);
   const [selection, setSelection] = useState<LogisticsSelection | null>(null);
   const [countries, setCountries] = useState<CountryFeature[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [webGlSupported, setWebGlSupported] = useState(true);
+  const [size, setSize] = useState({ width: 1200, height: 720 });
   const [containerPositions, setContainerPositions] = useState(() =>
     containers.map((container) => ({
       container,
@@ -121,6 +123,29 @@ export function GlobeScene({
   );
   useEffect(() => {
     setWebGlSupported(hasWebGlSupport());
+  }, []);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+
+    const updateSize = () => {
+      const rect = shell.getBoundingClientRect();
+      setSize({
+        width: Math.max(Math.floor(rect.width), 320),
+        height: Math.max(Math.floor(rect.height), 520)
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(shell);
+    window.addEventListener("resize", updateSize);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateSize);
+    };
   }, []);
 
   useEffect(() => {
@@ -144,7 +169,7 @@ export function GlobeScene({
     const globe = globeRef.current;
     if (!globe) return;
 
-    globe.pointOfView({ lat: 32, lng: -165, altitude: 1.65 }, 0);
+    globe.pointOfView({ lat: 32, lng: -165, altitude: 2.1 }, 0);
     const controls = globe.controls();
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.28;
@@ -250,7 +275,10 @@ export function GlobeScene({
   }
 
   return (
-    <section className="relative min-h-[calc(100vh-120px)] overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-sm lg:min-h-[calc(100vh-32px)]">
+    <section
+      className="relative min-h-[calc(100vh-120px)] overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-sm lg:min-h-[calc(100vh-32px)]"
+      ref={shellRef}
+    >
       {!isReady ? (
         <div className="absolute inset-0 z-10 grid place-items-center bg-slate-950 text-white">
           <div className="text-center">
@@ -262,6 +290,8 @@ export function GlobeScene({
 
       <Globe
         ref={globeRef}
+        width={size.width}
+        height={size.height}
         animateIn
         backgroundColor="rgba(2, 6, 23, 1)"
         backgroundImageUrl={SPACE_BACKGROUND_URL}
