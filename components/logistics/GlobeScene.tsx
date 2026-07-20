@@ -5,7 +5,7 @@ import type { PointerEvent } from "react";
 import Globe from "react-globe.gl";
 
 import { LogisticsDetailsPanel } from "@/components/logistics/LogisticsDetailsPanel";
-import { getContainerPosition } from "@/lib/globe/shipment-position";
+import { getContainerPosition, interpolateGreatCircle } from "@/lib/globe/shipment-position";
 import type {
   LogisticsContainer,
   LogisticsFactory,
@@ -49,6 +49,11 @@ type ProjectedMarker = GlobePoint & {
   y: number;
 };
 
+type ProjectedRouteSegment = {
+  id: string;
+  d: string;
+};
+
 type GlobeControlApi = {
   autoRotate: boolean;
   autoRotateSpeed: number;
@@ -68,7 +73,8 @@ type GlobeApi = {
   controls: () => GlobeControlApi;
 };
 
-const EARTH_TEXTURE_URL = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
+const EARTH_TEXTURE_URL =
+  "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57730/land_ocean_ice_8192.png";
 const EARTH_BUMP_URL = "https://unpkg.com/three-globe/example/img/earth-topology.png";
 
 function toRadians(value: number) {
@@ -96,6 +102,43 @@ function projectPoint(
     x: size.width / 2 + x0 * radius,
     y: size.height / 2 - y * radius
   };
+}
+
+function buildProjectedRouteSegments(
+  arc: GlobeArc,
+  rotation: { x: number; y: number },
+  size: { width: number; height: number }
+): ProjectedRouteSegment[] {
+  const projected = Array.from({ length: 41 }, (_, index) => {
+    const coordinate = interpolateGreatCircle(
+      { lat: arc.startLat, lng: arc.startLng },
+      { lat: arc.endLat, lng: arc.endLng },
+      index / 40
+    );
+
+    return projectPoint(coordinate, rotation, size);
+  });
+
+  const segments: ProjectedRouteSegment[] = [];
+  let currentPath = "";
+
+  projected.forEach((point) => {
+    if (!point.visible) {
+      if (currentPath) {
+        segments.push({ id: `${arc.id}-${segments.length}`, d: currentPath });
+        currentPath = "";
+      }
+      return;
+    }
+
+    currentPath += currentPath ? ` L ${point.x} ${point.y}` : `M ${point.x} ${point.y}`;
+  });
+
+  if (currentPath) {
+    segments.push({ id: `${arc.id}-${segments.length}`, d: currentPath });
+  }
+
+  return segments;
 }
 
 function hasWebGlSupport() {
@@ -280,13 +323,8 @@ export function GlobeScene({
     [manualRotation, points, size]
   );
 
-  const projectedArcs = useMemo(
-    () =>
-      arcs.map((arc) => ({
-        id: arc.id,
-        origin: projectPoint({ lat: arc.startLat, lng: arc.startLng }, manualRotation, size),
-        destination: projectPoint({ lat: arc.endLat, lng: arc.endLng }, manualRotation, size)
-      })),
+  const projectedRouteSegments = useMemo(
+    () => arcs.flatMap((arc) => buildProjectedRouteSegments(arc, manualRotation, size)),
     [arcs, manualRotation, size]
   );
 
@@ -413,18 +451,18 @@ export function GlobeScene({
         />
 
         <svg className="pointer-events-none absolute inset-0 h-full w-full">
-          {projectedArcs.map((arc) =>
-            arc.origin.visible || arc.destination.visible ? (
-              <path
-                d={`M ${arc.origin.x} ${arc.origin.y} Q ${size.width / 2} ${size.height * 0.22} ${arc.destination.x} ${arc.destination.y}`}
-                fill="none"
-                key={arc.id}
-                stroke="rgba(138, 180, 248, 0.72)"
-                strokeDasharray="8 8"
-                strokeWidth="2"
-              />
-            ) : null
-          )}
+          {projectedRouteSegments.map((segment) => (
+            <path
+              d={segment.d}
+              fill="none"
+              key={segment.id}
+              stroke="rgba(138, 180, 248, 0.78)"
+              strokeDasharray="8 8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            />
+          ))}
         </svg>
 
         {projectedPoints.map((point) =>
