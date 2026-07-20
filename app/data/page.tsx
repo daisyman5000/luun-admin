@@ -22,18 +22,15 @@ export default async function DataPage({ searchParams }: DataPageProps) {
 
   return (
     <main className="px-5 py-8 sm:px-8 lg:px-10">
-      <div className="mb-6">
-        <h1 className="text-3xl font-semibold tracking-normal">Orders</h1>
-        <p className="mt-2 text-base text-slate-600">Shopify orders for logistics follow-up.</p>
-      </div>
-      {canSyncShopifyOrders(profile?.role) ? (
-        <div className="mb-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl font-semibold tracking-normal">Orders</h1>
+        {canSyncShopifyOrders(profile?.role) ? (
           <ShopifySyncButton
             reason={resolvedSearchParams?.shopify_reason}
             status={resolvedSearchParams?.shopify}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       {error ? (
         <SetupError message={error.message} title="Orders database issue" />
       ) : (

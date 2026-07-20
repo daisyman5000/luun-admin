@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import type { ShopifyOrder } from "@/lib/types";
 
 type EditableOrderField =
@@ -12,13 +12,76 @@ type EditableOrderField =
   | "delivered_at"
   | "delivery_status"
   | "logistics_status"
-  | "internal_notes"
-  | "action_needed";
+  | "internal_notes";
 
 function addressPart(order: ShopifyOrder, key: "country" | "province" | "province_code" | "zip") {
   const address = order.shipping_address_json;
   const value = address?.[key];
   return typeof value === "string" ? value : "";
+}
+
+function monthKey(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "unknown";
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key: string) {
+  if (key === "unknown") return "Unknown";
+  const [year, month] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric"
+  }).format(new Date(year, month - 1, 1));
+}
+
+function CustomerCell({ order }: { order: ShopifyOrder }) {
+  const province = addressPart(order, "province") || addressPart(order, "province_code");
+  const country = addressPart(order, "country");
+  const postalCode = order.postal_code || addressPart(order, "zip");
+
+  return (
+    <div className="group min-w-56">
+      <div className="font-semibold text-slate-900">{order.customer_name || "No name"}</div>
+      <details className="mt-2 inline-block">
+        <summary className="cursor-pointer list-none rounded-full border border-line bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+          Details
+        </summary>
+        <div className="mt-2 w-80 rounded-xl border border-line bg-white p-4 text-sm shadow-sm">
+          <dl className="space-y-3">
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">Email</dt>
+              <dd className="mt-1 break-words text-slate-800">{order.customer_email || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">Phone</dt>
+              <dd className="mt-1 text-slate-800">{order.customer_phone || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">Postal code</dt>
+              <dd className="mt-1 text-slate-800">{postalCode || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">Country / province</dt>
+              <dd className="mt-1 text-slate-800">
+                {[country, province].filter(Boolean).join(" / ") || "-"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </details>
+      <div className="pointer-events-none mt-2 hidden w-80 rounded-xl border border-line bg-white p-4 text-sm shadow-sm group-hover:block group-focus-within:hidden">
+        <p className="break-words text-slate-700">{order.customer_email || "No email"}</p>
+        <p className="mt-1 text-slate-700">{order.customer_phone || "No phone"}</p>
+        <p className="mt-1 text-slate-700">{postalCode || "No postal code"}</p>
+        <p className="mt-1 text-slate-700">{[country, province].filter(Boolean).join(" / ") || "No location"}</p>
+      </div>
+    </div>
+  );
 }
 
 function EditableCell({
@@ -93,15 +156,15 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
   const [rows, setRows] = useState(orders);
   const [query, setQuery] = useState("");
   const [logisticsStatus, setLogisticsStatus] = useState("");
-  const [fulfillmentStatus, setFulfillmentStatus] = useState("");
+  const monthOptions = useMemo(() => {
+    const keys = Array.from(new Set(rows.map((order) => monthKey(order.created_at))));
+    return keys.sort((left, right) => right.localeCompare(left));
+  }, [rows]);
+  const [selectedMonth, setSelectedMonth] = useState(monthOptions[0] || "all");
 
   const logisticsOptions = Array.from(
     new Set(rows.map((order) => order.logistics_status).filter((value): value is string => Boolean(value)))
   ).sort();
-  const fulfillmentOptions = Array.from(
-    new Set(rows.map((order) => order.fulfillment_status).filter((value): value is string => Boolean(value)))
-  ).sort();
-
   async function saveOrderField(id: string, field: EditableOrderField, value: string) {
     const response = await fetch(`/api/orders/${id}`, {
       method: "PATCH",
@@ -132,69 +195,87 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
           order.order_number,
           order.customer_name,
           order.customer_email,
+          order.customer_phone,
           order.delegate_order_id,
           order.postal_code,
-          order.carrier
+          order.carrier,
+          addressPart(order, "country"),
+          addressPart(order, "province"),
+          addressPart(order, "province_code")
         ]
           .filter(Boolean)
           .some((value) => value!.toLowerCase().includes(normalizedQuery));
       const matchesLogistics =
         !logisticsStatus || order.logistics_status === logisticsStatus;
-      const matchesFulfillment =
-        !fulfillmentStatus || order.fulfillment_status === fulfillmentStatus;
+      const matchesMonth = selectedMonth === "all" || monthKey(order.created_at) === selectedMonth;
 
-      return matchesQuery && matchesLogistics && matchesFulfillment;
+      return matchesQuery && matchesLogistics && matchesMonth;
     });
-  }, [rows, query, logisticsStatus, fulfillmentStatus]);
+  }, [rows, query, logisticsStatus, selectedMonth]);
 
   return (
     <section className="space-y-4">
       <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-[1fr_220px_220px] md:items-end">
-        <label className="text-sm font-medium text-slate-700">
-          Search
-          <input
-            className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Order, customer, email, Delegate ID, carrier"
-            value={query}
-          />
-        </label>
-        <label className="text-sm font-medium text-slate-700">
-          Logistics
-          <select
-            className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
-            onChange={(event) => setLogisticsStatus(event.target.value)}
-            value={logisticsStatus}
+        <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+          {monthOptions.map((month) => (
+            <button
+              className={[
+                "shrink-0 rounded-full border px-4 py-2 text-sm font-semibold",
+                selectedMonth === month
+                  ? "border-blue-200 bg-blue-50 text-slate-900"
+                  : "border-line bg-white text-slate-600 hover:bg-slate-50"
+              ].join(" ")}
+              key={month}
+              onClick={() => setSelectedMonth(month)}
+              type="button"
+            >
+              {monthLabel(month)}
+            </button>
+          ))}
+          <button
+            className={[
+              "shrink-0 rounded-full border px-4 py-2 text-sm font-semibold",
+              selectedMonth === "all"
+                ? "border-blue-200 bg-blue-50 text-slate-900"
+                : "border-line bg-white text-slate-600 hover:bg-slate-50"
+            ].join(" ")}
+            onClick={() => setSelectedMonth("all")}
+            type="button"
           >
-            <option value="">All</option>
-            {logisticsOptions.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm font-medium text-slate-700">
-          Fulfillment
-          <select
-            className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
-            onChange={(event) => setFulfillmentStatus(event.target.value)}
-            value={fulfillmentStatus}
-          >
-            <option value="">All</option>
-            {fulfillmentOptions.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-        </label>
+            All
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[1fr_220px] md:items-end">
+          <label className="text-sm font-medium text-slate-700">
+            Search
+            <input
+              className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Order, customer, email, phone, Delegate ID, carrier"
+              value={query}
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Logistics
+            <select
+              className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
+              onChange={(event) => setLogisticsStatus(event.target.value)}
+              value={logisticsStatus}
+            >
+              <option value="">All</option>
+              {logisticsOptions.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-line bg-white shadow-sm">
-        <table className="min-w-[2300px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[1680px] w-full border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
             <tr>
               {[
@@ -202,10 +283,6 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                 "Date",
                 "Delegate Order ID",
                 "Customer",
-                "Email",
-                "Phone",
-                "Postal code",
-                "Country / province",
                 "Carrier",
                 "Order created",
                 "Delivered date",
@@ -215,12 +292,8 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                 "Armless",
                 "Ottoman",
                 "Modules",
-                "Total paid",
-                "Payment",
-                "Fulfillment",
                 "Logistics",
-                "Note",
-                "Action needed"
+                "Note"
               ].map((heading) => (
                 <th className="border-b border-line px-3 py-3 font-semibold" key={heading}>
                   {heading}
@@ -230,10 +303,6 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
           </thead>
           <tbody>
             {filteredOrders.map((order) => {
-              const province = addressPart(order, "province") || addressPart(order, "province_code");
-              const country = addressPart(order, "country");
-              const postalCode = order.postal_code || addressPart(order, "zip");
-
               return (
                 <tr className="border-b border-line align-top last:border-0" key={order.id}>
                   <td className="px-4 py-4 font-semibold">{order.order_number}</td>
@@ -246,19 +315,8 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                       order={order}
                     />
                   </td>
-                  <td className="px-4 py-4">{order.customer_name}</td>
-                  <td className="px-4 py-4 text-slate-600">{order.customer_email}</td>
-                  <td className="px-4 py-4 text-slate-600">{order.customer_phone}</td>
-                  <td className="px-4 py-3">
-                    <EditableCell
-                      field="postal_code"
-                      label="Postal code"
-                      onSave={saveOrderField}
-                      order={{ ...order, postal_code: postalCode }}
-                    />
-                  </td>
-                  <td className="px-4 py-4 text-slate-600">
-                    {[country, province].filter(Boolean).join(" / ")}
+                  <td className="px-4 py-4">
+                    <CustomerCell order={order} />
                   </td>
                   <td className="px-4 py-3">
                     <EditableCell field="carrier" label="Carrier" onSave={saveOrderField} order={order} />
@@ -292,11 +350,6 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                   <td className="px-4 py-4">{order.armless_qty ?? 0}</td>
                   <td className="px-4 py-4">{order.ottoman_qty ?? 0}</td>
                   <td className="px-4 py-4 font-semibold">{order.total_modules ?? 0}</td>
-                  <td className="px-4 py-4">
-                    {formatMoney(order.total_price, order.currency || "USD")}
-                  </td>
-                  <td className="px-4 py-4">{order.payment_status}</td>
-                  <td className="px-4 py-4">{order.fulfillment_status}</td>
                   <td className="px-4 py-3">
                     <EditableCell
                       field="logistics_status"
@@ -314,21 +367,12 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                       order={order}
                     />
                   </td>
-                  <td className="px-4 py-3">
-                    <EditableCell
-                      field="action_needed"
-                      label="Action needed"
-                      multiline
-                      onSave={saveOrderField}
-                      order={order}
-                    />
-                  </td>
                 </tr>
               );
             })}
             {filteredOrders.length === 0 ? (
               <tr>
-                <td className="px-3 py-8 text-center text-slate-500" colSpan={23}>
+                <td className="px-3 py-8 text-center text-slate-500" colSpan={15}>
                   No orders match the current filters.
                 </td>
               </tr>

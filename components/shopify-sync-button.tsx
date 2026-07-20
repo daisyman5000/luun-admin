@@ -87,38 +87,32 @@ export function ShopifySyncButton({ reason, status }: ShopifySyncButtonProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-line bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="text-base font-semibold text-slate-800">Shopify orders</p>
-        {message ? <p className="mt-1 text-sm text-green-700">{message}</p> : null}
-        {error ? <p className="mt-1 text-sm text-red-700">{error}</p> : null}
-        {shopifyStatus === "connected" ? (
-          <p className="mt-1 text-sm text-green-700">Shopify is connected.</p>
-        ) : null}
-        {shopifyStatus === "failed" ? (
-          <p className="mt-1 text-sm text-red-700">{getFailureMessage(shopifyReason)}</p>
-        ) : null}
-        {!message && !error ? (
-          <p className="mt-1 text-sm text-slate-600">
-            Connect Shopify once. New and updated orders will come in automatically.
-          </p>
-        ) : null}
-      </div>
-      <div className="flex flex-col gap-3 sm:flex-row">
+    <div className="flex flex-col gap-2 sm:items-end">
+      <div className="flex flex-wrap justify-end gap-2">
         <Link
-          className="rounded-md border border-line px-5 py-3 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          className="rounded-md border border-line bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 hover:bg-slate-50"
           href="/api/shopify/install"
         >
-          Connect Shopify
+          Connect
         </Link>
         <button
-          className="rounded-md bg-ink px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-ink px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={loading}
           onClick={syncOrders}
           type="button"
         >
-          {loading ? "Syncing..." : "Sync Shopify Orders"}
+          {loading ? "Syncing" : "Sync Shopify"}
         </button>
+      </div>
+      <div className="text-right">
+        {message ? <p className="text-xs text-green-700">{message}</p> : null}
+        {error ? <p className="text-xs text-red-700">{error}</p> : null}
+        {shopifyStatus === "connected" ? (
+          <p className="text-xs text-green-700">Shopify connected</p>
+        ) : null}
+        {shopifyStatus === "failed" ? (
+          <p className="text-xs text-red-700">{getFailureMessage(shopifyReason)}</p>
+        ) : null}
       </div>
     </div>
   );
