@@ -12,10 +12,10 @@ export default async function InventoryPage() {
     .returns<InventoryRow[]>();
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      <div className="mb-5">
-        <h1 className="text-2xl font-semibold tracking-normal">Inventory</h1>
-        <p className="mt-1 text-sm text-slate-600">
+    <main className="px-5 py-8 sm:px-8 lg:px-10">
+      <div className="mb-6">
+        <h1 className="text-3xl font-semibold tracking-normal">Inventory</h1>
+        <p className="mt-2 text-base text-slate-600">
           Available quantity by fabric and module.
         </p>
       </div>

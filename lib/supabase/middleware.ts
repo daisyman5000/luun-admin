@@ -2,7 +2,14 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { getSupabasePublicConfig } from "@/lib/supabase/public-config";
 
-const protectedRoutes = ["/data", "/inventory", "/settings/users"];
+const protectedRoutes = [
+  "/data",
+  "/inventory",
+  "/ticketing",
+  "/forecasting",
+  "/financials",
+  "/settings/users"
+];
 
 type CookieToSet = {
   name: string;
@@ -44,9 +51,9 @@ export async function updateSession(request: NextRequest) {
     data: { user }
   } = await supabase.auth.getUser();
 
-  const isProtectedRoute = protectedRoutes.some((route) =>
-    request.nextUrl.pathname.startsWith(route)
-  );
+  const isProtectedRoute =
+    request.nextUrl.pathname === "/" ||
+    protectedRoutes.some((route) => request.nextUrl.pathname.startsWith(route));
 
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone();
@@ -57,7 +64,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && request.nextUrl.pathname === "/login") {
     const url = request.nextUrl.clone();
-    url.pathname = "/data";
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
