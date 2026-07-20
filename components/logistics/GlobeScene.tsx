@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Globe from "react-globe.gl";
-import * as THREE from "three";
 
 import { LogisticsDetailsPanel } from "@/components/logistics/LogisticsDetailsPanel";
 import { getContainerPosition } from "@/lib/globe/shipment-position";
@@ -43,17 +42,6 @@ type GlobeArc = {
   color: string[];
 };
 
-type CountryFeature = {
-  properties?: {
-    ADMIN?: string;
-    name?: string;
-  };
-  geometry: {
-    type: string;
-    coordinates: unknown;
-  };
-};
-
 type GlobeControlApi = {
   autoRotate: boolean;
   autoRotateSpeed: number;
@@ -71,23 +59,6 @@ type GlobeApi = {
 
 const EARTH_TEXTURE_URL = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
 const EARTH_BUMP_URL = "https://unpkg.com/three-globe/example/img/earth-topology.png";
-const SPACE_BACKGROUND_URL = "https://unpkg.com/three-globe/example/img/night-sky.png";
-const COUNTRIES_URL =
-  "https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson";
-
-function WebGlFallback() {
-  return (
-    <div className="grid h-full min-h-[520px] place-items-center bg-slate-950 px-6 text-center text-white">
-      <div>
-        <p className="text-lg font-semibold">3D globe unavailable</p>
-        <p className="mt-2 max-w-md text-sm text-slate-300">
-          This device or browser could not start WebGL. The logistics data is still available from
-          the inventory and orders tabs.
-        </p>
-      </div>
-    </div>
-  );
-}
 
 function hasWebGlSupport() {
   if (typeof window === "undefined") return false;
@@ -103,6 +74,35 @@ function hasWebGlSupport() {
   }
 }
 
+function StaticEarthFallback() {
+  return (
+    <div className="absolute inset-0 grid place-items-center overflow-hidden bg-[radial-gradient(circle_at_center,#102a52_0,#06111f_58%,#020617_100%)]">
+      <div
+        aria-hidden="true"
+        className="h-[min(78vw,78vh)] w-[min(78vw,78vh)] rounded-full border border-white/30 shadow-[0_0_90px_rgba(138,180,248,0.38)]"
+        style={{
+          backgroundImage: `radial-gradient(circle at 34% 28%, rgba(255,255,255,0.34), transparent 24%), url(${EARTH_TEXTURE_URL})`,
+          backgroundPosition: "center",
+          backgroundSize: "cover",
+          boxShadow:
+            "inset -70px -40px 90px rgba(2,6,23,0.62), 0 0 110px rgba(138,180,248,0.34)"
+        }}
+      />
+    </div>
+  );
+}
+
+function WebGlFallback() {
+  return (
+    <section className="relative min-h-[calc(100vh-120px)] overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-sm lg:min-h-[calc(100vh-32px)]">
+      <StaticEarthFallback />
+      <div className="absolute left-4 top-4 z-10 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm backdrop-blur-xl">
+        Forecasting
+      </div>
+    </section>
+  );
+}
+
 export function GlobeScene({
   factories,
   warehouses,
@@ -112,57 +112,19 @@ export function GlobeScene({
   const shellRef = useRef<HTMLElement | null>(null);
   const globeRef = useRef<GlobeApi | undefined>(undefined);
   const [selection, setSelection] = useState<LogisticsSelection | null>(null);
-  const [countries, setCountries] = useState<CountryFeature[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [webGlSupported, setWebGlSupported] = useState(true);
   const [size, setSize] = useState({ width: 1200, height: 720 });
-  const [textureVersion, setTextureVersion] = useState(0);
   const [containerPositions, setContainerPositions] = useState(() =>
     containers.map((container) => ({
       container,
       position: getContainerPosition(container)
     }))
   );
-  const globeMaterial = useMemo(
-    () =>
-      new THREE.MeshPhongMaterial({
-        color: "#1a73e8",
-        emissive: "#061a36",
-        emissiveIntensity: 0.2,
-        shininess: 12
-      }),
-    []
-  );
 
   useEffect(() => {
     setWebGlSupported(hasWebGlSupport());
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loader = new THREE.TextureLoader();
-
-    loader.load(
-      EARTH_TEXTURE_URL,
-      (texture) => {
-        if (cancelled) return;
-        texture.colorSpace = THREE.SRGBColorSpace;
-        globeMaterial.map = texture;
-        globeMaterial.needsUpdate = true;
-        setTextureVersion((version) => version + 1);
-      },
-      undefined,
-      () => {
-        globeMaterial.color = new THREE.Color("#1a73e8");
-        globeMaterial.needsUpdate = true;
-        setTextureVersion((version) => version + 1);
-      }
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [globeMaterial]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -188,35 +150,6 @@ export function GlobeScene({
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    fetch(COUNTRIES_URL)
-      .then((response) => response.json())
-      .then((geoJson: { features?: CountryFeature[] }) => {
-        if (!cancelled) setCountries(geoJson.features || []);
-      })
-      .catch(() => {
-        if (!cancelled) setCountries([]);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const globe = globeRef.current;
-    if (!globe) return;
-
-    globe.pointOfView({ lat: 32, lng: -165, altitude: 2.1 }, 0);
-    const controls = globe.controls();
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.28;
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-  }, [isReady]);
-
-  useEffect(() => {
     const interval = window.setInterval(() => {
       setContainerPositions(
         containers.map((container) => ({
@@ -229,13 +162,26 @@ export function GlobeScene({
     return () => window.clearInterval(interval);
   }, [containers]);
 
+  useEffect(() => {
+    if (!isReady || !globeRef.current) return;
+
+    const globe = globeRef.current;
+    globe.pointOfView({ lat: 36, lng: -158, altitude: 2.25 }, 600);
+
+    const controls = globe.controls();
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.22;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+  }, [isReady]);
+
   const points = useMemo<GlobePoint[]>(() => {
     const factoryPoints = factories.map((factory) => ({
       id: factory.id,
       lat: factory.lat,
       lng: factory.lng,
-      altitude: 0.02,
-      radius: 0.34,
+      altitude: 0.03,
+      radius: 0.42,
       color: "#fbbc04",
       label: factory.name,
       kind: "factory" as const
@@ -245,8 +191,8 @@ export function GlobeScene({
       id: warehouse.id,
       lat: warehouse.lat,
       lng: warehouse.lng,
-      altitude: 0.03,
-      radius: 0.42,
+      altitude: 0.04,
+      radius: 0.52,
       color: "#34a853",
       label: warehouse.name,
       kind: "warehouse" as const,
@@ -257,8 +203,8 @@ export function GlobeScene({
       id: container.id,
       lat: position.lat,
       lng: position.lng,
-      altitude: 0.08,
-      radius: 0.3,
+      altitude: 0.09,
+      radius: 0.4,
       color: "#8ab4f8",
       label: container.containerNumber,
       kind: "container" as const,
@@ -276,26 +222,30 @@ export function GlobeScene({
         startLng: route.origin.lng,
         endLat: route.destination.lat,
         endLng: route.destination.lng,
-        color: ["rgba(138, 180, 248, 0.35)", "rgba(255, 255, 255, 0.9)"]
+        color: ["rgba(138, 180, 248, 0.15)", "rgba(138, 180, 248, 0.95)"]
       })),
     [routes]
   );
+
+  function openWarehouse(warehouse: LogisticsWarehouse) {
+    globeRef.current?.pointOfView(
+      { lat: warehouse.lat, lng: warehouse.lng, altitude: 1.35 },
+      1100
+    );
+    setSelection({ type: "warehouse", item: warehouse });
+  }
 
   function handlePointClick(point: object) {
     const globePoint = point as GlobePoint;
 
     if (globePoint.kind === "warehouse" && globePoint.warehouse) {
-      globeRef.current?.pointOfView(
-        { lat: globePoint.lat, lng: globePoint.lng, altitude: 1.25 },
-        1200
-      );
-      setSelection({ type: "warehouse", item: globePoint.warehouse });
+      openWarehouse(globePoint.warehouse);
       return;
     }
 
     if (globePoint.kind === "container" && globePoint.container) {
       globeRef.current?.pointOfView(
-        { lat: globePoint.lat, lng: globePoint.lng, altitude: 1.35 },
+        { lat: globePoint.lat, lng: globePoint.lng, altitude: 1.45 },
         1000
       );
       setSelection({ type: "container", item: globePoint.container });
@@ -303,7 +253,7 @@ export function GlobeScene({
     }
 
     globeRef.current?.pointOfView(
-      { lat: globePoint.lat, lng: globePoint.lng, altitude: 1.3 },
+      { lat: globePoint.lat, lng: globePoint.lng, altitude: 1.45 },
       1000
     );
     setSelection(null);
@@ -318,55 +268,46 @@ export function GlobeScene({
       className="relative min-h-[calc(100vh-120px)] overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-sm lg:min-h-[calc(100vh-32px)]"
       ref={shellRef}
     >
-      {!isReady ? (
-        <div className="absolute inset-0 z-10 grid place-items-center bg-slate-950 text-white">
-          <div className="text-center">
-            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-            <p className="mt-4 text-sm font-semibold text-slate-200">Loading globe</p>
-          </div>
-        </div>
-      ) : null}
+      <StaticEarthFallback />
 
-      <Globe
-        key={`globe-${textureVersion}`}
-        ref={globeRef}
-        width={size.width}
-        height={size.height}
-        animateIn
-        backgroundColor="rgba(2, 6, 23, 1)"
-        backgroundImageUrl={SPACE_BACKGROUND_URL}
-        bumpImageUrl={EARTH_BUMP_URL}
-        globeMaterial={globeMaterial}
-        showAtmosphere
-        atmosphereColor="#8ab4f8"
-        atmosphereAltitude={0.18}
-        polygonsData={countries}
-        polygonCapColor={() => "rgba(255, 255, 255, 0)"}
-        polygonSideColor={() => "rgba(255, 255, 255, 0)"}
-        polygonStrokeColor={() => "rgba(255, 255, 255, 0.32)"}
-        arcsData={arcs}
-        arcColor="color"
-        arcDashLength={0.5}
-        arcDashGap={0.2}
-        arcDashAnimateTime={2600}
-        arcAltitude={0.24}
-        arcStroke={0.8}
-        pointsData={points}
-        pointAltitude="altitude"
-        pointRadius="radius"
-        pointColor="color"
-        labelsData={points}
-        labelLat="lat"
-        labelLng="lng"
-        labelAltitude={(point: object) => (point as GlobePoint).altitude + 0.01}
-        labelText="label"
-        labelSize={0.7}
-        labelDotRadius={0}
-        labelColor={() => "rgba(255,255,255,0.9)"}
-        onPointClick={handlePointClick}
-        onGlobeClick={() => setSelection(null)}
-        onGlobeReady={() => setIsReady(true)}
-      />
+      <div className="absolute inset-0 z-[1]">
+        <Globe
+          ref={globeRef}
+          width={size.width}
+          height={size.height}
+          animateIn={false}
+          waitForGlobeReady={false}
+          backgroundColor="rgba(2, 6, 23, 0)"
+          globeImageUrl={EARTH_TEXTURE_URL}
+          bumpImageUrl={EARTH_BUMP_URL}
+          showGlobe
+          showAtmosphere
+          atmosphereColor="#8ab4f8"
+          atmosphereAltitude={0.16}
+          arcsData={arcs}
+          arcColor="color"
+          arcDashLength={0.55}
+          arcDashGap={0.25}
+          arcDashAnimateTime={2800}
+          arcAltitude={0.24}
+          arcStroke={1.1}
+          pointsData={points}
+          pointAltitude="altitude"
+          pointRadius="radius"
+          pointColor="color"
+          labelsData={points}
+          labelLat="lat"
+          labelLng="lng"
+          labelAltitude={(point: object) => (point as GlobePoint).altitude + 0.02}
+          labelText="label"
+          labelSize={0.78}
+          labelDotRadius={0}
+          labelColor={() => "rgba(255,255,255,0.92)"}
+          onPointClick={handlePointClick}
+          onGlobeClick={() => setSelection(null)}
+          onGlobeReady={() => setIsReady(true)}
+        />
+      </div>
 
       <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm backdrop-blur-xl">
         Forecasting
@@ -377,13 +318,7 @@ export function GlobeScene({
           <button
             className="rounded-full border border-white/20 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm backdrop-blur-xl hover:bg-white"
             key={warehouse.id}
-            onClick={() => {
-              globeRef.current?.pointOfView(
-                { lat: warehouse.lat, lng: warehouse.lng, altitude: 1.25 },
-                1200
-              );
-              setSelection({ type: "warehouse", item: warehouse });
-            }}
+            onClick={() => openWarehouse(warehouse)}
             type="button"
           >
             {warehouse.city}
