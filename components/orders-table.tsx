@@ -7,12 +7,12 @@ import type { ShopifyOrder } from "@/lib/types";
 type EditableOrderField =
   | "delegate_order_id"
   | "postal_code"
-  | "carrier"
   | "delegate_order_created_at"
   | "delivered_at"
   | "delivery_status"
-  | "logistics_status"
   | "internal_notes";
+
+type EditableModuleField = "corner_qty" | "armless_qty" | "ottoman_qty";
 
 function addressPart(order: ShopifyOrder, key: "country" | "province" | "province_code" | "zip") {
   const address = order.shipping_address_json;
@@ -152,19 +152,67 @@ function EditableCell({
   );
 }
 
+function EditableQuantityCell({
+  field,
+  label,
+  onSave,
+  order
+}: {
+  field: EditableModuleField;
+  label: string;
+  onSave: (id: string, field: EditableModuleField, value: number) => Promise<void>;
+  order: ShopifyOrder;
+}) {
+  const [value, setValue] = useState(String(order[field] ?? 0));
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function save() {
+    const parsed = Number(value);
+    const current = Number(order[field] ?? 0);
+
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed === current) {
+      return;
+    }
+
+    setSaving(true);
+    setFailed(false);
+
+    try {
+      await onSave(order.id, field, parsed);
+    } catch {
+      setFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <input
+      aria-label={label}
+      className={[
+        "w-24 rounded-md border bg-white px-3 py-2 text-sm outline-none",
+        failed ? "border-red-300" : "border-line",
+        saving ? "opacity-60" : ""
+      ].join(" ")}
+      min={0}
+      onBlur={save}
+      onChange={(event) => setValue(event.target.value)}
+      type="number"
+      value={value}
+    />
+  );
+}
+
 export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
   const [rows, setRows] = useState(orders);
   const [query, setQuery] = useState("");
-  const [logisticsStatus, setLogisticsStatus] = useState("");
   const monthOptions = useMemo(() => {
     const keys = Array.from(new Set(rows.map((order) => monthKey(order.created_at))));
     return keys.sort((left, right) => right.localeCompare(left));
   }, [rows]);
   const [selectedMonth, setSelectedMonth] = useState(monthOptions[0] || "all");
 
-  const logisticsOptions = Array.from(
-    new Set(rows.map((order) => order.logistics_status).filter((value): value is string => Boolean(value)))
-  ).sort();
   async function saveOrderField(id: string, field: EditableOrderField, value: string) {
     const response = await fetch(`/api/orders/${id}`, {
       method: "PATCH",
@@ -185,6 +233,26 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
     );
   }
 
+  async function saveModuleField(id: string, field: EditableModuleField, value: number) {
+    const response = await fetch(`/api/orders/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ [field]: value })
+    });
+
+    const payload = (await response.json().catch(() => null)) as ShopifyOrder | null;
+
+    if (!response.ok || !payload) {
+      throw new Error("Unable to save order modules");
+    }
+
+    setRows((currentRows) =>
+      currentRows.map((row) => (row.id === id ? { ...row, ...payload } : row))
+    );
+  }
+
   const filteredOrders = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -198,20 +266,17 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
           order.customer_phone,
           order.delegate_order_id,
           order.postal_code,
-          order.carrier,
           addressPart(order, "country"),
           addressPart(order, "province"),
           addressPart(order, "province_code")
         ]
           .filter(Boolean)
           .some((value) => value!.toLowerCase().includes(normalizedQuery));
-      const matchesLogistics =
-        !logisticsStatus || order.logistics_status === logisticsStatus;
       const matchesMonth = selectedMonth === "all" || monthKey(order.created_at) === selectedMonth;
 
-      return matchesQuery && matchesLogistics && matchesMonth;
+      return matchesQuery && matchesMonth;
     });
-  }, [rows, query, logisticsStatus, selectedMonth]);
+  }, [rows, query, selectedMonth]);
 
   return (
     <section className="space-y-4">
@@ -246,36 +311,21 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
           </button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-[1fr_220px] md:items-end">
+        <div className="grid gap-4 md:grid-cols-1 md:items-end">
           <label className="text-sm font-medium text-slate-700">
             Search
             <input
               className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Order, customer, email, phone, Delegate ID, carrier"
+              placeholder="Order, customer, email, phone, Delegate ID"
               value={query}
             />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            Logistics
-            <select
-              className="mt-2 w-full rounded-md border border-line bg-white px-4 py-3 text-base font-normal outline-none"
-              onChange={(event) => setLogisticsStatus(event.target.value)}
-              value={logisticsStatus}
-            >
-              <option value="">All</option>
-              {logisticsOptions.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
           </label>
         </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-line bg-white shadow-sm">
-        <table className="min-w-[1680px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[1320px] w-full border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
             <tr>
               {[
@@ -283,7 +333,6 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                 "Date",
                 "Delegate Order ID",
                 "Customer",
-                "Carrier",
                 "Order created",
                 "Delivered date",
                 "Delivery status",
@@ -292,7 +341,6 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                 "Armless",
                 "Ottoman",
                 "Modules",
-                "Logistics",
                 "Note"
               ].map((heading) => (
                 <th className="border-b border-line px-3 py-3 font-semibold" key={heading}>
@@ -319,9 +367,6 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                     <CustomerCell order={order} />
                   </td>
                   <td className="px-4 py-3">
-                    <EditableCell field="carrier" label="Carrier" onSave={saveOrderField} order={order} />
-                  </td>
-                  <td className="px-4 py-3">
                     <EditableCell
                       field="delegate_order_created_at"
                       label="Order created date"
@@ -346,18 +391,31 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
                     />
                   </td>
                   <td className="px-4 py-4">{order.fabric_slug}</td>
-                  <td className="px-4 py-4">{order.corner_qty ?? 0}</td>
-                  <td className="px-4 py-4">{order.armless_qty ?? 0}</td>
-                  <td className="px-4 py-4">{order.ottoman_qty ?? 0}</td>
-                  <td className="px-4 py-4 font-semibold">{order.total_modules ?? 0}</td>
                   <td className="px-4 py-3">
-                    <EditableCell
-                      field="logistics_status"
-                      label="Logistics status"
-                      onSave={saveOrderField}
+                    <EditableQuantityCell
+                      field="corner_qty"
+                      label="Corner quantity"
+                      onSave={saveModuleField}
                       order={order}
                     />
                   </td>
+                  <td className="px-4 py-3">
+                    <EditableQuantityCell
+                      field="armless_qty"
+                      label="Armless quantity"
+                      onSave={saveModuleField}
+                      order={order}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <EditableQuantityCell
+                      field="ottoman_qty"
+                      label="Ottoman quantity"
+                      onSave={saveModuleField}
+                      order={order}
+                    />
+                  </td>
+                  <td className="px-4 py-4 font-semibold">{order.total_modules ?? 0}</td>
                   <td className="px-4 py-3">
                     <EditableCell
                       field="internal_notes"
@@ -372,7 +430,7 @@ export function OrdersTable({ orders }: { orders: ShopifyOrder[] }) {
             })}
             {filteredOrders.length === 0 ? (
               <tr>
-                <td className="px-3 py-8 text-center text-slate-500" colSpan={15}>
+                <td className="px-3 py-8 text-center text-slate-500" colSpan={13}>
                   No orders match the current filters.
                 </td>
               </tr>
