@@ -133,6 +133,10 @@ function drawGlobe(
 
   context.clearRect(0, 0, width, height);
 
+  if (radius <= 0) {
+    return;
+  }
+
   const gradient = context.createRadialGradient(
     centerX - radius * 0.35,
     centerY - radius * 0.45,
@@ -162,7 +166,7 @@ function drawGlobe(
   context.lineWidth = 1;
   for (let index = -4; index <= 4; index += 1) {
     context.beginPath();
-    context.ellipse(centerX, centerY, radius, radius * (index / 5), rotation.y, 0, Math.PI * 2);
+    context.ellipse(centerX, centerY, radius, radius * Math.abs(index / 5), rotation.y, 0, Math.PI * 2);
     context.stroke();
   }
   for (let index = 0; index < 12; index += 1) {
