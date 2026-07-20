@@ -42,6 +42,7 @@ export async function GET() {
     shopifyStoreDomainExists: shopifyConfig.storeDomainExists,
     shopifyClientIdExists: shopifyConfig.clientIdExists,
     shopifyClientSecretExists: shopifyConfig.clientSecretExists,
+    shopifyWebhookSecretExists: shopifyConfig.webhookSecretExists,
     shopifyConnected: shopifyConnection.connected,
     shopifyConnectedAt: shopifyConnection.updatedAt,
     shopifyApiConnectionWorks

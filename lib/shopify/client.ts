@@ -34,7 +34,8 @@ export function getShopifyConfigStatus() {
   return {
     storeDomainExists: Boolean(process.env.SHOPIFY_STORE_DOMAIN),
     clientIdExists: Boolean(process.env.SHOPIFY_CLIENT_ID),
-    clientSecretExists: Boolean(process.env.SHOPIFY_CLIENT_SECRET)
+    clientSecretExists: Boolean(process.env.SHOPIFY_CLIENT_SECRET),
+    webhookSecretExists: Boolean(process.env.SHOPIFY_WEBHOOK_SECRET || process.env.SHOPIFY_CLIENT_SECRET)
   };
 }
 
@@ -49,6 +50,13 @@ function safeCompareHex(left: string, right: string) {
 
   const leftBuffer = Buffer.from(left, "hex");
   const rightBuffer = Buffer.from(right, "hex");
+
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function safeCompareBase64(left: string, right: string) {
+  const leftBuffer = Buffer.from(left, "base64");
+  const rightBuffer = Buffer.from(right, "base64");
 
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
@@ -73,6 +81,16 @@ function getShopifyConfig() {
     clientSecret,
     storeDomain: normalizedStoreDomain
   };
+}
+
+function getShopifyWebhookSecret() {
+  const secret = process.env.SHOPIFY_WEBHOOK_SECRET?.trim() || process.env.SHOPIFY_CLIENT_SECRET?.trim();
+
+  if (!secret) {
+    throw new Error("Missing Shopify webhook secret");
+  }
+
+  return secret;
 }
 
 export function createShopifyOAuthState() {
@@ -138,6 +156,24 @@ export function verifyShopifyCallback(search: string) {
   });
 }
 
+export function verifyShopifyWebhook(rawBody: string, hmacHeader: string | null) {
+  if (!hmacHeader) {
+    return false;
+  }
+
+  let digest: string;
+
+  try {
+    digest = createHmac("sha256", getShopifyWebhookSecret())
+      .update(rawBody, "utf8")
+      .digest("base64");
+  } catch {
+    return false;
+  }
+
+  return safeCompareBase64(digest, hmacHeader);
+}
+
 export function getCallbackShopDomain(searchParams: URLSearchParams) {
   const shop = searchParams.get("shop");
   const shopDomain = shop ? normalizeShopDomain(shop) : "";
@@ -147,6 +183,19 @@ export function getCallbackShopDomain(searchParams: URLSearchParams) {
   }
 
   return shopDomain;
+}
+
+export function isExpectedShopifyShopDomain(shopDomain: string | null) {
+  if (!shopDomain) {
+    return false;
+  }
+
+  try {
+    const { storeDomain } = getShopifyConfig();
+    return normalizeShopDomain(shopDomain) === storeDomain;
+  } catch {
+    return false;
+  }
 }
 
 export async function exchangeShopifyCodeForToken(code: string, shopDomain?: string) {
@@ -319,6 +368,54 @@ export async function shopifyAdminGraphQL<T>(
   }
 
   return payload.data;
+}
+
+type ShopifyWebhookRegistrationResponse = {
+  webhookSubscriptionCreate: {
+    userErrors: Array<{
+      message: string;
+    }>;
+  };
+};
+
+export async function registerShopifyOrderWebhooks(origin: string) {
+  const callbackUrl = `${origin}/api/shopify/webhooks/orders`;
+  const topics = ["ORDERS_CREATE", "ORDERS_UPDATED"];
+
+  for (const topic of topics) {
+    const data = await shopifyAdminGraphQL<ShopifyWebhookRegistrationResponse>(
+      /* GraphQL */ `
+        mutation RegisterOrderWebhook(
+          $topic: WebhookSubscriptionTopic!
+          $webhookSubscription: WebhookSubscriptionInput!
+        ) {
+          webhookSubscriptionCreate(
+            topic: $topic
+            webhookSubscription: $webhookSubscription
+          ) {
+            userErrors {
+              message
+            }
+          }
+        }
+      `,
+      {
+        topic,
+        webhookSubscription: {
+          uri: callbackUrl
+        }
+      }
+    );
+
+    const errors = data.webhookSubscriptionCreate.userErrors;
+    const blockingErrors = errors.filter(
+      (error) => !error.message.toLowerCase().includes("already exists")
+    );
+
+    if (blockingErrors.length > 0) {
+      throw new Error(`Shopify webhook registration failed: ${blockingErrors.map((error) => error.message).join("; ")}`);
+    }
+  }
 }
 
 export async function checkShopifyAdminConnection() {

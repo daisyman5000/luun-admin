@@ -63,64 +63,78 @@ export type ImportOrdersSummary = {
 
 const DEFAULT_IMPORT_SINCE_DATE = "2026-06-24";
 
+const ORDER_FIELDS = /* GraphQL */ `
+  id
+  name
+  createdAt
+  email
+  phone
+  displayFinancialStatus
+  displayFulfillmentStatus
+  currencyCode
+  currentTotalPriceSet {
+    shopMoney {
+      amount
+      currencyCode
+    }
+  }
+  shippingAddress {
+    name
+    firstName
+    lastName
+    address1
+    address2
+    city
+    province
+    provinceCode
+    country
+    countryCodeV2
+    zip
+    phone
+  }
+  billingAddress {
+    name
+    firstName
+    lastName
+    address1
+    address2
+    city
+    province
+    provinceCode
+    country
+    countryCodeV2
+    zip
+    phone
+  }
+  lineItems(first: 100) {
+    edges {
+      node {
+        title
+        quantity
+        sku
+        variantTitle
+      }
+    }
+  }
+`;
+
 const RECENT_ORDERS_QUERY = /* GraphQL */ `
   query RecentOrders($first: Int!, $query: String) {
     orders(first: $first, sortKey: CREATED_AT, reverse: true, query: $query) {
       edges {
         node {
-          id
-          name
-          createdAt
-          email
-          phone
-          displayFinancialStatus
-          displayFulfillmentStatus
-          currencyCode
-          currentTotalPriceSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-          shippingAddress {
-            name
-            firstName
-            lastName
-            address1
-            address2
-            city
-            province
-            provinceCode
-            country
-            countryCodeV2
-            zip
-            phone
-          }
-          billingAddress {
-            name
-            firstName
-            lastName
-            address1
-            address2
-            city
-            province
-            provinceCode
-            country
-            countryCodeV2
-            zip
-            phone
-          }
-          lineItems(first: 100) {
-            edges {
-              node {
-                title
-                quantity
-                sku
-                variantTitle
-              }
-            }
-          }
+          ${ORDER_FIELDS}
         }
+      }
+    }
+  }
+`;
+
+const ORDER_BY_ID_QUERY = /* GraphQL */ `
+  query OrderById($id: ID!) {
+    order: node(id: $id) {
+      ... on Order {
+        ${ORDER_FIELDS}
       }
     }
   }
@@ -260,35 +274,10 @@ export function normalizeImportSinceDate(sinceDate: unknown) {
   return sinceDate;
 }
 
-export async function importRecentShopifyOrders(
-  limit: number,
-  sinceDate = DEFAULT_IMPORT_SINCE_DATE
-): Promise<ImportOrdersSummary> {
-  const summary: ImportOrdersSummary = {
-    imported: 0,
-    updated: 0,
-    skipped: 0,
-    errors: []
-  };
-
-  const data = await shopifyAdminGraphQL<ShopifyOrdersResponse>(
-    RECENT_ORDERS_QUERY,
-    {
-      first: limit,
-      query: `created_at:>=${sinceDate}`
-    }
-  );
-  const orders = data.orders.edges.map((edge) => edge.node);
-  const rows = orders.flatMap((order) => {
-    if (!order.id) {
-      summary.skipped += 1;
-      summary.errors.push("Skipped an order without a Shopify id");
-      return [];
-    }
-
-    return [mapOrderToRow(order)];
-  });
-
+async function upsertShopifyOrderRows(
+  rows: ReturnType<typeof mapOrderToRow>[],
+  summary: ImportOrdersSummary
+) {
   if (rows.length === 0) {
     return summary;
   }
@@ -320,4 +309,79 @@ export async function importRecentShopifyOrders(
   summary.imported = rows.length - summary.updated;
 
   return summary;
+}
+
+export function getShopifyGraphQLOrderId(payload: Record<string, unknown>) {
+  const graphqlId = payload.admin_graphql_api_id;
+
+  if (typeof graphqlId === "string" && graphqlId.startsWith("gid://shopify/Order/")) {
+    return graphqlId;
+  }
+
+  const id = payload.id;
+
+  if (typeof id === "number" || typeof id === "string") {
+    return `gid://shopify/Order/${id}`;
+  }
+
+  return "";
+}
+
+export async function importShopifyOrderById(shopifyOrderId: string): Promise<ImportOrdersSummary> {
+  const summary: ImportOrdersSummary = {
+    imported: 0,
+    updated: 0,
+    skipped: 0,
+    errors: []
+  };
+
+  if (!shopifyOrderId) {
+    summary.skipped = 1;
+    summary.errors.push("Skipped a webhook without a Shopify order id");
+    return summary;
+  }
+
+  const data = await shopifyAdminGraphQL<{ order: ShopifyOrderNode | null }>(ORDER_BY_ID_QUERY, {
+    id: shopifyOrderId
+  });
+
+  if (!data.order?.id) {
+    summary.skipped = 1;
+    summary.errors.push("Shopify order was not found");
+    return summary;
+  }
+
+  return upsertShopifyOrderRows([mapOrderToRow(data.order)], summary);
+}
+
+export async function importRecentShopifyOrders(
+  limit: number,
+  sinceDate = DEFAULT_IMPORT_SINCE_DATE
+): Promise<ImportOrdersSummary> {
+  const summary: ImportOrdersSummary = {
+    imported: 0,
+    updated: 0,
+    skipped: 0,
+    errors: []
+  };
+
+  const data = await shopifyAdminGraphQL<ShopifyOrdersResponse>(
+    RECENT_ORDERS_QUERY,
+    {
+      first: limit,
+      query: `created_at:>=${sinceDate}`
+    }
+  );
+  const orders = data.orders.edges.map((edge) => edge.node);
+  const rows = orders.flatMap((order) => {
+    if (!order.id) {
+      summary.skipped += 1;
+      summary.errors.push("Skipped an order without a Shopify id");
+      return [];
+    }
+
+    return [mapOrderToRow(order)];
+  });
+
+  return upsertShopifyOrderRows(rows, summary);
 }

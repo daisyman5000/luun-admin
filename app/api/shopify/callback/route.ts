@@ -3,6 +3,7 @@ import { canSyncShopifyOrders, getUserContext } from "@/lib/auth";
 import {
   exchangeShopifyCodeForToken,
   getCallbackShopDomain,
+  registerShopifyOrderWebhooks,
   saveShopifyConnectionForShop,
   verifyShopifyCallback
 } from "@/lib/shopify/client";
@@ -61,18 +62,27 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  verifyShopifyCallback(request.nextUrl.search);
+  if (!verifyShopifyCallback(request.nextUrl.search)) {
+    const response = redirectToData(request, "failed", "signature");
+    response.cookies.delete("shopify_oauth_state");
+    return response;
+  }
 
   try {
     const token = await exchangeShopifyCodeForToken(code, shopDomain);
     await saveShopifyConnectionForShop(shopDomain, token.accessToken, token.scope, user.id);
+    await registerShopifyOrderWebhooks(request.nextUrl.origin);
 
     const response = redirectToData(request, "connected");
     response.cookies.delete("shopify_oauth_state");
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    const reason = message.includes("save") ? "save" : "token";
+    const reason = message.includes("webhook")
+      ? "webhooks"
+      : message.includes("save")
+        ? "save"
+        : "token";
     const response = redirectToData(request, "failed", reason);
     response.cookies.delete("shopify_oauth_state");
     return response;

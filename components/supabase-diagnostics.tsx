@@ -72,6 +72,10 @@ export async function SupabaseDiagnostics() {
           value={shopifyConfig.clientSecretExists ? "Configured" : "Missing"}
         />
         <CheckRow
+          label="Shopify webhook secret"
+          value={shopifyConfig.webhookSecretExists ? "Configured" : "Missing"}
+        />
+        <CheckRow
           label="Shopify app connection"
           value={shopifyConnection.connected ? "Connected" : "Not connected"}
         />

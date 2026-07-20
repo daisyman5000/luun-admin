@@ -38,6 +38,10 @@ function getFailureMessage(reason?: string) {
     return "Shopify connected, but the app could not save the token in Supabase. Check that the database setup SQL was run.";
   }
 
+  if (reason === "webhooks") {
+    return "Shopify connected, but automatic order updates could not be enabled. Check the Shopify app scopes and try Connect Shopify again.";
+  }
+
   if (reason) {
     return `Shopify connection failed: ${reason}.`;
   }
@@ -96,7 +100,7 @@ export function ShopifySyncButton({ reason, status }: ShopifySyncButtonProps) {
         ) : null}
         {!message && !error ? (
           <p className="mt-1 text-sm text-slate-600">
-            Connect Shopify once, then import orders since June 24.
+            Connect Shopify once. New and updated orders will come in automatically.
           </p>
         ) : null}
       </div>

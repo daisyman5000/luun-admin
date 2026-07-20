@@ -76,6 +76,7 @@ Private admin portal for Luun logistics. The first version replaces the working 
 - `/settings/users` lets owner/admin users manage profile roles and view safe Supabase diagnostics.
 - `/api/public-inventory` returns public builder-safe inventory JSON.
 - `POST /api/shopify/import-orders` manually imports recent Shopify orders for owner/admin users.
+- `POST /api/shopify/webhooks/orders` receives verified Shopify `orders/create` and `orders/updated` webhooks.
 - `GET /api/settings/diagnostics` returns safe Supabase configuration/profile diagnostics for owner/admin users.
 
 ## Shopify Manual Sync
@@ -88,9 +89,21 @@ Required environment variables:
 SHOPIFY_STORE_DOMAIN=luunsofa.myshopify.com
 SHOPIFY_CLIENT_ID=
 SHOPIFY_CLIENT_SECRET=
+SHOPIFY_WEBHOOK_SECRET=
 ```
 
-The app uses Shopify's OAuth install flow. The Client ID and Client Secret are kept server-side. An owner/admin connects Shopify once from `/data`; Shopify redirects back to `/api/shopify/callback`; then the app stores the generated Admin API access token in `public.shopify_connections` using the server-only Supabase secret key.
+The app uses Shopify's OAuth install flow. The Client ID, Client Secret, webhook secret, and generated Admin API token are kept server-side. An owner/admin connects Shopify once from `/data`; Shopify redirects back to `/api/shopify/callback`; then the app stores the generated Admin API access token in `public.shopify_connections` using the server-only Supabase secret key.
+
+After Shopify connects, the app registers automatic order webhooks for:
+
+- `orders/create`
+- `orders/updated`
+
+Both webhooks post to:
+
+```text
+https://your-admin-domain.com/api/shopify/webhooks/orders
+```
 
 The Shopify app needs read access to orders. In Shopify app permissions, enable:
 
@@ -108,9 +121,9 @@ Owner/admin users can run a sync from `/data`:
 
 1. Click **Connect Shopify** once and approve the Shopify app.
 2. Return to `/data`.
-3. Click **Sync Shopify Orders**.
+3. New and updated orders should import automatically.
 
-The sync imports the latest 50 orders by default. `POST /api/shopify/import-orders` also accepts an optional `limit` value capped at 100. The endpoint requires a logged-in owner/admin session, so browser-based use from `/data` is the expected workflow.
+The manual **Sync Shopify Orders** button remains as a backup. The sync imports orders since June 24, 2026. `POST /api/shopify/import-orders` also accepts an optional `limit` value. The endpoint requires a logged-in owner/admin session, so browser-based use from `/data` is the expected workflow.
 
 Diagnostics in `/settings/users` check whether the Shopify env vars exist, whether Shopify has been connected, and whether the Admin API responds.
 
