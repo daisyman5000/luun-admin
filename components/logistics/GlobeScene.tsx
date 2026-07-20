@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Globe from "react-globe.gl";
-import * as THREE from "three";
 
 import { LogisticsDetailsPanel } from "@/components/logistics/LogisticsDetailsPanel";
 import { getContainerPosition } from "@/lib/globe/shipment-position";
@@ -69,9 +68,9 @@ type GlobeApi = {
   controls: () => GlobeControlApi;
 };
 
-const EARTH_TEXTURE_URL = "//unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
-const EARTH_BUMP_URL = "//unpkg.com/three-globe/example/img/earth-topology.png";
-const SPACE_BACKGROUND_URL = "//unpkg.com/three-globe/example/img/night-sky.png";
+const EARTH_TEXTURE_URL = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
+const EARTH_BUMP_URL = "https://unpkg.com/three-globe/example/img/earth-topology.png";
+const SPACE_BACKGROUND_URL = "https://unpkg.com/three-globe/example/img/night-sky.png";
 const COUNTRIES_URL =
   "https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson";
 
@@ -120,14 +119,6 @@ export function GlobeScene({
       position: getContainerPosition(container)
     }))
   );
-  const globeMaterial = useMemo(() => {
-    const material = new THREE.MeshPhongMaterial();
-    material.color = new THREE.Color("#ffffff");
-    material.shininess = 18;
-    material.bumpScale = 8;
-    return material;
-  }, []);
-
   useEffect(() => {
     setWebGlSupported(hasWebGlSupport());
   }, []);
@@ -153,7 +144,7 @@ export function GlobeScene({
     const globe = globeRef.current;
     if (!globe) return;
 
-    globe.pointOfView({ lat: 28, lng: -122, altitude: 1.9 }, 0);
+    globe.pointOfView({ lat: 32, lng: -165, altitude: 1.65 }, 0);
     const controls = globe.controls();
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.28;
@@ -276,7 +267,6 @@ export function GlobeScene({
         backgroundImageUrl={SPACE_BACKGROUND_URL}
         globeImageUrl={EARTH_TEXTURE_URL}
         bumpImageUrl={EARTH_BUMP_URL}
-        globeMaterial={globeMaterial}
         showAtmosphere
         atmosphereColor="#8ab4f8"
         atmosphereAltitude={0.18}
