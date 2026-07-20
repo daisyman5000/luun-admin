@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent } from "react";
 import Globe from "react-globe.gl";
 
 import { LogisticsDetailsPanel } from "@/components/logistics/LogisticsDetailsPanel";
@@ -42,6 +43,12 @@ type GlobeArc = {
   color: string[];
 };
 
+type ProjectedMarker = GlobePoint & {
+  visible: boolean;
+  x: number;
+  y: number;
+};
+
 type GlobeControlApi = {
   autoRotate: boolean;
   autoRotateSpeed: number;
@@ -63,6 +70,33 @@ type GlobeApi = {
 
 const EARTH_TEXTURE_URL = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
 const EARTH_BUMP_URL = "https://unpkg.com/three-globe/example/img/earth-topology.png";
+
+function toRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function projectPoint(
+  point: { lat: number; lng: number },
+  rotation: { x: number; y: number },
+  size: { width: number; height: number }
+) {
+  const radius = Math.min(size.width, size.height) * 0.39;
+  const lat = toRadians(point.lat);
+  const lng = toRadians(point.lng + rotation.y);
+  const tilt = toRadians(rotation.x);
+  const cosLat = Math.cos(lat);
+  const x0 = cosLat * Math.sin(lng);
+  const y0 = Math.sin(lat);
+  const z0 = cosLat * Math.cos(lng);
+  const y = y0 * Math.cos(tilt) - z0 * Math.sin(tilt);
+  const z = y0 * Math.sin(tilt) + z0 * Math.cos(tilt);
+
+  return {
+    visible: z > -0.04,
+    x: size.width / 2 + x0 * radius,
+    y: size.height / 2 - y * radius
+  };
+}
 
 function hasWebGlSupport() {
   if (typeof window === "undefined") return false;
@@ -115,10 +149,12 @@ export function GlobeScene({
 }: GlobeSceneProps) {
   const shellRef = useRef<HTMLElement | null>(null);
   const globeRef = useRef<GlobeApi | undefined>(undefined);
+  const dragRef = useRef<{ x: number; y: number; rotationX: number; rotationY: number } | null>(null);
   const [selection, setSelection] = useState<LogisticsSelection | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [webGlSupported, setWebGlSupported] = useState(true);
   const [size, setSize] = useState({ width: 1200, height: 720 });
+  const [manualRotation, setManualRotation] = useState({ x: 8, y: 158 });
   const [containerPositions, setContainerPositions] = useState(() =>
     containers.map((container) => ({
       container,
@@ -235,12 +271,36 @@ export function GlobeScene({
     [routes]
   );
 
+  const projectedPoints = useMemo<ProjectedMarker[]>(
+    () =>
+      points.map((point) => ({
+        ...point,
+        ...projectPoint(point, manualRotation, size)
+      })),
+    [manualRotation, points, size]
+  );
+
+  const projectedArcs = useMemo(
+    () =>
+      arcs.map((arc) => ({
+        id: arc.id,
+        origin: projectPoint({ lat: arc.startLat, lng: arc.startLng }, manualRotation, size),
+        destination: projectPoint({ lat: arc.endLat, lng: arc.endLng }, manualRotation, size)
+      })),
+    [arcs, manualRotation, size]
+  );
+
   function openWarehouse(warehouse: LogisticsWarehouse) {
+    setManualRotation({ x: 8, y: -warehouse.lng });
     globeRef.current?.pointOfView(
       { lat: warehouse.lat, lng: warehouse.lng, altitude: 1.35 },
       1100
     );
     setSelection({ type: "warehouse", item: warehouse });
+  }
+
+  function focusPoint(point: GlobePoint) {
+    setManualRotation({ x: Math.max(-28, Math.min(28, point.lat * -0.18)), y: -point.lng });
   }
 
   function handlePointClick(point: object) {
@@ -252,6 +312,7 @@ export function GlobeScene({
     }
 
     if (globePoint.kind === "container" && globePoint.container) {
+      focusPoint(globePoint);
       globeRef.current?.pointOfView(
         { lat: globePoint.lat, lng: globePoint.lng, altitude: 1.45 },
         1000
@@ -260,11 +321,38 @@ export function GlobeScene({
       return;
     }
 
+    focusPoint(globePoint);
     globeRef.current?.pointOfView(
       { lat: globePoint.lat, lng: globePoint.lng, altitude: 1.45 },
       1000
     );
     setSelection(null);
+  }
+
+  function onPointerDown(event: PointerEvent<HTMLElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      rotationX: manualRotation.x,
+      rotationY: manualRotation.y
+    };
+  }
+
+  function onPointerMove(event: PointerEvent<HTMLElement>) {
+    if (!dragRef.current) return;
+
+    const deltaX = event.clientX - dragRef.current.x;
+    const deltaY = event.clientY - dragRef.current.y;
+    setManualRotation({
+      x: Math.max(-35, Math.min(35, dragRef.current.rotationX - deltaY * 0.18)),
+      y: dragRef.current.rotationY + deltaX * 0.28
+    });
+  }
+
+  function onPointerUp(event: PointerEvent<HTMLElement>) {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    dragRef.current = null;
   }
 
   function createMarkerElement(point: object) {
@@ -305,7 +393,72 @@ export function GlobeScene({
     >
       <StaticEarthFallback />
 
-      <div className="absolute inset-0 z-[1] cursor-grab active:cursor-grabbing">
+      <div
+        className="absolute inset-0 z-[3] cursor-grab touch-none overflow-hidden active:cursor-grabbing"
+        onPointerCancel={onPointerUp}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+      >
+        <div
+          aria-hidden="true"
+          className="absolute left-1/2 top-1/2 h-[min(78vw,78vh)] w-[min(78vw,78vh)] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/30 shadow-[0_0_90px_rgba(138,180,248,0.38)]"
+          style={{
+            backgroundImage: `radial-gradient(circle at 34% 28%, rgba(255,255,255,0.34), transparent 24%), url(${EARTH_TEXTURE_URL})`,
+            backgroundPosition: `${50 - manualRotation.y / 3.6}% ${50 + manualRotation.x / 2}%`,
+            backgroundSize: "auto 100%",
+            boxShadow:
+              "inset -70px -40px 90px rgba(2,6,23,0.62), 0 0 110px rgba(138,180,248,0.34)"
+          }}
+        />
+
+        <svg className="pointer-events-none absolute inset-0 h-full w-full">
+          {projectedArcs.map((arc) =>
+            arc.origin.visible || arc.destination.visible ? (
+              <path
+                d={`M ${arc.origin.x} ${arc.origin.y} Q ${size.width / 2} ${size.height * 0.22} ${arc.destination.x} ${arc.destination.y}`}
+                fill="none"
+                key={arc.id}
+                stroke="rgba(138, 180, 248, 0.72)"
+                strokeDasharray="8 8"
+                strokeWidth="2"
+              />
+            ) : null
+          )}
+        </svg>
+
+        {projectedPoints.map((point) =>
+          point.visible ? (
+            <button
+              className="absolute grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-white bg-white/25 shadow-[0_0_20px_rgba(255,255,255,0.55)] backdrop-blur-sm transition hover:scale-110"
+              key={point.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                handlePointClick(point);
+              }}
+              style={{
+                left: point.x,
+                top: point.y
+              }}
+              title={point.label}
+              type="button"
+            >
+              <span
+                className={point.kind === "container" ? "block h-3 w-3 rounded-full" : "block h-4 w-4 rounded-full"}
+                style={{
+                  backgroundColor: point.color,
+                  boxShadow: `0 0 18px ${point.color}`
+                }}
+              />
+              <span className="pointer-events-none absolute left-9 top-1/2 hidden min-w-max -translate-y-1/2 rounded-full bg-white/95 px-3 py-1 text-xs font-semibold text-slate-900 shadow-lg lg:block">
+                {point.label}
+              </span>
+            </button>
+          ) : null
+        )}
+      </div>
+
+      <div className="pointer-events-none absolute inset-0 z-[1] opacity-0">
         <Globe
           ref={globeRef}
           width={size.width}
