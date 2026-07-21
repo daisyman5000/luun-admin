@@ -45,6 +45,7 @@ type PlanningTarget = {
 };
 
 type ModuleTotals = Record<ModuleSlug, number>;
+type ForecastView = "board" | "calendar";
 
 type ColorSummary = {
   color: string;
@@ -60,11 +61,30 @@ type ForecastSummary = {
   totalProjected: number;
 };
 
+type SalePlan = {
+  id: string;
+  name: string;
+  date: string;
+  note: string;
+  targets: ColorSummary[];
+};
+
+type CalendarEvent = {
+  id: string;
+  date: string;
+  detail: string;
+  moduleDelta: ModuleTotals;
+  title: string;
+  totalDelta: number;
+  type: "container" | "sale";
+};
+
 type SelectedItem =
   | { type: "inventory"; color: string }
   | { type: "transit"; containerId: string }
   | { type: "purchase-order"; id: string }
   | { type: "forecast"; color: string }
+  | { type: "sale"; id: string }
   | null;
 
 const MODULES: ModuleSlug[] = ["corner", "armless", "ottoman"];
@@ -164,6 +184,31 @@ const INITIAL_PLANNING_TARGETS: PlanningTarget[] = [
   { color: "Jade", module: "ottoman", needed: 6 }
 ];
 
+const SALE_PLANS: SalePlan[] = [
+  {
+    id: "SALE-AUG-LABOUR",
+    name: "Late August sale",
+    date: "Aug 22, 2026",
+    note: "Clear room before the next Canada receipt.",
+    targets: [
+      { color: "Off-white", modules: { armless: 10, corner: 14, ottoman: 8 }, total: 32 },
+      { color: "Dark grey", modules: { armless: 8, corner: 12, ottoman: 8 }, total: 28 },
+      { color: "Peach", modules: { armless: 4, corner: 6, ottoman: 4 }, total: 14 }
+    ]
+  },
+  {
+    id: "SALE-SEP-FALL",
+    name: "Fall launch sale",
+    date: "Sep 19, 2026",
+    note: "Use after jade and aqua stock are replenished.",
+    targets: [
+      { color: "Aqua", modules: { armless: 8, corner: 10, ottoman: 6 }, total: 24 },
+      { color: "Jade", modules: { armless: 8, corner: 12, ottoman: 6 }, total: 26 },
+      { color: "Off-white", modules: { armless: 8, corner: 10, ottoman: 6 }, total: 24 }
+    ]
+  }
+];
+
 const EMPTY_TOTALS: ModuleTotals = { armless: 0, corner: 0, ottoman: 0 };
 
 function emptyTotals(): ModuleTotals {
@@ -230,6 +275,7 @@ function getContainerItems(container: ContainerShipment) {
 }
 
 export function ForecastingWorkspace() {
+  const [forecastView, setForecastView] = useState<ForecastView>("board");
   const [selected, setSelected] = useState<SelectedItem>(null);
   const [planningTargets, setPlanningTargets] = useState(INITIAL_PLANNING_TARGETS);
 
@@ -284,6 +330,16 @@ export function ForecastingWorkspace() {
   const selectedPurchaseOrder =
     selected?.type === "purchase-order" ? PURCHASE_ORDERS.find((po) => po.id === selected.id) : null;
   const selectedContainer = selected?.type === "transit" ? CONTAINERS.find((container) => container.id === selected.containerId) : null;
+  const selectedSale = selected?.type === "sale" ? SALE_PLANS.find((sale) => sale.id === selected.id) : null;
+
+  const calendarEvents = useMemo(() => {
+    return createCalendarEvents();
+  }, []);
+
+  const calendarProjection = useMemo(
+    () => createCalendarProjection(inventoryRows, calendarEvents),
+    [calendarEvents, inventoryRows]
+  );
 
   function updatePlanningNeed(color: string, module: ModuleSlug, needed: number) {
     setPlanningTargets((currentTargets) =>
@@ -300,92 +356,121 @@ export function ForecastingWorkspace() {
           <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">Forecasting</div>
           <h1 className="mt-1 text-2xl font-semibold tracking-normal">Supply planning board</h1>
         </div>
-        <p className="max-w-2xl text-sm leading-6 text-zinc-500">
-          Inventory, containers, purchase orders and forecast numbers are shown side by side so the flow is clear.
-        </p>
+        <div className="flex flex-col gap-3 lg:items-end">
+          <div className="inline-flex rounded-2xl border border-white bg-white/85 p-1 shadow-sm">
+            <button
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                forecastView === "board" ? "bg-blue-600 text-white" : "text-zinc-600 hover:bg-zinc-100"
+              }`}
+              onClick={() => setForecastView("board")}
+              type="button"
+            >
+              Board
+            </button>
+            <button
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                forecastView === "calendar" ? "bg-blue-600 text-white" : "text-zinc-600 hover:bg-zinc-100"
+              }`}
+              onClick={() => setForecastView("calendar")}
+              type="button"
+            >
+              Calendar forecast
+            </button>
+          </div>
+          <p className="max-w-2xl text-sm leading-6 text-zinc-500">
+            Inventory, containers, purchase orders, sale timing and forecast numbers are connected here.
+          </p>
+        </div>
       </header>
 
-      <section className="grid gap-4 xl:grid-cols-4">
-        <BoardColumn
-          title="Inventory on hand"
-          total={inventoryRows.reduce((sum, row) => sum + row.total, 0)}
-          subtitle="Canada warehouse"
-        >
-          <ModuleMatrix
-            rows={inventoryRows}
-            onOpen={(color) => setSelected({ color, type: "inventory" })}
-          />
-        </BoardColumn>
+      {forecastView === "board" ? (
+        <section className="grid gap-4 xl:grid-cols-4">
+          <BoardColumn
+            title="Inventory on hand"
+            total={inventoryRows.reduce((sum, row) => sum + row.total, 0)}
+            subtitle="Canada warehouse"
+          >
+            <ModuleMatrix rows={inventoryRows} onOpen={(color) => setSelected({ color, type: "inventory" })} />
+          </BoardColumn>
 
-        <BoardColumn
-          title="Inventory in transit"
-          total={transitRows.reduce((sum, row) => sum + row.total, 0)}
-          subtitle={`${CONTAINERS.length} active container`}
-        >
-          <div className="space-y-3">
-            {CONTAINERS.map((container) => (
-              <button
-                className="w-full rounded-2xl border border-zinc-100 bg-zinc-50 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50"
-                key={container.id}
-                onClick={() => setSelected({ containerId: container.id, type: "transit" })}
-                type="button"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-zinc-950">{container.id}</div>
-                    <div className="mt-1 text-xs text-zinc-500">ETA {container.eta}</div>
+          <BoardColumn
+            title="Inventory in transit"
+            total={transitRows.reduce((sum, row) => sum + row.total, 0)}
+            subtitle={`${CONTAINERS.length} active container`}
+          >
+            <div className="space-y-3">
+              {CONTAINERS.map((container) => (
+                <button
+                  className="w-full rounded-2xl border border-zinc-100 bg-zinc-50 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50"
+                  key={container.id}
+                  onClick={() => setSelected({ containerId: container.id, type: "transit" })}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-zinc-950">{container.id}</div>
+                      <div className="mt-1 text-xs text-zinc-500">ETA {container.eta}</div>
+                    </div>
+                    <StatusPill status={container.status} />
                   </div>
-                  <StatusPill status={container.status} />
-                </div>
-              </button>
-            ))}
-            <ModuleMatrix rows={transitRows} />
-          </div>
-        </BoardColumn>
+                </button>
+              ))}
+              <ModuleMatrix rows={transitRows} />
+            </div>
+          </BoardColumn>
 
-        <BoardColumn
-          title="Purchase orders"
-          total={productionRows.reduce((sum, row) => sum + row.total, 0)}
-          subtitle="Factory and planned POs"
-        >
-          <div className="space-y-3">
-            {PURCHASE_ORDERS.map((po) => (
-              <button
-                className="w-full rounded-2xl border border-zinc-100 bg-zinc-50 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50"
-                key={po.id}
-                onClick={() => setSelected({ id: po.id, type: "purchase-order" })}
-                type="button"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-zinc-950">{po.id}</div>
-                    <div className="mt-1 text-xs text-zinc-500">CRD {po.crd}</div>
+          <BoardColumn
+            title="Purchase orders"
+            total={productionRows.reduce((sum, row) => sum + row.total, 0)}
+            subtitle="Factory and planned POs"
+          >
+            <div className="space-y-3">
+              {PURCHASE_ORDERS.map((po) => (
+                <button
+                  className="w-full rounded-2xl border border-zinc-100 bg-zinc-50 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50"
+                  key={po.id}
+                  onClick={() => setSelected({ id: po.id, type: "purchase-order" })}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-zinc-950">{po.id}</div>
+                      <div className="mt-1 text-xs text-zinc-500">CRD {po.crd}</div>
+                    </div>
+                    <StatusPill status={po.status} />
                   </div>
-                  <StatusPill status={po.status} />
-                </div>
-                <div className="mt-3 text-sm text-zinc-500">{totalModulesFromItems(po.items)} modules</div>
-              </button>
-            ))}
-          </div>
-        </BoardColumn>
+                  <div className="mt-3 text-sm text-zinc-500">{totalModulesFromItems(po.items)} modules</div>
+                </button>
+              ))}
+            </div>
+          </BoardColumn>
 
-        <BoardColumn
-          title="Inventory forecasting"
-          total={forecastRows.reduce((sum, row) => sum + row.totalProjected, 0)}
-          subtitle="Projected after plan"
-        >
-          <div className="space-y-3">
-            {forecastRows.map((row) => (
-              <ForecastCard
-                key={row.color}
-                row={row}
-                onOpen={() => setSelected({ color: row.color, type: "forecast" })}
-                onUpdateNeed={updatePlanningNeed}
-              />
-            ))}
-          </div>
-        </BoardColumn>
-      </section>
+          <BoardColumn
+            title="Inventory forecasting"
+            total={forecastRows.reduce((sum, row) => sum + row.totalProjected, 0)}
+            subtitle="Projected after plan"
+          >
+            <div className="space-y-3">
+              {forecastRows.map((row) => (
+                <ForecastCard
+                  key={row.color}
+                  row={row}
+                  onOpen={() => setSelected({ color: row.color, type: "forecast" })}
+                  onUpdateNeed={updatePlanningNeed}
+                />
+              ))}
+            </div>
+          </BoardColumn>
+        </section>
+      ) : (
+        <CalendarForecast
+          events={calendarEvents}
+          projection={calendarProjection}
+          salePlans={SALE_PLANS}
+          onOpenContainer={(containerId) => setSelected({ containerId, type: "transit" })}
+          onOpenSale={(id) => setSelected({ id, type: "sale" })}
+        />
+      )}
 
       {selected ? (
         <>
@@ -401,6 +486,7 @@ export function ForecastingWorkspace() {
                 <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">Details</div>
                 <div className="mt-1 text-xl font-semibold">
                   {selectedInventory?.color ?? selectedForecast?.color ?? selectedPurchaseOrder?.id ?? selectedContainer?.id}
+                  {selectedSale?.name}
                 </div>
               </div>
               <button
@@ -415,6 +501,7 @@ export function ForecastingWorkspace() {
             {selectedForecast ? <ForecastDrawer row={selectedForecast} /> : null}
             {selectedPurchaseOrder ? <PurchaseOrderDrawer purchaseOrder={selectedPurchaseOrder} /> : null}
             {selectedContainer ? <ContainerDrawer container={selectedContainer} /> : null}
+            {selectedSale ? <SaleDrawer sale={selectedSale} /> : null}
           </aside>
         </>
       ) : null}
@@ -550,6 +637,118 @@ function ForecastCard({
   );
 }
 
+function CalendarForecast({
+  events,
+  onOpenContainer,
+  onOpenSale,
+  projection,
+  salePlans
+}: {
+  events: CalendarEvent[];
+  onOpenContainer: (containerId: string) => void;
+  onOpenSale: (id: string) => void;
+  projection: { date: string; projected: number; title: string }[];
+  salePlans: SalePlan[];
+}) {
+  const monthlyEvents = groupEventsByMonth(events);
+  const projectedEnd = projection[projection.length - 1]?.projected ?? 0;
+  const totalSaleTarget = salePlans.reduce((total, sale) => total + sale.targets.reduce((sum, row) => sum + row.total, 0), 0);
+  const totalIncoming = events.filter((event) => event.type === "container").reduce((total, event) => total + event.totalDelta, 0);
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <MiniMetric label="Incoming containers" value={totalIncoming} />
+          <MiniMetric label="Sale target" value={totalSaleTarget} />
+          <MiniMetric label="Projected after calendar" value={projectedEnd} tone={projectedEnd < 0 ? "warning" : "normal"} />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          {monthlyEvents.map((month) => (
+            <section className="min-h-[520px] rounded-[28px] border border-white bg-white/85 p-4 shadow-sm" key={month.label}>
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold">{month.label}</h2>
+                <p className="mt-1 text-sm text-zinc-500">{month.events.length} planning events</p>
+              </div>
+              <div className="space-y-3">
+                {month.events.map((event) => (
+                  <button
+                    className={`w-full rounded-2xl border p-4 text-left transition hover:border-blue-200 ${
+                      event.type === "container" ? "border-blue-100 bg-blue-50" : "border-amber-100 bg-amber-50"
+                    }`}
+                    key={event.id}
+                    onClick={() => {
+                      if (event.type === "container") onOpenContainer(event.id);
+                      if (event.type === "sale") onOpenSale(event.id);
+                    }}
+                    type="button"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{event.date}</div>
+                        <div className="mt-1 font-semibold text-zinc-950">{event.title}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{event.detail}</div>
+                      </div>
+                      <div className={`text-2xl font-semibold ${event.totalDelta < 0 ? "text-red-600" : "text-blue-700"}`}>
+                        {event.totalDelta > 0 ? "+" : ""}
+                        {event.totalDelta}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs text-zinc-600">
+                      {MODULES.map((module) => (
+                        <div className="rounded-xl bg-white/70 px-2 py-2" key={module}>
+                          <div className="font-semibold text-zinc-500">
+                            {module === "armless" ? "Arm" : moduleLabel(module).slice(0, 3)}
+                          </div>
+                          <div className="mt-1 text-base font-semibold text-zinc-950">{event.moduleDelta[module]}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+
+      <aside className="rounded-[28px] border border-white bg-white/85 p-4 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold">Projection timeline</h2>
+          <p className="mt-1 text-sm text-zinc-500">Inventory after each container or sale.</p>
+        </div>
+        <div className="space-y-3">
+          {projection.map((point, index) => (
+            <div className="relative rounded-2xl border border-zinc-100 bg-zinc-50 p-4" key={`${point.date}-${point.title}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    {index === 0 ? "Start" : point.date}
+                  </div>
+                  <div className="mt-1 font-semibold text-zinc-950">{point.title}</div>
+                </div>
+                <div className={`text-2xl font-semibold ${point.projected < 0 ? "text-red-600" : "text-zinc-950"}`}>
+                  {point.projected}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </aside>
+    </section>
+  );
+}
+
+function MiniMetric({ label, tone = "normal", value }: { label: string; tone?: "normal" | "warning"; value: number }) {
+  return (
+    <div className="rounded-3xl border border-white bg-white/85 p-4 shadow-sm">
+      <div className="text-xs font-medium text-zinc-500">{label}</div>
+      <div className={`mt-2 text-3xl font-semibold ${tone === "warning" ? "text-red-600" : "text-zinc-950"}`}>{value}</div>
+    </div>
+  );
+}
+
 function StatusPill({ status }: { status: ForecastStatus | ContainerShipment["status"] }) {
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClasses(status)}`}>{status}</span>;
 }
@@ -630,6 +829,21 @@ function ContainerDrawer({ container }: { container: ContainerShipment }) {
   );
 }
 
+function SaleDrawer({ sale }: { sale: SalePlan }) {
+  return (
+    <div className="space-y-6 p-5">
+      <DetailList
+        rows={[
+          ["Date", sale.date],
+          ["Purpose", sale.note],
+          ["Target pieces", String(sale.targets.reduce((total, row) => total + row.total, 0))]
+        ]}
+      />
+      <SummaryDrawer rows={sale.targets} title="Sale target quantities" />
+    </div>
+  );
+}
+
 function DetailList({ rows }: { rows: [string, string][] }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-200">
@@ -641,4 +855,77 @@ function DetailList({ rows }: { rows: [string, string][] }) {
       ))}
     </div>
   );
+}
+
+function createCalendarEvents(): CalendarEvent[] {
+  const containerEvents = CONTAINERS.map((container) => {
+    const items = getContainerItems(container);
+    const moduleDelta = items.reduce<ModuleTotals>((totals, item) => {
+      totals[item.module] += item.quantity;
+      return totals;
+    }, emptyTotals());
+
+    return {
+      date: container.eta,
+      detail: `${container.origin} to ${container.destination}`,
+      id: container.id,
+      moduleDelta,
+      title: `${container.id} arrives`,
+      totalDelta: totalModules(moduleDelta),
+      type: "container" as const
+    };
+  });
+
+  const saleEvents = SALE_PLANS.map((sale) => {
+    const moduleDelta = sale.targets.reduce<ModuleTotals>((totals, target) => {
+      MODULES.forEach((module) => {
+        totals[module] -= target.modules[module];
+      });
+      return totals;
+    }, emptyTotals());
+
+    return {
+      date: sale.date,
+      detail: sale.note,
+      id: sale.id,
+      moduleDelta,
+      title: sale.name,
+      totalDelta: totalModules(moduleDelta),
+      type: "sale" as const
+    };
+  });
+
+  return [...containerEvents, ...saleEvents].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+}
+
+function createCalendarProjection(inventoryRows: ColorSummary[], events: CalendarEvent[]) {
+  let projected = inventoryRows.reduce((total, row) => total + row.total, 0);
+
+  return [
+    { date: "Today", projected, title: "Current Canada inventory" },
+    ...events.map((event) => {
+      projected += event.totalDelta;
+      return {
+        date: event.date,
+        projected,
+        title: event.title
+      };
+    })
+  ];
+}
+
+function groupEventsByMonth(events: CalendarEvent[]) {
+  return events.reduce<{ events: CalendarEvent[]; label: string }[]>((months, event) => {
+    const eventDate = new Date(event.date);
+    const label = eventDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const existingMonth = months.find((month) => month.label === label);
+
+    if (existingMonth) {
+      existingMonth.events.push(event);
+    } else {
+      months.push({ events: [event], label });
+    }
+
+    return months;
+  }, []);
 }
