@@ -74,9 +74,10 @@ type CalendarEvent = {
   date: string;
   detail: string;
   moduleDelta: ModuleTotals;
+  purchaseOrderId?: string;
   title: string;
   totalDelta: number;
-  type: "container" | "sale";
+  type: "container" | "purchase-order" | "sale";
 };
 
 type SelectedItem =
@@ -446,6 +447,7 @@ export function ForecastingWorkspace({ view = "board" }: { view?: ForecastView }
       ) : (
         <CalendarForecast
           events={calendarEvents}
+          onOpenPurchaseOrder={(id) => setSelected({ id, type: "purchase-order" })}
           projection={calendarProjection}
           salePlans={SALE_PLANS}
           onOpenContainer={(containerId) => setSelected({ containerId, type: "transit" })}
@@ -621,113 +623,180 @@ function ForecastCard({
 function CalendarForecast({
   events,
   onOpenContainer,
+  onOpenPurchaseOrder,
   onOpenSale,
   projection,
   salePlans
 }: {
   events: CalendarEvent[];
   onOpenContainer: (containerId: string) => void;
+  onOpenPurchaseOrder: (id: string) => void;
   onOpenSale: (id: string) => void;
   projection: { date: string; projected: number; title: string }[];
   salePlans: SalePlan[];
 }) {
   const monthlyEvents = groupEventsByMonth(events);
-  const projectedEnd = projection[projection.length - 1]?.projected ?? 0;
   const totalSaleTarget = salePlans.reduce((total, sale) => total + sale.targets.reduce((sum, row) => sum + row.total, 0), 0);
   const totalIncoming = events.filter((event) => event.type === "container").reduce((total, event) => total + event.totalDelta, 0);
+  const purchaseOrderEvents = events.filter((event) => event.type === "purchase-order").length;
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-3">
-          <MiniMetric label="Incoming containers" value={totalIncoming} />
-          <MiniMetric label="Sale target" value={totalSaleTarget} />
-          <MiniMetric label="Projected after calendar" value={projectedEnd} tone={projectedEnd < 0 ? "warning" : "normal"} />
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-3">
-          {monthlyEvents.map((month) => (
-            <section className="min-h-[520px] rounded-[28px] border border-white bg-white/85 p-4 shadow-sm" key={month.label}>
-              <div className="mb-4">
+    <section className="space-y-5">
+      <div className="grid gap-4 xl:grid-cols-3">
+        {monthlyEvents.map((month) => (
+          <section className="rounded-[28px] border border-white bg-white/85 p-4 shadow-sm" key={month.label}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
                 <h2 className="text-lg font-semibold">{month.label}</h2>
-                <p className="mt-1 text-sm text-zinc-500">{month.events.length} planning events</p>
+                <p className="mt-1 text-sm text-zinc-500">{month.events.length} highlighted dates</p>
               </div>
-              <div className="space-y-3">
-                {month.events.map((event) => (
-                  <button
-                    className={`w-full rounded-2xl border p-4 text-left transition hover:border-blue-200 ${
-                      event.type === "container" ? "border-blue-100 bg-blue-50" : "border-amber-100 bg-amber-50"
-                    }`}
-                    key={event.id}
-                    onClick={() => {
-                      if (event.type === "container") onOpenContainer(event.id);
-                      if (event.type === "sale") onOpenSale(event.id);
-                    }}
-                    type="button"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{event.date}</div>
-                        <div className="mt-1 font-semibold text-zinc-950">{event.title}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{event.detail}</div>
-                      </div>
-                      <div className={`text-2xl font-semibold ${event.totalDelta < 0 ? "text-red-600" : "text-blue-700"}`}>
-                        {event.totalDelta > 0 ? "+" : ""}
-                        {event.totalDelta}
-                      </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs text-zinc-600">
-                      {MODULES.map((module) => (
-                        <div className="rounded-xl bg-white/70 px-2 py-2" key={module}>
-                          <div className="font-semibold text-zinc-500">
-                            {module === "armless" ? "Arm" : moduleLabel(module).slice(0, 3)}
-                          </div>
-                          <div className="mt-1 text-base font-semibold text-zinc-950">{event.moduleDelta[module]}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      </div>
-
-      <aside className="rounded-[28px] border border-white bg-white/85 p-4 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold">Projection timeline</h2>
-          <p className="mt-1 text-sm text-zinc-500">Inventory after each container or sale.</p>
-        </div>
-        <div className="space-y-3">
-          {projection.map((point, index) => (
-            <div className="relative rounded-2xl border border-zinc-100 bg-zinc-50 p-4" key={`${point.date}-${point.title}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    {index === 0 ? "Start" : point.date}
-                  </div>
-                  <div className="mt-1 font-semibold text-zinc-950">{point.title}</div>
-                </div>
-                <div className={`text-2xl font-semibold ${point.projected < 0 ? "text-red-600" : "text-zinc-950"}`}>
-                  {point.projected}
-                </div>
+              <div className="flex gap-1">
+                <LegendDot tone="blue" />
+                <LegendDot tone="amber" />
+                <LegendDot tone="violet" />
               </div>
             </div>
-          ))}
-        </div>
-      </aside>
+            <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                <div className="py-1" key={day}>
+                  {day}
+                </div>
+              ))}
+            </div>
+            <div className="mt-1 grid grid-cols-7 gap-1">
+              {buildMonthDays(month.events).map((day, index) =>
+                day ? (
+                  <div
+                    className={`min-h-24 rounded-2xl border p-2 ${
+                      day.events.length > 0 ? "border-blue-100 bg-white shadow-sm" : "border-zinc-100 bg-zinc-50/70"
+                    }`}
+                    key={day.iso}
+                  >
+                    <div className="mb-1 text-left text-sm font-semibold text-zinc-800">{day.date.getDate()}</div>
+                    <div className="space-y-1">
+                      {day.events.map((event) => (
+                        <button
+                          className={`block w-full truncate rounded-lg px-2 py-1 text-left text-[11px] font-semibold ${eventBadgeClasses(
+                            event.type
+                          )}`}
+                          key={event.id}
+                          onClick={() => {
+                            if (event.type === "container") onOpenContainer(event.id);
+                            if (event.type === "purchase-order" && event.purchaseOrderId) onOpenPurchaseOrder(event.purchaseOrderId);
+                            if (event.type === "sale") onOpenSale(event.id);
+                          }}
+                          title={event.title}
+                          type="button"
+                        >
+                          {event.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="min-h-24" key={`blank-${month.label}-${index}`} />
+                )
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <section className="rounded-[28px] border border-white bg-white/85 p-4 shadow-sm">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Stakeholder summary</h2>
+              <p className="mt-1 text-sm text-zinc-500">Dates that matter for buying, receiving and selling inventory.</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <SummaryPill label="Incoming" value={totalIncoming} />
+              <SummaryPill label="Sell target" value={totalSaleTarget} />
+              <SummaryPill label="PO dates" value={purchaseOrderEvents} />
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-zinc-100">
+            {events.map((event) => (
+              <button
+                className="grid w-full gap-3 border-b border-zinc-100 p-4 text-left last:border-b-0 hover:bg-blue-50 md:grid-cols-[120px_1fr_110px]"
+                key={event.id}
+                onClick={() => {
+                  if (event.type === "container") onOpenContainer(event.id);
+                  if (event.type === "purchase-order" && event.purchaseOrderId) onOpenPurchaseOrder(event.purchaseOrderId);
+                  if (event.type === "sale") onOpenSale(event.id);
+                }}
+                type="button"
+              >
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{event.date}</div>
+                  <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${eventBadgeClasses(event.type)}`}>
+                    {event.type === "purchase-order" ? "Purchase" : event.type}
+                  </div>
+                </div>
+                <div>
+                  <div className="font-semibold text-zinc-950">{event.title}</div>
+                  <div className="mt-1 text-sm text-zinc-500">{event.detail}</div>
+                </div>
+                <div className={`text-right text-2xl font-semibold ${event.totalDelta < 0 ? "text-red-600" : "text-blue-700"}`}>
+                  {event.totalDelta > 0 ? "+" : ""}
+                  {event.totalDelta}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <aside className="rounded-[28px] border border-white bg-white/85 p-4 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold">Projection</h2>
+            <p className="mt-1 text-sm text-zinc-500">Total pieces after each highlighted date.</p>
+          </div>
+          <div className="space-y-3">
+            {projection.map((point, index) => (
+              <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4" key={`${point.date}-${point.title}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      {index === 0 ? "Start" : point.date}
+                    </div>
+                    <div className="mt-1 font-semibold text-zinc-950">{point.title}</div>
+                  </div>
+                  <div className={`text-2xl font-semibold ${point.projected < 0 ? "text-red-600" : "text-zinc-950"}`}>
+                    {point.projected}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+      </div>
     </section>
   );
 }
 
-function MiniMetric({ label, tone = "normal", value }: { label: string; tone?: "normal" | "warning"; value: number }) {
+function LegendDot({ tone }: { tone: "amber" | "blue" | "violet" }) {
+  const classes = {
+    amber: "bg-amber-400",
+    blue: "bg-blue-500",
+    violet: "bg-violet-500"
+  };
+
+  return <span className={`h-2.5 w-2.5 rounded-full ${classes[tone]}`} />;
+}
+
+function SummaryPill({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-3xl border border-white bg-white/85 p-4 shadow-sm">
-      <div className="text-xs font-medium text-zinc-500">{label}</div>
-      <div className={`mt-2 text-3xl font-semibold ${tone === "warning" ? "text-red-600" : "text-zinc-950"}`}>{value}</div>
+    <div className="rounded-2xl bg-zinc-50 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-zinc-950">{value}</div>
     </div>
   );
+}
+
+function eventBadgeClasses(type: CalendarEvent["type"]) {
+  if (type === "container") return "bg-blue-100 text-blue-800";
+  if (type === "purchase-order") return "bg-violet-100 text-violet-800";
+  return "bg-amber-100 text-amber-800";
 }
 
 function StatusPill({ status }: { status: ForecastStatus | ContainerShipment["status"] }) {
@@ -857,6 +926,24 @@ function createCalendarEvents(): CalendarEvent[] {
     };
   });
 
+  const purchaseOrderEvents = PURCHASE_ORDERS.filter((purchaseOrder) => purchaseOrder.status === "Planning").map((purchaseOrder) => {
+    const moduleDelta = purchaseOrder.items.reduce<ModuleTotals>((totals, item) => {
+      totals[item.module] += item.quantity;
+      return totals;
+    }, emptyTotals());
+
+    return {
+      date: "Aug 12, 2026",
+      detail: `${purchaseOrder.factory} to ${purchaseOrder.destination}. CRD ${purchaseOrder.crd}.`,
+      id: `BUY-${purchaseOrder.id}`,
+      moduleDelta,
+      purchaseOrderId: purchaseOrder.id,
+      title: `Place ${purchaseOrder.id}`,
+      totalDelta: totalModules(moduleDelta),
+      type: "purchase-order" as const
+    };
+  });
+
   const saleEvents = SALE_PLANS.map((sale) => {
     const moduleDelta = sale.targets.reduce<ModuleTotals>((totals, target) => {
       MODULES.forEach((module) => {
@@ -876,7 +963,7 @@ function createCalendarEvents(): CalendarEvent[] {
     };
   });
 
-  return [...containerEvents, ...saleEvents].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+  return [...containerEvents, ...purchaseOrderEvents, ...saleEvents].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
 }
 
 function createCalendarProjection(inventoryRows: ColorSummary[], events: CalendarEvent[]) {
@@ -885,7 +972,10 @@ function createCalendarProjection(inventoryRows: ColorSummary[], events: Calenda
   return [
     { date: "Today", projected, title: "Current Canada inventory" },
     ...events.map((event) => {
-      projected += event.totalDelta;
+      if (event.type !== "purchase-order") {
+        projected += event.totalDelta;
+      }
+
       return {
         date: event.date,
         projected,
@@ -909,4 +999,28 @@ function groupEventsByMonth(events: CalendarEvent[]) {
 
     return months;
   }, []);
+}
+
+function buildMonthDays(events: CalendarEvent[]) {
+  const firstEventDate = new Date(events[0]?.date ?? new Date());
+  const monthStart = new Date(firstEventDate.getFullYear(), firstEventDate.getMonth(), 1);
+  const monthEnd = new Date(firstEventDate.getFullYear(), firstEventDate.getMonth() + 1, 0);
+  const days: ({ date: Date; events: CalendarEvent[]; iso: string } | null)[] = [];
+
+  for (let index = 0; index < monthStart.getDay(); index += 1) {
+    days.push(null);
+  }
+
+  for (let day = 1; day <= monthEnd.getDate(); day += 1) {
+    const date = new Date(firstEventDate.getFullYear(), firstEventDate.getMonth(), day);
+    const iso = date.toISOString().slice(0, 10);
+
+    days.push({
+      date,
+      events: events.filter((event) => new Date(event.date).toISOString().slice(0, 10) === iso),
+      iso
+    });
+  }
+
+  return days;
 }
