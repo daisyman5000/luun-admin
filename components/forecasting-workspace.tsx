@@ -274,8 +274,7 @@ function getContainerItems(container: ContainerShipment) {
   );
 }
 
-export function ForecastingWorkspace() {
-  const [forecastView, setForecastView] = useState<ForecastView>("board");
+export function ForecastingWorkspace({ view = "board" }: { view?: ForecastView }) {
   const [selected, setSelected] = useState<SelectedItem>(null);
   const [planningTargets, setPlanningTargets] = useState(INITIAL_PLANNING_TARGETS);
 
@@ -354,36 +353,18 @@ export function ForecastingWorkspace() {
       <header className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">Forecasting</div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal">Supply planning board</h1>
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal">
+            {view === "board" ? "Supply planning board" : "Calendar forecast"}
+          </h1>
         </div>
-        <div className="flex flex-col gap-3 lg:items-end">
-          <div className="inline-flex rounded-2xl border border-white bg-white/85 p-1 shadow-sm">
-            <button
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                forecastView === "board" ? "bg-blue-600 text-white" : "text-zinc-600 hover:bg-zinc-100"
-              }`}
-              onClick={() => setForecastView("board")}
-              type="button"
-            >
-              Board
-            </button>
-            <button
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                forecastView === "calendar" ? "bg-blue-600 text-white" : "text-zinc-600 hover:bg-zinc-100"
-              }`}
-              onClick={() => setForecastView("calendar")}
-              type="button"
-            >
-              Calendar forecast
-            </button>
-          </div>
-          <p className="max-w-2xl text-sm leading-6 text-zinc-500">
-            Inventory, containers, purchase orders, sale timing and forecast numbers are connected here.
-          </p>
-        </div>
+        <p className="max-w-2xl text-sm leading-6 text-zinc-500">
+          {view === "board"
+            ? "Inventory, containers, purchase orders and forecast numbers are shown side by side."
+            : "Incoming containers, sale timing, sell targets and projected inventory are shown by date."}
+        </p>
       </header>
 
-      {forecastView === "board" ? (
+      {view === "board" ? (
         <section className="grid gap-4 xl:grid-cols-4">
           <BoardColumn
             title="Inventory on hand"

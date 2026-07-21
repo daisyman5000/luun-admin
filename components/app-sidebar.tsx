@@ -9,25 +9,28 @@ const primaryLinks = [
   { href: "/data", label: "Orders", short: "O" },
   { href: "/inventory", label: "Inventory", short: "I" },
   { href: "/ticketing", label: "Ticketing", short: "T", soon: true },
-  { href: "/forecasting", label: "Forecasting", short: "F" },
+  { href: "/forecasting", label: "Forecasting", short: "F", exact: true },
+  { href: "/forecasting/calendar", label: "Calendar Forecast", short: "C" },
   { href: "/financials", label: "Financials", short: "Fi", soon: true }
 ];
 
 const adminLinks = [{ href: "/settings/users", label: "Users", short: "U" }];
 
 function SidebarLink({
+  exact,
   href,
   label,
   short,
   soon
 }: {
+  exact?: boolean;
   href: string;
   label: string;
   short: string;
   soon?: boolean;
 }) {
   const pathname = usePathname();
-  const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const isActive = href === "/" || exact ? pathname === href : pathname.startsWith(href);
 
   return (
     <Link
