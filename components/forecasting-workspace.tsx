@@ -1,20 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 
 type ModuleSlug = "corner" | "armless" | "ottoman";
 type ForecastStatus = "Planning" | "Production" | "In transit" | "Received";
-type ActiveView = "planning" | "purchase-orders" | "containers" | "inventory";
 
 type InventoryItem = {
-  sku: string;
   color: string;
   module: ModuleSlug;
   onHand: number;
 };
 
 type PurchaseOrderItem = {
-  sku: string;
   color: string;
   module: ModuleSlug;
   quantity: number;
@@ -46,40 +44,48 @@ type PlanningTarget = {
   needed: number;
 };
 
-type PlanningRow = {
+type ModuleTotals = Record<ModuleSlug, number>;
+
+type ColorSummary = {
   color: string;
-  module: ModuleSlug;
-  sku: string;
-  onHand: number;
-  inProduction: number;
-  inTransit: number;
-  plannedNeed: number;
-  projected: number;
+  modules: ModuleTotals;
+  total: number;
+};
+
+type ForecastSummary = {
+  color: string;
+  needed: ModuleTotals;
+  projected: ModuleTotals;
+  totalNeeded: number;
+  totalProjected: number;
 };
 
 type SelectedItem =
-  | { type: "planning"; sku: string }
+  | { type: "inventory"; color: string }
+  | { type: "transit"; containerId: string }
   | { type: "purchase-order"; id: string }
-  | { type: "container"; id: string }
-  | { type: "inventory"; sku: string }
+  | { type: "forecast"; color: string }
   | null;
 
+const MODULES: ModuleSlug[] = ["corner", "armless", "ottoman"];
+const COLORS = ["Off-white", "Dark grey", "Peach", "Aqua", "Jade"];
+
 const CANADA_INVENTORY: InventoryItem[] = [
-  { sku: "LCC-COR-WHITE", color: "Off-white", module: "corner", onHand: 34 },
-  { sku: "LCC-SIDE-WHITE", color: "Off-white", module: "armless", onHand: 30 },
-  { sku: "LCC-OTT-WHITE", color: "Off-white", module: "ottoman", onHand: 22 },
-  { sku: "LCC-COR-GREY", color: "Dark grey", module: "corner", onHand: 30 },
-  { sku: "LCC-SIDE-GREY", color: "Dark grey", module: "armless", onHand: 12 },
-  { sku: "LCC-OTT-GREY", color: "Dark grey", module: "ottoman", onHand: 17 },
-  { sku: "LCC-COR-PEACH", color: "Peach", module: "corner", onHand: 16 },
-  { sku: "LCC-SIDE-PEACH", color: "Peach", module: "armless", onHand: 8 },
-  { sku: "LCC-OTT-PEACH", color: "Peach", module: "ottoman", onHand: 8 },
-  { sku: "LCC-COR-SKYBLUE", color: "Aqua", module: "corner", onHand: 6 },
-  { sku: "LCC-SIDE-SKYBLUE", color: "Aqua", module: "armless", onHand: 4 },
-  { sku: "LCC-OTT-SKYBLUE", color: "Aqua", module: "ottoman", onHand: 3 },
-  { sku: "LCC-COR-BAMBOO", color: "Jade", module: "corner", onHand: 6 },
-  { sku: "LCC-SIDE-BAMBOO", color: "Jade", module: "armless", onHand: 1 },
-  { sku: "LCC-OTT-BAMBOO", color: "Jade", module: "ottoman", onHand: 2 }
+  { color: "Off-white", module: "corner", onHand: 34 },
+  { color: "Off-white", module: "armless", onHand: 30 },
+  { color: "Off-white", module: "ottoman", onHand: 22 },
+  { color: "Dark grey", module: "corner", onHand: 30 },
+  { color: "Dark grey", module: "armless", onHand: 12 },
+  { color: "Dark grey", module: "ottoman", onHand: 17 },
+  { color: "Peach", module: "corner", onHand: 16 },
+  { color: "Peach", module: "armless", onHand: 8 },
+  { color: "Peach", module: "ottoman", onHand: 8 },
+  { color: "Aqua", module: "corner", onHand: 6 },
+  { color: "Aqua", module: "armless", onHand: 4 },
+  { color: "Aqua", module: "ottoman", onHand: 3 },
+  { color: "Jade", module: "corner", onHand: 6 },
+  { color: "Jade", module: "armless", onHand: 1 },
+  { color: "Jade", module: "ottoman", onHand: 2 }
 ];
 
 const PURCHASE_ORDERS: PurchaseOrder[] = [
@@ -91,12 +97,12 @@ const PURCHASE_ORDERS: PurchaseOrder[] = [
     status: "In transit",
     containerId: "CONT-LUUN-0807",
     items: [
-      { sku: "LCC-COR-WHITE", color: "Off-white", module: "corner", quantity: 40 },
-      { sku: "LCC-SIDE-WHITE", color: "Off-white", module: "armless", quantity: 28 },
-      { sku: "LCC-OTT-WHITE", color: "Off-white", module: "ottoman", quantity: 20 },
-      { sku: "LCC-COR-GREY", color: "Dark grey", module: "corner", quantity: 28 },
-      { sku: "LCC-SIDE-GREY", color: "Dark grey", module: "armless", quantity: 18 },
-      { sku: "LCC-OTT-GREY", color: "Dark grey", module: "ottoman", quantity: 12 }
+      { color: "Off-white", module: "corner", quantity: 40 },
+      { color: "Off-white", module: "armless", quantity: 28 },
+      { color: "Off-white", module: "ottoman", quantity: 20 },
+      { color: "Dark grey", module: "corner", quantity: 28 },
+      { color: "Dark grey", module: "armless", quantity: 18 },
+      { color: "Dark grey", module: "ottoman", quantity: 12 }
     ]
   },
   {
@@ -106,12 +112,12 @@ const PURCHASE_ORDERS: PurchaseOrder[] = [
     crd: "Aug 28, 2026",
     status: "Production",
     items: [
-      { sku: "LCC-COR-PEACH", color: "Peach", module: "corner", quantity: 32 },
-      { sku: "LCC-SIDE-PEACH", color: "Peach", module: "armless", quantity: 20 },
-      { sku: "LCC-OTT-PEACH", color: "Peach", module: "ottoman", quantity: 14 },
-      { sku: "LCC-COR-SKYBLUE", color: "Aqua", module: "corner", quantity: 24 },
-      { sku: "LCC-SIDE-SKYBLUE", color: "Aqua", module: "armless", quantity: 18 },
-      { sku: "LCC-OTT-SKYBLUE", color: "Aqua", module: "ottoman", quantity: 12 }
+      { color: "Peach", module: "corner", quantity: 32 },
+      { color: "Peach", module: "armless", quantity: 20 },
+      { color: "Peach", module: "ottoman", quantity: 14 },
+      { color: "Aqua", module: "corner", quantity: 24 },
+      { color: "Aqua", module: "armless", quantity: 18 },
+      { color: "Aqua", module: "ottoman", quantity: 12 }
     ]
   },
   {
@@ -121,9 +127,9 @@ const PURCHASE_ORDERS: PurchaseOrder[] = [
     crd: "Sep 12, 2026",
     status: "Planning",
     items: [
-      { sku: "LCC-COR-BAMBOO", color: "Jade", module: "corner", quantity: 30 },
-      { sku: "LCC-SIDE-BAMBOO", color: "Jade", module: "armless", quantity: 22 },
-      { sku: "LCC-OTT-BAMBOO", color: "Jade", module: "ottoman", quantity: 16 }
+      { color: "Jade", module: "corner", quantity: 30 },
+      { color: "Jade", module: "armless", quantity: 22 },
+      { color: "Jade", module: "ottoman", quantity: 16 }
     ]
   }
 ];
@@ -158,27 +164,18 @@ const INITIAL_PLANNING_TARGETS: PlanningTarget[] = [
   { color: "Jade", module: "ottoman", needed: 6 }
 ];
 
-const VIEWS: { id: ActiveView; label: string }[] = [
-  { id: "planning", label: "Planning" },
-  { id: "purchase-orders", label: "Purchase orders" },
-  { id: "containers", label: "Containers in transit" },
-  { id: "inventory", label: "Stored inventory Canada" }
-];
+const EMPTY_TOTALS: ModuleTotals = { armless: 0, corner: 0, ottoman: 0 };
 
-function getModuleLabel(module: ModuleSlug) {
-  if (module === "armless") return "Armless";
-  return module.charAt(0).toUpperCase() + module.slice(1);
+function emptyTotals(): ModuleTotals {
+  return { ...EMPTY_TOTALS };
 }
 
-function sumItems(items: PurchaseOrderItem[]) {
-  return items.reduce((total, item) => total + item.quantity, 0);
+function moduleLabel(module: ModuleSlug) {
+  return module === "armless" ? "Armless" : module.charAt(0).toUpperCase() + module.slice(1);
 }
 
-function createQuantityMap(items: PurchaseOrderItem[]) {
-  return items.reduce<Record<string, number>>((totals, item) => {
-    totals[item.sku] = (totals[item.sku] ?? 0) + item.quantity;
-    return totals;
-  }, {});
+function totalModules(modules: ModuleTotals) {
+  return MODULES.reduce((total, module) => total + modules[module], 0);
 }
 
 function statusClasses(status: ForecastStatus | ContainerShipment["status"]) {
@@ -198,88 +195,95 @@ function statusClasses(status: ForecastStatus | ContainerShipment["status"]) {
   }
 }
 
-function projectedClasses(projected: number) {
-  if (projected < 0) return "text-red-600";
-  if (projected <= 8) return "text-amber-600";
-  return "text-zinc-950";
+function summarizeInventory(items: InventoryItem[]): ColorSummary[] {
+  return COLORS.map((color) => {
+    const modules = emptyTotals();
+
+    items
+      .filter((item) => item.color === color)
+      .forEach((item) => {
+        modules[item.module] += item.onHand;
+      });
+
+    return { color, modules, total: totalModules(modules) };
+  });
+}
+
+function summarizePurchaseItems(items: PurchaseOrderItem[]): ColorSummary[] {
+  return COLORS.map((color) => {
+    const modules = emptyTotals();
+
+    items
+      .filter((item) => item.color === color)
+      .forEach((item) => {
+        modules[item.module] += item.quantity;
+      });
+
+    return { color, modules, total: totalModules(modules) };
+  }).filter((summary) => summary.total > 0);
+}
+
+function getContainerItems(container: ContainerShipment) {
+  return PURCHASE_ORDERS.filter((purchaseOrder) => container.purchaseOrderIds.includes(purchaseOrder.id)).flatMap(
+    (purchaseOrder) => purchaseOrder.items
+  );
 }
 
 export function ForecastingWorkspace() {
-  const [activeView, setActiveView] = useState<ActiveView>("planning");
   const [selected, setSelected] = useState<SelectedItem>(null);
   const [planningTargets, setPlanningTargets] = useState(INITIAL_PLANNING_TARGETS);
 
-  const containerPurchaseOrders = useMemo(
+  const containerPurchaseOrderIds = useMemo(
     () => new Set(CONTAINERS.flatMap((container) => container.purchaseOrderIds)),
     []
   );
 
-  const inTransitItems = useMemo(
+  const inventoryRows = useMemo(() => summarizeInventory(CANADA_INVENTORY), []);
+
+  const transitRows = useMemo(
+    () => summarizePurchaseItems(PURCHASE_ORDERS.filter((po) => containerPurchaseOrderIds.has(po.id)).flatMap((po) => po.items)),
+    [containerPurchaseOrderIds]
+  );
+
+  const productionRows = useMemo(
     () =>
-      PURCHASE_ORDERS.filter((purchaseOrder) => containerPurchaseOrders.has(purchaseOrder.id)).flatMap(
-        (purchaseOrder) => purchaseOrder.items
+      summarizePurchaseItems(
+        PURCHASE_ORDERS.filter((po) => po.status !== "Received" && !containerPurchaseOrderIds.has(po.id)).flatMap(
+          (po) => po.items
+        )
       ),
-    [containerPurchaseOrders]
+    [containerPurchaseOrderIds]
   );
 
-  const inProductionItems = useMemo(
-    () =>
-      PURCHASE_ORDERS.filter(
-        (purchaseOrder) =>
-          purchaseOrder.status !== "Received" &&
-          purchaseOrder.status !== "In transit" &&
-          !containerPurchaseOrders.has(purchaseOrder.id)
-      ).flatMap((purchaseOrder) => purchaseOrder.items),
-    [containerPurchaseOrders]
-  );
+  const forecastRows = useMemo<ForecastSummary[]>(() => {
+    return COLORS.map((color) => {
+      const onHand = inventoryRows.find((row) => row.color === color)?.modules ?? emptyTotals();
+      const inTransit = transitRows.find((row) => row.color === color)?.modules ?? emptyTotals();
+      const inProduction = productionRows.find((row) => row.color === color)?.modules ?? emptyTotals();
+      const needed = emptyTotals();
+      const projected = emptyTotals();
 
-  const inTransitBySku = useMemo(() => createQuantityMap(inTransitItems), [inTransitItems]);
-  const inProductionBySku = useMemo(() => createQuantityMap(inProductionItems), [inProductionItems]);
-
-  const planningRows = useMemo<PlanningRow[]>(() => {
-    return CANADA_INVENTORY.map((item) => {
-      const plannedNeed =
-        planningTargets.find((target) => target.color === item.color && target.module === item.module)?.needed ?? 0;
-      const inProduction = inProductionBySku[item.sku] ?? 0;
-      const inTransit = inTransitBySku[item.sku] ?? 0;
-      const projected = item.onHand + inProduction + inTransit - plannedNeed;
+      MODULES.forEach((module) => {
+        needed[module] =
+          planningTargets.find((target) => target.color === color && target.module === module)?.needed ?? 0;
+        projected[module] = onHand[module] + inTransit[module] + inProduction[module] - needed[module];
+      });
 
       return {
-        color: item.color,
-        inProduction,
-        inTransit,
-        module: item.module,
-        onHand: item.onHand,
-        plannedNeed,
+        color,
+        needed,
         projected,
-        sku: item.sku
+        totalNeeded: totalModules(needed),
+        totalProjected: totalModules(projected)
       };
     });
-  }, [inProductionBySku, inTransitBySku, planningTargets]);
+  }, [inventoryRows, planningTargets, productionRows, transitRows]);
 
-  const totals = useMemo(
-    () =>
-      planningRows.reduce(
-        (summary, row) => {
-          summary.onHand += row.onHand;
-          summary.inProduction += row.inProduction;
-          summary.inTransit += row.inTransit;
-          summary.plannedNeed += row.plannedNeed;
-          summary.projected += row.projected;
-          if (row.projected < 0) summary.shortages += 1;
-          return summary;
-        },
-        { inProduction: 0, inTransit: 0, onHand: 0, plannedNeed: 0, projected: 0, shortages: 0 }
-      ),
-    [planningRows]
-  );
-
-  const selectedPlanningRow = selected?.type === "planning" ? planningRows.find((row) => row.sku === selected.sku) : null;
-  const selectedInventoryRow = selected?.type === "inventory" ? planningRows.find((row) => row.sku === selected.sku) : null;
+  const selectedInventory = selected?.type === "inventory" ? inventoryRows.find((row) => row.color === selected.color) : null;
+  const selectedForecast = selected?.type === "forecast" ? forecastRows.find((row) => row.color === selected.color) : null;
   const selectedPurchaseOrder =
-    selected?.type === "purchase-order" ? PURCHASE_ORDERS.find((purchaseOrder) => purchaseOrder.id === selected.id) : null;
-  const selectedContainer =
-    selected?.type === "container" ? CONTAINERS.find((container) => container.id === selected.id) : null;
+    selected?.type === "purchase-order" ? PURCHASE_ORDERS.find((po) => po.id === selected.id) : null;
+  const selectedContainer = selected?.type === "transit" ? CONTAINERS.find((container) => container.id === selected.containerId) : null;
 
   function updatePlanningNeed(color: string, module: ModuleSlug, needed: number) {
     setPlanningTargets((currentTargets) =>
@@ -290,67 +294,98 @@ export function ForecastingWorkspace() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-32px)] rounded-[28px] bg-[#f7f8fb] text-zinc-950">
-      <div className="grid min-h-[calc(100vh-32px)] lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="border-b border-white/70 bg-white/70 p-4 backdrop-blur-xl lg:border-b-0 lg:border-r">
-          <div className="rounded-3xl border border-white bg-white/80 p-4 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">Forecasting</div>
-            <h1 className="mt-2 text-2xl font-semibold tracking-normal">Supply planning</h1>
-            <p className="mt-2 text-sm leading-6 text-zinc-500">
-              Planning, POs, transit and Canada inventory are connected here.
-            </p>
-          </div>
-          <nav className="mt-4 space-y-2">
-            {VIEWS.map((view) => (
+    <main className="min-h-[calc(100vh-32px)] rounded-[28px] bg-[#f7f8fb] p-4 text-zinc-950 sm:p-6 lg:p-8">
+      <header className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">Forecasting</div>
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal">Supply planning board</h1>
+        </div>
+        <p className="max-w-2xl text-sm leading-6 text-zinc-500">
+          Inventory, containers, purchase orders and forecast numbers are shown side by side so the flow is clear.
+        </p>
+      </header>
+
+      <section className="grid gap-4 xl:grid-cols-4">
+        <BoardColumn
+          title="Inventory on hand"
+          total={inventoryRows.reduce((sum, row) => sum + row.total, 0)}
+          subtitle="Canada warehouse"
+        >
+          <ModuleMatrix
+            rows={inventoryRows}
+            onOpen={(color) => setSelected({ color, type: "inventory" })}
+          />
+        </BoardColumn>
+
+        <BoardColumn
+          title="Inventory in transit"
+          total={transitRows.reduce((sum, row) => sum + row.total, 0)}
+          subtitle={`${CONTAINERS.length} active container`}
+        >
+          <div className="space-y-3">
+            {CONTAINERS.map((container) => (
               <button
-                className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
-                  activeView === view.id
-                    ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20"
-                    : "bg-white/70 text-zinc-700 hover:bg-white"
-                }`}
-                key={view.id}
-                onClick={() => setActiveView(view.id)}
+                className="w-full rounded-2xl border border-zinc-100 bg-zinc-50 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50"
+                key={container.id}
+                onClick={() => setSelected({ containerId: container.id, type: "transit" })}
                 type="button"
               >
-                {view.label}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-zinc-950">{container.id}</div>
+                    <div className="mt-1 text-xs text-zinc-500">ETA {container.eta}</div>
+                  </div>
+                  <StatusPill status={container.status} />
+                </div>
               </button>
             ))}
-          </nav>
-        </aside>
-
-        <section className="space-y-5 p-4 sm:p-6 lg:p-8">
-          <div className="grid gap-3 md:grid-cols-5">
-            <MetricCard label="Canada on hand" value={totals.onHand} />
-            <MetricCard label="In production" value={totals.inProduction} />
-            <MetricCard label="In transit" value={totals.inTransit} />
-            <MetricCard label="Planned need" value={totals.plannedNeed} />
-            <MetricCard label="Projected after plan" value={totals.projected} warning={totals.shortages > 0} />
+            <ModuleMatrix rows={transitRows} />
           </div>
+        </BoardColumn>
 
-          {activeView === "planning" ? (
-            <PlanningTable
-              rows={planningRows}
-              onOpen={(sku) => setSelected({ sku, type: "planning" })}
-              onUpdateNeed={updatePlanningNeed}
-            />
-          ) : null}
+        <BoardColumn
+          title="Purchase orders"
+          total={productionRows.reduce((sum, row) => sum + row.total, 0)}
+          subtitle="Factory and planned POs"
+        >
+          <div className="space-y-3">
+            {PURCHASE_ORDERS.map((po) => (
+              <button
+                className="w-full rounded-2xl border border-zinc-100 bg-zinc-50 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50"
+                key={po.id}
+                onClick={() => setSelected({ id: po.id, type: "purchase-order" })}
+                type="button"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-zinc-950">{po.id}</div>
+                    <div className="mt-1 text-xs text-zinc-500">CRD {po.crd}</div>
+                  </div>
+                  <StatusPill status={po.status} />
+                </div>
+                <div className="mt-3 text-sm text-zinc-500">{totalModulesFromItems(po.items)} modules</div>
+              </button>
+            ))}
+          </div>
+        </BoardColumn>
 
-          {activeView === "purchase-orders" ? (
-            <PurchaseOrdersTable
-              purchaseOrders={PURCHASE_ORDERS}
-              onOpen={(id) => setSelected({ id, type: "purchase-order" })}
-            />
-          ) : null}
-
-          {activeView === "containers" ? (
-            <ContainersTable containers={CONTAINERS} onOpen={(id) => setSelected({ id, type: "container" })} />
-          ) : null}
-
-          {activeView === "inventory" ? (
-            <CanadaInventoryTable rows={planningRows} onOpen={(sku) => setSelected({ sku, type: "inventory" })} />
-          ) : null}
-        </section>
-      </div>
+        <BoardColumn
+          title="Inventory forecasting"
+          total={forecastRows.reduce((sum, row) => sum + row.totalProjected, 0)}
+          subtitle="Projected after plan"
+        >
+          <div className="space-y-3">
+            {forecastRows.map((row) => (
+              <ForecastCard
+                key={row.color}
+                row={row}
+                onOpen={() => setSelected({ color: row.color, type: "forecast" })}
+                onUpdateNeed={updatePlanningNeed}
+              />
+            ))}
+          </div>
+        </BoardColumn>
+      </section>
 
       {selected ? (
         <>
@@ -365,10 +400,7 @@ export function ForecastingWorkspace() {
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">Details</div>
                 <div className="mt-1 text-xl font-semibold">
-                  {selectedPlanningRow?.sku ??
-                    selectedInventoryRow?.sku ??
-                    selectedPurchaseOrder?.id ??
-                    selectedContainer?.id}
+                  {selectedInventory?.color ?? selectedForecast?.color ?? selectedPurchaseOrder?.id ?? selectedContainer?.id}
                 </div>
               </div>
               <button
@@ -379,8 +411,8 @@ export function ForecastingWorkspace() {
                 x
               </button>
             </div>
-            {selectedPlanningRow ? <SkuDrawer row={selectedPlanningRow} /> : null}
-            {selectedInventoryRow ? <SkuDrawer row={selectedInventoryRow} /> : null}
+            {selectedInventory ? <SummaryDrawer title="Inventory on hand" rows={[selectedInventory]} /> : null}
+            {selectedForecast ? <ForecastDrawer row={selectedForecast} /> : null}
             {selectedPurchaseOrder ? <PurchaseOrderDrawer purchaseOrder={selectedPurchaseOrder} /> : null}
             {selectedContainer ? <ContainerDrawer container={selectedContainer} /> : null}
           </aside>
@@ -390,191 +422,130 @@ export function ForecastingWorkspace() {
   );
 }
 
-function MetricCard({ label, value, warning = false }: { label: string; value: number; warning?: boolean }) {
-  return (
-    <div className="rounded-3xl border border-white bg-white/85 p-4 shadow-sm">
-      <div className="text-xs font-medium text-zinc-500">{label}</div>
-      <div className={`mt-2 text-3xl font-semibold ${warning ? "text-amber-600" : "text-zinc-950"}`}>{value}</div>
-    </div>
-  );
-}
-
-function PlanningTable({
-  onOpen,
-  onUpdateNeed,
-  rows
+function BoardColumn({
+  children,
+  subtitle,
+  title,
+  total
 }: {
-  onOpen: (sku: string) => void;
-  onUpdateNeed: (color: string, module: ModuleSlug, needed: number) => void;
-  rows: PlanningRow[];
+  children: ReactNode;
+  subtitle: string;
+  title: string;
+  total: number;
 }) {
   return (
-    <Panel title="Planning" subtitle="Edit the plan. Projected stock updates from Canada inventory, POs and containers.">
-      <ResponsiveTable
-        columns={["Colour", "Module", "On hand", "Production", "Transit", "Need", "Projected"]}
-        rows={rows.map((row) => ({
-          id: row.sku,
-          onClick: () => onOpen(row.sku),
-          cells: [
-            <StrongText key="color" primary={row.color} secondary={row.sku} />,
-            getModuleLabel(row.module),
-            row.onHand,
-            row.inProduction,
-            row.inTransit,
-            <input
-              className="h-11 w-24 rounded-xl border border-zinc-200 bg-white px-3 text-base font-semibold outline-none focus:border-blue-500"
-              key="need"
-              min={0}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => onUpdateNeed(row.color, row.module, Number(event.target.value))}
-              type="number"
-              value={row.plannedNeed}
-            />,
-            <span className={`text-lg font-semibold ${projectedClasses(row.projected)}`} key="projected">
-              {row.projected}
-            </span>
-          ]
-        }))}
-      />
-    </Panel>
-  );
-}
-
-function PurchaseOrdersTable({
-  onOpen,
-  purchaseOrders
-}: {
-  onOpen: (id: string) => void;
-  purchaseOrders: PurchaseOrder[];
-}) {
-  return (
-    <Panel title="Purchase orders with CRD" subtitle="Open factory POs. Anything linked to a container becomes in transit.">
-      <ResponsiveTable
-        columns={["PO", "Factory", "Destination", "CRD", "Status", "Modules"]}
-        rows={purchaseOrders.map((purchaseOrder) => ({
-          id: purchaseOrder.id,
-          onClick: () => onOpen(purchaseOrder.id),
-          cells: [
-            <StrongText key="po" primary={purchaseOrder.id} secondary={purchaseOrder.containerId ?? "Not containerized"} />,
-            purchaseOrder.factory,
-            purchaseOrder.destination,
-            purchaseOrder.crd,
-            <StatusPill key="status" status={purchaseOrder.status} />,
-            sumItems(purchaseOrder.items)
-          ]
-        }))}
-      />
-    </Panel>
-  );
-}
-
-function ContainersTable({
-  containers,
-  onOpen
-}: {
-  containers: ContainerShipment[];
-  onOpen: (id: string) => void;
-}) {
-  return (
-    <Panel title="Containers in transit" subtitle="Containers pull their SKU list from the purchase orders inside them.">
-      <ResponsiveTable
-        columns={["Container", "Origin", "Destination", "Departure", "ETA", "Status", "Modules"]}
-        rows={containers.map((container) => ({
-          id: container.id,
-          onClick: () => onOpen(container.id),
-          cells: [
-            <StrongText key="container" primary={container.id} secondary={container.purchaseOrderIds.join(", ")} />,
-            container.origin,
-            container.destination,
-            container.departureDate,
-            container.eta,
-            <StatusPill key="status" status={container.status} />,
-            getContainerItems(container).reduce((total, item) => total + item.quantity, 0)
-          ]
-        }))}
-      />
-    </Panel>
-  );
-}
-
-function CanadaInventoryTable({ onOpen, rows }: { onOpen: (sku: string) => void; rows: PlanningRow[] }) {
-  return (
-    <Panel title="Stored inventory Canada" subtitle="The current Canada stock position, using your real colour names.">
-      <ResponsiveTable
-        columns={["Colour", "Module", "SKU", "On hand", "Inbound", "Projected"]}
-        rows={rows.map((row) => ({
-          id: row.sku,
-          onClick: () => onOpen(row.sku),
-          cells: [
-            row.color,
-            getModuleLabel(row.module),
-            row.sku,
-            <span className="text-lg font-semibold" key="on-hand">
-              {row.onHand}
-            </span>,
-            row.inProduction + row.inTransit,
-            <span className={`text-lg font-semibold ${projectedClasses(row.projected)}`} key="projected">
-              {row.projected}
-            </span>
-          ]
-        }))}
-      />
-    </Panel>
-  );
-}
-
-function Panel({ children, subtitle, title }: { children: React.ReactNode; subtitle: string; title: string }) {
-  return (
-    <section className="overflow-hidden rounded-3xl border border-white bg-white/85 shadow-sm">
-      <div className="border-b border-zinc-100 px-5 py-4">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>
+    <section className="min-h-[620px] rounded-[28px] border border-white bg-white/85 p-4 shadow-sm">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>
+        </div>
+        <div className="rounded-2xl bg-zinc-950 px-3 py-2 text-right text-white">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-300">Total</div>
+          <div className="text-xl font-semibold">{total}</div>
+        </div>
       </div>
       {children}
     </section>
   );
 }
 
-function ResponsiveTable({
-  columns,
-  rows
-}: {
-  columns: string[];
-  rows: { cells: React.ReactNode[]; id: string; onClick: () => void }[];
-}) {
+function ModuleMatrix({ onOpen, rows }: { onOpen?: (color: string) => void; rows: ColorSummary[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full border-collapse">
-        <thead>
-          <tr className="border-b border-zinc-100 bg-zinc-50/80">
-            {columns.map((column) => (
-              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500" key={column}>
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zinc-100">
-          {rows.map((row) => (
-            <tr className="cursor-pointer transition hover:bg-blue-50/60" key={row.id} onClick={row.onClick}>
-              {row.cells.map((cell, index) => (
-                <td className="whitespace-nowrap px-5 py-4 text-sm text-zinc-700" key={`${row.id}-${index}`}>
-                  {cell}
-                </td>
+    <div className="overflow-hidden rounded-2xl border border-zinc-100">
+      <div className="grid grid-cols-[1.25fr_repeat(3,minmax(0,0.7fr))] bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        <div>Colour</div>
+        {MODULES.map((module) => (
+          <div className="text-right" key={module}>
+            {module === "armless" ? "Arm" : moduleLabel(module).slice(0, 3)}
+          </div>
+        ))}
+      </div>
+      <div className="divide-y divide-zinc-100">
+        {rows.map((row) => {
+          const content = (
+            <>
+              <div>
+                <div className="font-semibold text-zinc-950">{row.color}</div>
+                <div className="mt-1 text-xs text-zinc-500">{row.total} total</div>
+              </div>
+              {MODULES.map((module) => (
+                <div className="text-right text-lg font-semibold text-zinc-900" key={module}>
+                  {row.modules[module]}
+                </div>
               ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            </>
+          );
+
+          if (!onOpen) {
+            return (
+              <div className="grid grid-cols-[1.25fr_repeat(3,minmax(0,0.7fr))] items-center gap-2 px-3 py-3" key={row.color}>
+                {content}
+              </div>
+            );
+          }
+
+          return (
+            <button
+              className="grid w-full grid-cols-[1.25fr_repeat(3,minmax(0,0.7fr))] items-center gap-2 px-3 py-3 text-left transition hover:bg-blue-50"
+              key={row.color}
+              onClick={() => onOpen(row.color)}
+              type="button"
+            >
+              {content}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function StrongText({ primary, secondary }: { primary: string; secondary: string }) {
+function ForecastCard({
+  onOpen,
+  onUpdateNeed,
+  row
+}: {
+  onOpen: () => void;
+  onUpdateNeed: (color: string, module: ModuleSlug, needed: number) => void;
+  row: ForecastSummary;
+}) {
   return (
-    <div>
-      <div className="font-semibold text-zinc-950">{primary}</div>
-      <div className="mt-1 text-xs text-zinc-500">{secondary}</div>
+    <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-3">
+      <button className="w-full text-left" onClick={onOpen} type="button">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-semibold text-zinc-950">{row.color}</div>
+            <div className="mt-1 text-xs text-zinc-500">Need {row.totalNeeded}</div>
+          </div>
+          <div className={`text-2xl font-semibold ${row.totalProjected < 0 ? "text-red-600" : "text-zinc-950"}`}>
+            {row.totalProjected}
+          </div>
+        </div>
+      </button>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {MODULES.map((module) => (
+          <label className="block" key={module}>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+              {module === "armless" ? "Arm" : moduleLabel(module).slice(0, 3)}
+            </span>
+            <input
+              className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-2 text-center font-semibold outline-none focus:border-blue-500"
+              min={0}
+              onChange={(event) => onUpdateNeed(row.color, module, Number(event.target.value))}
+              type="number"
+              value={row.needed[module]}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs text-zinc-500">
+        {MODULES.map((module) => (
+          <div key={module}>
+            Projected <span className="font-semibold text-zinc-950">{row.projected[module]}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -583,24 +554,41 @@ function StatusPill({ status }: { status: ForecastStatus | ContainerShipment["st
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClasses(status)}`}>{status}</span>;
 }
 
-function SkuDrawer({ row }: { row: PlanningRow }) {
+function totalModulesFromItems(items: PurchaseOrderItem[]) {
+  return items.reduce((total, item) => total + item.quantity, 0);
+}
+
+function SummaryDrawer({ rows, title }: { rows: ColorSummary[]; title: string }) {
   return (
     <div className="space-y-6 p-5">
-      <div className="grid grid-cols-2 gap-3">
-        <DrawerMetric label="Canada on hand" value={row.onHand} />
-        <DrawerMetric label="In production" value={row.inProduction} />
-        <DrawerMetric label="In transit" value={row.inTransit} />
-        <DrawerMetric label="Projected" value={row.projected} />
-      </div>
+      <h3 className="font-semibold">{title}</h3>
+      <ModuleMatrix rows={rows} />
+    </div>
+  );
+}
+
+function ForecastDrawer({ row }: { row: ForecastSummary }) {
+  return (
+    <div className="space-y-6 p-5">
       <DetailList
         rows={[
           ["Colour", row.color],
-          ["Module", getModuleLabel(row.module)],
-          ["SKU", row.sku],
-          ["Planned need", String(row.plannedNeed)]
+          ["Needed total", String(row.totalNeeded)],
+          ["Projected total", String(row.totalProjected)]
         ]}
       />
-      <LinkedPurchaseOrders sku={row.sku} />
+      <section>
+        <h3 className="font-semibold">Forecast by module</h3>
+        <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-200">
+          {MODULES.map((module) => (
+            <div className="grid grid-cols-3 gap-3 border-b border-zinc-100 p-4 text-sm last:border-b-0" key={module}>
+              <div className="font-semibold">{moduleLabel(module)}</div>
+              <div className="text-zinc-500">Need {row.needed[module]}</div>
+              <div className="text-right font-semibold">Projected {row.projected[module]}</div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
@@ -617,7 +605,7 @@ function PurchaseOrderDrawer({ purchaseOrder }: { purchaseOrder: PurchaseOrder }
           ["Container", purchaseOrder.containerId ?? "Not containerized"]
         ]}
       />
-      <ItemsList items={purchaseOrder.items} title="PO contents" />
+      <SummaryDrawer rows={summarizePurchaseItems(purchaseOrder.items)} title="PO quantities" />
     </div>
   );
 }
@@ -637,16 +625,7 @@ function ContainerDrawer({ container }: { container: ContainerShipment }) {
           ["Purchase orders", container.purchaseOrderIds.join(", ")]
         ]}
       />
-      <ItemsList items={items} title="Container contents" />
-    </div>
-  );
-}
-
-function DrawerMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-2xl bg-zinc-100 p-4">
-      <div className="text-xs text-zinc-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold">{value}</div>
+      <SummaryDrawer rows={summarizePurchaseItems(items)} title="Container quantities" />
     </div>
   );
 }
@@ -661,60 +640,5 @@ function DetailList({ rows }: { rows: [string, string][] }) {
         </div>
       ))}
     </div>
-  );
-}
-
-function ItemsList({ items, title }: { items: PurchaseOrderItem[]; title: string }) {
-  return (
-    <section>
-      <h3 className="font-semibold">{title}</h3>
-      <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-200">
-        {items.map((item) => (
-          <div className="flex items-center justify-between gap-4 border-b border-zinc-100 p-4 last:border-b-0" key={`${item.sku}-${item.quantity}`}>
-            <div>
-              <div className="font-semibold">{item.color}</div>
-              <div className="mt-1 text-sm text-zinc-500">
-                {getModuleLabel(item.module)} - {item.sku}
-              </div>
-            </div>
-            <div className="text-2xl font-semibold">{item.quantity}</div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function LinkedPurchaseOrders({ sku }: { sku: string }) {
-  const matches = PURCHASE_ORDERS.filter((purchaseOrder) => purchaseOrder.items.some((item) => item.sku === sku));
-
-  return (
-    <section>
-      <h3 className="font-semibold">Related purchase orders</h3>
-      <div className="mt-3 space-y-2">
-        {matches.map((purchaseOrder) => {
-          const itemQuantity = purchaseOrder.items.find((item) => item.sku === sku)?.quantity ?? 0;
-          return (
-            <div className="rounded-2xl border border-zinc-200 p-4" key={purchaseOrder.id}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="font-semibold">{purchaseOrder.id}</div>
-                  <div className="mt-1 text-sm text-zinc-500">
-                    {purchaseOrder.crd} - {purchaseOrder.containerId ?? purchaseOrder.status}
-                  </div>
-                </div>
-                <div className="text-2xl font-semibold">{itemQuantity}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function getContainerItems(container: ContainerShipment) {
-  return PURCHASE_ORDERS.filter((purchaseOrder) => container.purchaseOrderIds.includes(purchaseOrder.id)).flatMap(
-    (purchaseOrder) => purchaseOrder.items
   );
 }
