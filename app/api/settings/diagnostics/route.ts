@@ -33,8 +33,7 @@ export async function GET() {
       ? await checkShopifyAdminConnection()
       : false;
   const wiseConfig = getWiseConfigStatus();
-  const wiseApiConnectionWorks =
-    wiseConfig.apiTokenExists && wiseConfig.profileIdExists ? await checkWiseConnection() : false;
+  const wiseApiConnectionWorks = wiseConfig.apiTokenExists ? await checkWiseConnection() : false;
 
   return NextResponse.json({
     supabaseUrlExists: Boolean(getSupabaseUrl()),

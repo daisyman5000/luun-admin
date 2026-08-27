@@ -63,7 +63,7 @@ export default async function FinancialsPage() {
         <section className="rounded-2xl border border-dashed border-line bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-900">Wise is not connected yet</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Add `WISE_API_TOKEN` and `WISE_PROFILE_ID` in Vercel to show Wise cash balances here.
+            Add `WISE_API_TOKEN` in Vercel to show Wise cash balances here.
           </p>
         </section>
       ) : (

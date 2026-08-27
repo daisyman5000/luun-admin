@@ -38,8 +38,7 @@ export async function SupabaseDiagnostics() {
       ? await checkShopifyAdminConnection()
       : false;
   const wiseConfig = getWiseConfigStatus();
-  const wiseApiConnectionWorks =
-    wiseConfig.apiTokenExists && wiseConfig.profileIdExists ? await checkWiseConnection() : false;
+  const wiseApiConnectionWorks = wiseConfig.apiTokenExists ? await checkWiseConnection() : false;
   const publicInventoryPreview = await getPublicInventoryPayload().catch((error) => ({
     error: error instanceof Error ? error.message : "Unable to load public inventory"
   }));
@@ -92,8 +91,8 @@ export async function SupabaseDiagnostics() {
           value={wiseConfig.apiTokenExists ? "Configured" : "Missing"}
         />
         <CheckRow
-          label="Wise profile ID"
-          value={wiseConfig.profileIdExists ? "Configured" : "Missing"}
+          label="Wise profile"
+          value={wiseConfig.profileIdExists ? "Configured manually" : "Auto-detect"}
         />
         <CheckRow
           label="Wise API connection"

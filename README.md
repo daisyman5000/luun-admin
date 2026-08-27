@@ -36,10 +36,9 @@ Private admin portal for Luun logistics. The first version replaces the working 
    SHOPIFY_CLIENT_SECRET=
    SHOPIFY_WEBHOOK_SECRET=
    WISE_API_TOKEN=
-   WISE_PROFILE_ID=
    ```
 
-   `SUPABASE_SECRET_KEY`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_WEBHOOK_SECRET`, `WISE_API_TOKEN`, and `WISE_PROFILE_ID` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
+   `SUPABASE_SECRET_KEY`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_WEBHOOK_SECRET`, and `WISE_API_TOKEN` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
 
    The app still supports older Supabase variable names for compatibility:
 
@@ -91,10 +90,9 @@ Required environment variables:
 
 ```bash
 WISE_API_TOKEN=
-WISE_PROFILE_ID=
 ```
 
-Use a Wise business personal API token from **Wise > Your account > Connect and manage apps > API tokens**. The first version reads Wise balance accounts only so the app can show cashflow balances. It does not request Wise statements or transaction history.
+Use a Wise business personal API token from **Wise > Your account > Connect and manage apps > API tokens**. The app uses that token to find the Wise business profile automatically, then reads Wise balance accounts only so the app can show cashflow balances. It does not request Wise statements or transaction history.
 
 ## Shopify Manual Sync
 

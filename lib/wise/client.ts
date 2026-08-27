@@ -17,6 +17,14 @@ type WiseBalance = {
   name?: string;
 };
 
+type WiseProfile = {
+  id?: number | string;
+  type?: string;
+  details?: {
+    name?: string;
+  };
+};
+
 export type WiseBalanceSummary = {
   amount: number;
   currency: string;
@@ -30,6 +38,7 @@ export type WiseSummary = {
   configured: boolean;
   errors: string[];
   profileId: string | null;
+  profileSource: "automatic" | "environment" | null;
 };
 
 function getWiseConfig() {
@@ -40,7 +49,7 @@ function getWiseConfig() {
   return {
     apiBaseUrl,
     apiToken,
-    configured: Boolean(apiToken && profileId),
+    configured: Boolean(apiToken),
     profileId
   };
 }
@@ -92,24 +101,64 @@ function toBalanceSummary(balance: WiseBalance): WiseBalanceSummary | null {
   };
 }
 
+function pickWiseProfile(profiles: WiseProfile[]) {
+  const businessProfile =
+    profiles.find((profile) => profile.type?.toLowerCase() === "business") || profiles[0];
+
+  if (!businessProfile?.id) {
+    return null;
+  }
+
+  return String(businessProfile.id);
+}
+
+async function getWiseProfileId() {
+  const config = getWiseConfig();
+
+  if (config.profileId) {
+    return {
+      profileId: config.profileId,
+      profileSource: "environment" as const
+    };
+  }
+
+  const profiles = await wiseFetch<WiseProfile[]>("/profiles");
+  const profileId = pickWiseProfile(profiles);
+
+  if (!profileId) {
+    throw new Error("Wise token worked, but no Wise profile was returned.");
+  }
+
+  return {
+    profileId,
+    profileSource: "automatic" as const
+  };
+}
+
 export async function getWiseSummary(): Promise<WiseSummary> {
   const config = getWiseConfig();
 
-  if (!config.configured || !config.profileId) {
+  if (!config.configured) {
     return {
       balances: [],
       configured: false,
       errors: [],
-      profileId: config.profileId || null
+      profileId: null,
+      profileSource: null
     };
   }
 
   const errors: string[] = [];
   let balances: WiseBalanceSummary[] = [];
+  let profileId: string | null = null;
+  let profileSource: WiseSummary["profileSource"] = null;
 
   try {
+    const profile = await getWiseProfileId();
+    profileId = profile.profileId;
+    profileSource = profile.profileSource;
     const rawBalances = await wiseFetch<WiseBalance[]>(
-      `/profiles/${config.profileId}/balances?types=STANDARD,SAVINGS`
+      `/profiles/${profileId}/balances?types=STANDARD,SAVINGS`
     );
     balances = rawBalances
       .map(toBalanceSummary)
@@ -122,19 +171,21 @@ export async function getWiseSummary(): Promise<WiseSummary> {
     balances,
     configured: true,
     errors: Array.from(new Set(errors)),
-    profileId: config.profileId
+    profileId,
+    profileSource
   };
 }
 
 export async function checkWiseConnection() {
   const config = getWiseConfig();
 
-  if (!config.configured || !config.profileId) {
+  if (!config.configured) {
     return false;
   }
 
   try {
-    await wiseFetch<WiseBalance[]>(`/profiles/${config.profileId}/balances?types=STANDARD,SAVINGS`);
+    const { profileId } = await getWiseProfileId();
+    await wiseFetch<WiseBalance[]>(`/profiles/${profileId}/balances?types=STANDARD,SAVINGS`);
     return true;
   } catch {
     return false;
