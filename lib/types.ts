@@ -51,3 +51,22 @@ export type InventoryRow = {
   updated_by: string | null;
   updated_at: string;
 };
+
+export type ContainerEntryStatus = "planning" | "production" | "in_transit" | "arrived" | "closed";
+
+export type ContainerEntry = {
+  id: string;
+  container_number: string;
+  purchase_order_id: string | null;
+  skus_on_board: string | null;
+  amount_paid: number | null;
+  amount_to_be_paid: number | null;
+  payment_due_at: string | null;
+  eta: string | null;
+  status: ContainerEntryStatus | null;
+  notes: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};

@@ -10,6 +10,7 @@ const primaryLinks = [
   { href: "/inventory", label: "Inventory", short: "I" },
   { href: "/ticketing", label: "Ticketing", short: "T", soon: true },
   { href: "/forecasting", label: "Forecasting", short: "F", exact: true },
+  { href: "/forecasting/containers", label: "Containers", short: "Co" },
   { href: "/forecasting/calendar", label: "Calendar Forecast", short: "C" },
   { href: "/financials", label: "Financials", short: "Fi" }
 ];
