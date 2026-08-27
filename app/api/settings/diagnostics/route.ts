@@ -10,6 +10,7 @@ import {
   getSupabaseUrl
 } from "@/lib/supabase/public-config";
 import { getSupabaseSecretKey } from "@/lib/supabase/server-config";
+import { checkWiseConnection, getWiseConfigStatus } from "@/lib/wise/client";
 
 export async function GET() {
   const { profile, user } = await getUserContext();
@@ -31,6 +32,9 @@ export async function GET() {
     shopifyConnection.connected
       ? await checkShopifyAdminConnection()
       : false;
+  const wiseConfig = getWiseConfigStatus();
+  const wiseApiConnectionWorks =
+    wiseConfig.apiTokenExists && wiseConfig.profileIdExists ? await checkWiseConnection() : false;
 
   return NextResponse.json({
     supabaseUrlExists: Boolean(getSupabaseUrl()),
@@ -45,6 +49,9 @@ export async function GET() {
     shopifyWebhookSecretExists: shopifyConfig.webhookSecretExists,
     shopifyConnected: shopifyConnection.connected,
     shopifyConnectedAt: shopifyConnection.updatedAt,
-    shopifyApiConnectionWorks
+    shopifyApiConnectionWorks,
+    wiseApiTokenExists: wiseConfig.apiTokenExists,
+    wiseProfileIdExists: wiseConfig.profileIdExists,
+    wiseApiConnectionWorks
   });
 }

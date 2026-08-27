@@ -35,9 +35,11 @@ Private admin portal for Luun logistics. The first version replaces the working 
    SHOPIFY_CLIENT_ID=
    SHOPIFY_CLIENT_SECRET=
    SHOPIFY_WEBHOOK_SECRET=
+   WISE_API_TOKEN=
+   WISE_PROFILE_ID=
    ```
 
-   `SUPABASE_SECRET_KEY`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, and `SHOPIFY_WEBHOOK_SECRET` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
+   `SUPABASE_SECRET_KEY`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_WEBHOOK_SECRET`, `WISE_API_TOKEN`, and `WISE_PROFILE_ID` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
 
    The app still supports older Supabase variable names for compatibility:
 
@@ -73,11 +75,26 @@ Private admin portal for Luun logistics. The first version replaces the working 
 - `/login` signs staff in with Supabase Auth.
 - `/data` shows Shopify orders with search and status filters.
 - `/inventory` shows inventory rows. Owner/admin users can edit quantities and builder visibility.
+- `/financials` shows Wise cash balances for owner/admin users.
 - `/settings/users` lets owner/admin users manage profile roles and view safe Supabase diagnostics.
 - `/api/public-inventory` returns public builder-safe inventory JSON.
 - `POST /api/shopify/import-orders` manually imports recent Shopify orders for owner/admin users.
 - `POST /api/shopify/webhooks/orders` receives verified Shopify `orders/create` and `orders/updated` webhooks.
+- `GET /api/wise/summary` returns server-side Wise balance summaries for owner/admin users.
 - `GET /api/settings/diagnostics` returns safe Supabase configuration/profile diagnostics for owner/admin users.
+
+## Wise Financial Data
+
+Wise data is loaded server-side only. The browser never receives the Wise API token.
+
+Required environment variables:
+
+```bash
+WISE_API_TOKEN=
+WISE_PROFILE_ID=
+```
+
+Use a Wise business personal API token from **Wise > Your account > Connect and manage apps > API tokens**. The first version reads Wise balance accounts only so the app can show cashflow balances. It does not request Wise statements or transaction history.
 
 ## Shopify Manual Sync
 
@@ -125,7 +142,7 @@ Owner/admin users can run a sync from `/data`:
 
 The manual **Sync Shopify Orders** button remains as a backup. The sync imports orders since June 24, 2026. `POST /api/shopify/import-orders` also accepts an optional `limit` value. The endpoint requires a logged-in owner/admin session, so browser-based use from `/data` is the expected workflow.
 
-Diagnostics in `/settings/users` check whether the Shopify env vars exist, whether Shopify has been connected, and whether the Admin API responds.
+Diagnostics in `/settings/users` check whether the Shopify and Wise env vars exist, whether Shopify has been connected, and whether the Shopify/Wise APIs respond.
 
 ## Database Notes
 
@@ -140,4 +157,4 @@ The migration enables Row Level Security and grants the narrow browser permissio
 
 ## Deployment
 
-Deploy to Vercel and add the same environment variables there. Keep `SUPABASE_SECRET_KEY` and Shopify secrets scoped to server-side use only.
+Deploy to Vercel and add the same environment variables there. Keep `SUPABASE_SECRET_KEY`, Shopify secrets, and Wise secrets scoped to server-side use only.

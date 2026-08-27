@@ -11,7 +11,7 @@ const primaryLinks = [
   { href: "/ticketing", label: "Ticketing", short: "T", soon: true },
   { href: "/forecasting", label: "Forecasting", short: "F", exact: true },
   { href: "/forecasting/calendar", label: "Calendar Forecast", short: "C" },
-  { href: "/financials", label: "Financials", short: "Fi", soon: true }
+  { href: "/financials", label: "Financials", short: "Fi" }
 ];
 
 const adminLinks = [{ href: "/settings/users", label: "Users", short: "U" }];

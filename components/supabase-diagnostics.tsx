@@ -10,6 +10,7 @@ import {
   getSupabaseUrl
 } from "@/lib/supabase/public-config";
 import { getSupabaseSecretKey } from "@/lib/supabase/server-config";
+import { checkWiseConnection, getWiseConfigStatus } from "@/lib/wise/client";
 
 function CheckRow({ label, value }: { label: string; value: string }) {
   return (
@@ -36,6 +37,9 @@ export async function SupabaseDiagnostics() {
     shopifyConnection.connected
       ? await checkShopifyAdminConnection()
       : false;
+  const wiseConfig = getWiseConfigStatus();
+  const wiseApiConnectionWorks =
+    wiseConfig.apiTokenExists && wiseConfig.profileIdExists ? await checkWiseConnection() : false;
   const publicInventoryPreview = await getPublicInventoryPayload().catch((error) => ({
     error: error instanceof Error ? error.message : "Unable to load public inventory"
   }));
@@ -82,6 +86,18 @@ export async function SupabaseDiagnostics() {
         <CheckRow
           label="Shopify API connection"
           value={shopifyApiConnectionWorks ? "Working" : "Not connected"}
+        />
+        <CheckRow
+          label="Wise API token"
+          value={wiseConfig.apiTokenExists ? "Configured" : "Missing"}
+        />
+        <CheckRow
+          label="Wise profile ID"
+          value={wiseConfig.profileIdExists ? "Configured" : "Missing"}
+        />
+        <CheckRow
+          label="Wise API connection"
+          value={wiseApiConnectionWorks ? "Working" : "Not connected"}
         />
       </div>
       <div className="mt-5">
