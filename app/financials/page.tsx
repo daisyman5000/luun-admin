@@ -9,6 +9,45 @@ function money(value: number, currency: string) {
   }).format(value);
 }
 
+function getCombinedBalances(balances: WiseBalanceSummary[]) {
+  const totals = new Map<string, number>();
+
+  for (const balance of balances) {
+    totals.set(balance.currency, (totals.get(balance.currency) || 0) + balance.amount);
+  }
+
+  return Array.from(totals.entries()).map(([currency, amount]) => ({
+    amount,
+    currency
+  }));
+}
+
+function CombinedCash({ balances }: { balances: WiseBalanceSummary[] }) {
+  const combinedBalances = getCombinedBalances(balances);
+
+  if (combinedBalances.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-3xl border border-blue-100 bg-blue-50 p-6 shadow-sm">
+      <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Total Wise cash</p>
+      <div className="mt-4 flex flex-wrap gap-x-10 gap-y-4">
+        {combinedBalances.map((balance) => (
+          <div key={balance.currency}>
+            <p className="text-5xl font-semibold tracking-normal text-slate-950">
+              {money(balance.amount, balance.currency)}
+            </p>
+            <p className="mt-2 text-sm font-medium text-slate-600">
+              Combined {balance.currency} balance across Wise accounts
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function BalanceCards({ balances }: { balances: WiseBalanceSummary[] }) {
   if (balances.length === 0) {
     return (
@@ -73,6 +112,7 @@ export default async function FinancialsPage() {
               {summary.errors.join(" ")}
             </section>
           ) : null}
+          <CombinedCash balances={summary.balances} />
           <BalanceCards balances={summary.balances} />
         </div>
       )}
