@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { canManageUsers, canUpdateOrderLogistics, getUserContext } from "@/lib/auth";
-import type { ContainerEntry, ContainerEntryStatus } from "@/lib/types";
+import type { ContainerEntry, ContainerEntryStatus, ContainerManifestItem } from "@/lib/types";
 
 const statuses = ["planning", "production", "in_transit", "arrived", "closed"] as const;
 
@@ -35,6 +35,32 @@ function cleanStatus(value: unknown): ContainerEntryStatus | undefined {
   return statuses.includes(value as ContainerEntryStatus) ? (value as ContainerEntryStatus) : undefined;
 }
 
+function cleanManifest(value: unknown): ContainerManifestItem[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return undefined;
+
+  const manifest: ContainerManifestItem[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== "object") return undefined;
+
+    const record = item as Record<string, unknown>;
+    const color = cleanText(record.color, true);
+    const moduleName = cleanText(record.module, true);
+    const quantity = Number(record.quantity);
+
+    if (!color || !moduleName || !Number.isInteger(quantity) || quantity < 0) {
+      return undefined;
+    }
+
+    if (quantity > 0) {
+      manifest.push({ color, module: moduleName, quantity });
+    }
+  }
+
+  return manifest;
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -66,6 +92,14 @@ export async function PATCH(
 
   const skusOnBoard = cleanText(body.skus_on_board);
   if (skusOnBoard !== undefined) updates.skus_on_board = skusOnBoard;
+
+  const manifest = cleanManifest(body.manifest_json);
+  if (body.manifest_json !== undefined) {
+    if (!manifest) {
+      return NextResponse.json({ error: "Container manifest is invalid" }, { status: 400 });
+    }
+    updates.manifest_json = manifest;
+  }
 
   const amountPaid = cleanMoney(body.amount_paid);
   if (amountPaid !== undefined) updates.amount_paid = amountPaid;

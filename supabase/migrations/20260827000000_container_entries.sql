@@ -3,6 +3,7 @@ create table if not exists public.container_entries (
   container_number text not null,
   purchase_order_id text,
   skus_on_board text,
+  manifest_json jsonb default '[]'::jsonb,
   amount_paid numeric default 0,
   amount_to_be_paid numeric default 0,
   payment_due_at date,

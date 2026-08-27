@@ -54,11 +54,18 @@ export type InventoryRow = {
 
 export type ContainerEntryStatus = "planning" | "production" | "in_transit" | "arrived" | "closed";
 
+export type ContainerManifestItem = {
+  color: string;
+  module: string;
+  quantity: number;
+};
+
 export type ContainerEntry = {
   id: string;
   container_number: string;
   purchase_order_id: string | null;
   skus_on_board: string | null;
+  manifest_json: ContainerManifestItem[] | null;
   amount_paid: number | null;
   amount_to_be_paid: number | null;
   payment_due_at: string | null;

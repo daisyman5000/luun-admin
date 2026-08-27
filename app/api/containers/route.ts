@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { canUpdateOrderLogistics, getUserContext } from "@/lib/auth";
-import type { ContainerEntry, ContainerEntryStatus } from "@/lib/types";
+import type { ContainerEntry, ContainerEntryStatus, ContainerManifestItem } from "@/lib/types";
 
 const statuses = ["planning", "production", "in_transit", "arrived", "closed"] as const;
 
@@ -30,6 +30,32 @@ function cleanStatus(value: unknown): ContainerEntryStatus | undefined {
   return statuses.includes(value as ContainerEntryStatus) ? (value as ContainerEntryStatus) : undefined;
 }
 
+function cleanManifest(value: unknown): ContainerManifestItem[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+
+  const manifest: ContainerManifestItem[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== "object") return undefined;
+
+    const record = item as Record<string, unknown>;
+    const color = cleanText(record.color, true);
+    const moduleName = cleanText(record.module, true);
+    const quantity = Number(record.quantity);
+
+    if (!color || !moduleName || !Number.isInteger(quantity) || quantity < 0) {
+      return undefined;
+    }
+
+    if (quantity > 0) {
+      manifest.push({ color, module: moduleName, quantity });
+    }
+  }
+
+  return manifest;
+}
+
 export async function POST(request: NextRequest) {
   const { profile, supabase, user } = await getUserContext();
 
@@ -48,6 +74,7 @@ export async function POST(request: NextRequest) {
   const paymentDueAt = cleanDate(body.payment_due_at);
   const eta = cleanDate(body.eta);
   const status = cleanStatus(body.status || "planning");
+  const manifest = cleanManifest(body.manifest_json);
 
   if (!containerNumber) {
     return NextResponse.json({ error: "Container number is required" }, { status: 400 });
@@ -61,6 +88,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Container dates or status are invalid" }, { status: 400 });
   }
 
+  if (!manifest) {
+    return NextResponse.json({ error: "Container manifest is invalid" }, { status: 400 });
+  }
+
   const { data, error } = await supabase
     .from("container_entries")
     .insert({
@@ -69,6 +100,7 @@ export async function POST(request: NextRequest) {
       container_number: containerNumber,
       created_by: user.id,
       eta,
+      manifest_json: manifest,
       notes: cleanText(body.notes),
       payment_due_at: paymentDueAt,
       purchase_order_id: cleanText(body.purchase_order_id),
