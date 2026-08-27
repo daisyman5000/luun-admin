@@ -91,10 +91,6 @@ export async function SupabaseDiagnostics() {
           value={wiseConfig.apiTokenExists ? "Configured" : "Missing"}
         />
         <CheckRow
-          label="Wise profile"
-          value={wiseConfig.profileIdExists ? "Configured manually" : "Auto-detect"}
-        />
-        <CheckRow
           label="Wise API connection"
           value={wiseApiConnectionWorks ? "Working" : "Not connected"}
         />

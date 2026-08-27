@@ -62,6 +62,9 @@ function BalanceCards({ balances }: { balances: WiseBalanceSummary[] }) {
       {balances.map((balance) => (
         <div className="rounded-2xl border border-line bg-white p-5 shadow-sm" key={balance.id}>
           <p className="text-sm font-medium text-slate-500">{balance.name}</p>
+          <p className="mt-1 text-xs font-semibold uppercase tracking-normal text-blue-700">
+            {balance.profileType} · {balance.profileName}
+          </p>
           <p className="mt-3 text-3xl font-semibold tracking-normal text-slate-900">
             {money(balance.amount, balance.currency)}
           </p>
