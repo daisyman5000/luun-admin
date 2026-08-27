@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
-import type { InventoryRow } from "@/lib/types";
+import { getWiseSummary } from "@/lib/wise/client";
+import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
 
 type ModuleTotals = {
   armless: number;
@@ -11,6 +12,15 @@ type FabricInventory = {
   fabric: string;
   modules: ModuleTotals;
   total: number;
+};
+
+type CashCycle = {
+  averageDailyModules: number;
+  averageModuleValue: number;
+  cashBalance: number;
+  days: number | null;
+  inventoryValue: number;
+  openContainerPayables: number;
 };
 
 const modules: (keyof ModuleTotals)[] = ["corner", "armless", "ottoman"];
@@ -56,18 +66,103 @@ function summarizeVancouverInventory(rows: InventoryRow[]): FabricInventory[] {
     .sort((left, right) => left.fabric.localeCompare(right.fabric));
 }
 
+function money(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "CAD",
+    maximumFractionDigits: 0,
+    style: "currency"
+  }).format(value);
+}
+
+function getRecentOrders(orders: ShopifyOrder[], days: number) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+
+  return orders.filter((order) => {
+    const createdAt = new Date(order.created_at);
+    return !Number.isNaN(createdAt.getTime()) && createdAt >= cutoff;
+  });
+}
+
+function calculateCashCycle({
+  containers,
+  orders,
+  totalPieces,
+  wiseCash
+}: {
+  containers: ContainerEntry[];
+  orders: ShopifyOrder[];
+  totalPieces: number;
+  wiseCash: number;
+}): CashCycle {
+  const recentOrders = getRecentOrders(orders, 30);
+  const recentModules = recentOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+  const recentRevenue = recentOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+  const allModules = orders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+  const allRevenue = orders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+  const averageDailyModules = recentModules / 30;
+  const averageModuleValue = recentModules > 0 ? recentRevenue / recentModules : allModules > 0 ? allRevenue / allModules : 0;
+
+  return {
+    averageDailyModules,
+    averageModuleValue,
+    cashBalance: wiseCash,
+    days: averageDailyModules > 0 ? Math.ceil(totalPieces / averageDailyModules) : null,
+    inventoryValue: totalPieces * averageModuleValue,
+    openContainerPayables: containers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0)
+  };
+}
+
 function StatCard({
   label,
+  note,
   value
 }: {
   label: string;
+  note?: string;
   value: string | number;
 }) {
   return (
     <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className="mt-3 text-4xl font-semibold tracking-normal text-slate-950">{value}</p>
+      {note ? <p className="mt-2 text-xs leading-5 text-slate-500">{note}</p> : null}
     </div>
+  );
+}
+
+function CashCyclePanel({ cycle }: { cycle: CashCycle }) {
+  return (
+    <section className="rounded-3xl border border-blue-100 bg-blue-50 p-6 shadow-sm">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cashflow conversion cycle</p>
+          <h2 className="mt-3 text-5xl font-semibold tracking-normal text-slate-950">
+            {cycle.days === null ? "Not enough sales data" : `${cycle.days} days`}
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+            Estimated days to convert current Vancouver inventory into cash based on Shopify module sales from the last 30 days.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[520px]">
+          <StatCard
+            label="Sales velocity"
+            note="Modules per day, last 30 days"
+            value={cycle.averageDailyModules.toFixed(1)}
+          />
+          <StatCard
+            label="Inventory value"
+            note="On-hand pieces x average module value"
+            value={money(cycle.inventoryValue)}
+          />
+          <StatCard
+            label="Open container payables"
+            note="Amount still to be paid"
+            value={money(cycle.openContainerPayables)}
+          />
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -151,9 +246,29 @@ export default async function HomePage() {
     .order("fabric_slug", { ascending: true })
     .order("module_slug", { ascending: true })
     .returns<InventoryRow[]>();
+  const { data: orders } = await supabase
+    .from("shopify_orders")
+    .select("created_at,total_modules,total_price")
+    .order("created_at", { ascending: false })
+    .limit(250)
+    .returns<ShopifyOrder[]>();
+  const { data: containers } = await supabase
+    .from("container_entries")
+    .select("amount_to_be_paid")
+    .returns<ContainerEntry[]>();
+  const wiseSummary = await getWiseSummary();
 
   const inventoryRows = summarizeVancouverInventory(data || []);
   const totalPieces = inventoryRows.reduce((sum, row) => sum + row.total, 0);
+  const cadCash = wiseSummary.balances
+    .filter((balance) => balance.currency === "CAD")
+    .reduce((sum, balance) => sum + balance.amount, 0);
+  const cashCycle = calculateCashCycle({
+    containers: containers || [],
+    orders: orders || [],
+    totalPieces,
+    wiseCash: cadCash
+  });
 
   return (
     <main className="px-5 py-8 sm:px-8 lg:px-10">
@@ -171,9 +286,11 @@ export default async function HomePage() {
         </section>
       ) : (
         <div className="space-y-5">
+          <CashCyclePanel cycle={cashCycle} />
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Total on hand" value={totalPieces} />
             <StatCard label="Fabrics" value={inventoryRows.length} />
+            <StatCard label="Wise CAD cash" value={money(cashCycle.cashBalance)} />
             <StatCard
               label="Corner pieces"
               value={inventoryRows.reduce((sum, row) => sum + row.modules.corner, 0)}
