@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
@@ -20,11 +21,26 @@ type CashCycle = {
   baselineAdSpend: number;
   cashBalance: number;
   days: number | null;
+  historicalDays: number;
   inventoryValue: number;
   openContainerPayables: number;
+  orderCount: number;
+  revenue: number;
+  soldModules: number;
 };
 
 const modules: (keyof ModuleTotals)[] = ["corner", "armless", "ottoman"];
+const historyOptions = [
+  { days: 30, label: "30 days" },
+  { days: 90, label: "3 months" },
+  { days: 180, label: "6 months" }
+];
+
+function getHistoryDays(value?: string | string[]) {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  const days = Number(rawValue || 90);
+  return historyOptions.some((option) => option.days === days) ? days : 90;
+}
 
 function titleCase(value?: string | null) {
   if (!value) return "";
@@ -87,23 +103,25 @@ function getRecentOrders(orders: ShopifyOrder[], days: number) {
 
 function calculateCashCycle({
   containers,
+  historicalDays,
   metaSpend,
   orders,
   totalPieces,
   wiseCash
 }: {
   containers: ContainerEntry[];
+  historicalDays: number;
   metaSpend: { amount: number; currency: string }[];
   orders: ShopifyOrder[];
   totalPieces: number;
   wiseCash: number;
 }): CashCycle {
-  const recentOrders = getRecentOrders(orders, 30);
+  const recentOrders = getRecentOrders(orders, historicalDays);
   const recentModules = recentOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
   const recentRevenue = recentOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
   const allModules = orders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
   const allRevenue = orders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
-  const averageDailyModules = recentModules / 30;
+  const averageDailyModules = recentModules / historicalDays;
   const averageModuleValue = recentModules > 0 ? recentRevenue / recentModules : allModules > 0 ? allRevenue / allModules : 0;
 
   return {
@@ -112,8 +130,12 @@ function calculateCashCycle({
     baselineAdSpend: metaSpend.find((total) => total.currency === "CAD")?.amount ?? 0,
     cashBalance: wiseCash,
     days: averageDailyModules > 0 ? Math.ceil(totalPieces / averageDailyModules) : null,
+    historicalDays,
     inventoryValue: totalPieces * averageModuleValue,
-    openContainerPayables: containers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0)
+    openContainerPayables: containers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0),
+    orderCount: recentOrders.length,
+    revenue: recentRevenue,
+    soldModules: recentModules
   };
 }
 
@@ -135,24 +157,65 @@ function StatCard({
   );
 }
 
+function HistorySelector({ activeDays }: { activeDays: number }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {historyOptions.map((option) => {
+        const isActive = option.days === activeDays;
+
+        return (
+          <Link
+            className={[
+              "rounded-full border px-4 py-2 text-sm font-semibold transition",
+              isActive
+                ? "border-blue-600 bg-blue-600 text-white shadow-sm"
+                : "border-blue-100 bg-white/80 text-blue-700 hover:bg-blue-50"
+            ].join(" ")}
+            href={`/?history=${option.days}`}
+            key={option.days}
+          >
+            {option.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function CashCyclePanel({ cycle }: { cycle: CashCycle }) {
   return (
     <section className="rounded-3xl border border-blue-100 bg-blue-50 p-6 shadow-sm">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cashflow conversion cycle</p>
+          <p className="mt-1 text-sm text-slate-600">Shopify history window: {cycle.historicalDays} days</p>
+        </div>
+        <HistorySelector activeDays={cycle.historicalDays} />
+      </div>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
           <h2 className="mt-3 text-5xl font-semibold tracking-normal text-slate-950">
             {cycle.days === null ? "Not enough sales data" : `${cycle.days} days`}
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-            Estimated days to convert current Vancouver inventory into cash based on Shopify module sales from the last 30 days.
+            Estimated days to convert current Vancouver inventory into cash based on Shopify module sales from the selected history window.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[520px]">
+        <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[700px]">
           <StatCard
             label="Sales velocity"
-            note="Modules per day, last 30 days"
+            note="Modules per day"
             value={cycle.averageDailyModules.toFixed(1)}
+          />
+          <StatCard
+            label="Modules sold"
+            note={`${cycle.orderCount} Shopify orders`}
+            value={cycle.soldModules}
+          />
+          <StatCard
+            label="Revenue in window"
+            note="From imported Shopify orders"
+            value={money(cycle.revenue)}
           />
           <StatCard
             label="Inventory value"
@@ -247,7 +310,13 @@ function ModuleMix({ rows }: { rows: FabricInventory[] }) {
   );
 }
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams
+}: {
+  searchParams?: Promise<{ history?: string | string[] }>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const historicalDays = getHistoryDays(resolvedSearchParams?.history);
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("inventory")
@@ -259,7 +328,7 @@ export default async function HomePage() {
     .from("shopify_orders")
     .select("created_at,total_modules,total_price")
     .order("created_at", { ascending: false })
-    .limit(250)
+    .limit(1000)
     .returns<ShopifyOrder[]>();
   const { data: containers } = await supabase
     .from("container_entries")
@@ -274,6 +343,7 @@ export default async function HomePage() {
     .reduce((sum, balance) => sum + balance.amount, 0);
   const cashCycle = calculateCashCycle({
     containers: containers || [],
+    historicalDays,
     metaSpend: wiseSummary.metaSpend.monthlyTotals,
     orders: orders || [],
     totalPieces,
