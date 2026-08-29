@@ -1,5 +1,5 @@
 import { canViewFinancials, requireUser } from "@/lib/auth";
-import { getWiseSummary, type WiseBalanceSummary } from "@/lib/wise/client";
+import { getWiseSummary, type WiseBalanceSummary, type WiseMetaSpendSummary } from "@/lib/wise/client";
 
 function money(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -20,6 +20,21 @@ function getCombinedBalances(balances: WiseBalanceSummary[]) {
     amount,
     currency
   }));
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "Not detected";
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  });
 }
 
 function CombinedCash({ balances }: { balances: WiseBalanceSummary[] }) {
@@ -44,6 +59,83 @@ function CombinedCash({ balances }: { balances: WiseBalanceSummary[] }) {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+function MetaSpendPanel({ metaSpend }: { metaSpend: WiseMetaSpendSummary }) {
+  const monthlyBaseline = metaSpend.totals.map((total) => ({
+    amount: (total.amount / metaSpend.lookbackDays) * 30,
+    currency: total.currency
+  }));
+
+  return (
+    <section className="rounded-2xl border border-line bg-white p-5 shadow-sm">
+      <div className="mb-5">
+        <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Meta ads</p>
+        <h2 className="mt-1 text-lg font-semibold text-slate-900">Wise Meta expense baseline</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Filtered from Wise descriptions containing Meta, Facebook, FB Ads, or Instagram.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm font-medium text-slate-500">Total detected</p>
+          <div className="mt-3 space-y-1">
+            {metaSpend.totals.length > 0 ? (
+              metaSpend.totals.map((total) => (
+                <p className="text-2xl font-semibold text-slate-950" key={total.currency}>
+                  {money(total.amount, total.currency)}
+                </p>
+              ))
+            ) : (
+              <p className="text-2xl font-semibold text-slate-950">$0</p>
+            )}
+          </div>
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm font-medium text-slate-500">Monthly baseline</p>
+          <div className="mt-3 space-y-1">
+            {monthlyBaseline.length > 0 ? (
+              monthlyBaseline.map((total) => (
+                <p className="text-2xl font-semibold text-slate-950" key={total.currency}>
+                  {money(total.amount, total.currency)}
+                </p>
+              ))
+            ) : (
+              <p className="text-2xl font-semibold text-slate-950">$0</p>
+            )}
+          </div>
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm font-medium text-slate-500">Started</p>
+          <p className="mt-3 text-2xl font-semibold text-slate-950">
+            {formatDate(metaSpend.firstDetectedAt)}
+          </p>
+        </div>
+      </div>
+
+      {metaSpend.expenses.length > 0 ? (
+        <div className="mt-5 overflow-hidden rounded-2xl border border-line">
+          {metaSpend.expenses.slice(-8).reverse().map((expense) => (
+            <div className="grid gap-3 border-b border-line p-4 text-sm last:border-b-0 md:grid-cols-[120px_1fr_130px]" key={`${expense.date}-${expense.description}-${expense.amount}`}>
+              <span className="font-medium text-slate-600">{formatDate(expense.date)}</span>
+              <span>
+                <span className="font-semibold text-slate-900">{expense.description}</span>
+                <span className="mt-1 block text-xs text-slate-500">{expense.profileName}</span>
+              </span>
+              <span className="text-right font-semibold text-slate-950">
+                {money(expense.amount, expense.currency)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5 rounded-2xl border border-dashed border-line bg-slate-50 p-4 text-sm text-slate-600">
+          No Meta expenses detected in the Wise lookback window.
+        </div>
+      )}
     </section>
   );
 }
@@ -116,6 +208,7 @@ export default async function FinancialsPage() {
             </section>
           ) : null}
           <CombinedCash balances={summary.balances} />
+          <MetaSpendPanel metaSpend={summary.metaSpend} />
           <BalanceCards balances={summary.balances} />
         </div>
       )}

@@ -17,6 +17,7 @@ type FabricInventory = {
 type CashCycle = {
   averageDailyModules: number;
   averageModuleValue: number;
+  baselineAdSpend: number;
   cashBalance: number;
   days: number | null;
   inventoryValue: number;
@@ -86,11 +87,15 @@ function getRecentOrders(orders: ShopifyOrder[], days: number) {
 
 function calculateCashCycle({
   containers,
+  metaLookbackDays,
+  metaSpend,
   orders,
   totalPieces,
   wiseCash
 }: {
   containers: ContainerEntry[];
+  metaLookbackDays: number;
+  metaSpend: { amount: number; currency: string }[];
   orders: ShopifyOrder[];
   totalPieces: number;
   wiseCash: number;
@@ -106,6 +111,7 @@ function calculateCashCycle({
   return {
     averageDailyModules,
     averageModuleValue,
+    baselineAdSpend: ((metaSpend.find((total) => total.currency === "CAD")?.amount ?? 0) / metaLookbackDays) * 30,
     cashBalance: wiseCash,
     days: averageDailyModules > 0 ? Math.ceil(totalPieces / averageDailyModules) : null,
     inventoryValue: totalPieces * averageModuleValue,
@@ -159,6 +165,11 @@ function CashCyclePanel({ cycle }: { cycle: CashCycle }) {
             label="Open container payables"
             note="Amount still to be paid"
             value={money(cycle.openContainerPayables)}
+          />
+          <StatCard
+            label="Meta ad baseline"
+            note="Estimated monthly baseline from Wise"
+            value={money(cycle.baselineAdSpend)}
           />
         </div>
       </div>
@@ -265,6 +276,8 @@ export default async function HomePage() {
     .reduce((sum, balance) => sum + balance.amount, 0);
   const cashCycle = calculateCashCycle({
     containers: containers || [],
+    metaLookbackDays: wiseSummary.metaSpend.lookbackDays,
+    metaSpend: wiseSummary.metaSpend.totals,
     orders: orders || [],
     totalPieces,
     wiseCash: cadCash

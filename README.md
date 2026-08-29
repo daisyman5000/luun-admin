@@ -36,6 +36,7 @@ Private admin portal for Luun logistics. The first version replaces the working 
    SHOPIFY_CLIENT_SECRET=
    SHOPIFY_WEBHOOK_SECRET=
    WISE_API_TOKEN=
+   WISE_META_LOOKBACK_DAYS=469
    ```
 
    `SUPABASE_SECRET_KEY`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_WEBHOOK_SECRET`, and `WISE_API_TOKEN` are server-only values. Never prefix them with `NEXT_PUBLIC_`.
@@ -90,9 +91,10 @@ Required environment variables:
 
 ```bash
 WISE_API_TOKEN=
+WISE_META_LOOKBACK_DAYS=469
 ```
 
-Use a Wise business personal API token from **Wise > Your account > Connect and manage apps > API tokens**. The app uses that token to find the Wise business profile automatically, then reads Wise balance accounts only so the app can show cashflow balances. It does not request Wise statements or transaction history.
+Use a Wise personal API token from **Wise > Your account > Connect and manage apps > API tokens**. The app uses that token to find all Wise profiles it can access, combines Wise balances, and scans balance statements for Meta/Facebook/Instagram expenses to create an ad spend baseline. `WISE_META_LOOKBACK_DAYS` is optional and capped at 469 days.
 
 ## Shopify Manual Sync
 
