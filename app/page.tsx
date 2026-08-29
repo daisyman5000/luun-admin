@@ -3,14 +3,19 @@ import { requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
 
-type CashCycle = {
+type DashboardMetrics = {
   averageDailyModules: number;
   averageModuleValue: number;
+  capitalVelocity: number | null;
   cashBalance: number;
-  days: number | null;
+  cashConversionCycleDays: number | null;
+  deployableCash: number;
   historicalDays: number;
+  inboundCoverageDays: number | null;
   inboundPieces: number;
   inventoryValue: number;
+  inventoryCoverageDays: number | null;
+  onHandCoverageDays: number | null;
   openContainerPayables: number;
   orderCount: number;
   revenue: number;
@@ -53,7 +58,7 @@ function totalContainerPieces(container: ContainerEntry) {
   return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 }
 
-function calculateCashCycle({
+function calculateDashboardMetrics({
   containers,
   historicalDays,
   orders,
@@ -65,7 +70,7 @@ function calculateCashCycle({
   orders: ShopifyOrder[];
   vancouverOnHand: number;
   wiseCash: number;
-}): CashCycle {
+}): DashboardMetrics {
   const activeContainers = containers.filter((container) => container.status !== "closed");
   const inboundPieces = activeContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
   const recentOrders = getRecentOrders(orders, historicalDays);
@@ -76,16 +81,23 @@ function calculateCashCycle({
   const averageDailyModules = soldModules / historicalDays;
   const averageModuleValue = soldModules > 0 ? revenue / soldModules : allModules > 0 ? allRevenue / allModules : 0;
   const totalPiecesToConvert = vancouverOnHand + inboundPieces;
+  const openContainerPayables = activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0);
+  const cashConversionCycleDays = null;
 
   return {
     averageDailyModules,
     averageModuleValue,
+    capitalVelocity: cashConversionCycleDays === null ? null : 365 / cashConversionCycleDays,
     cashBalance: wiseCash,
-    days: averageDailyModules > 0 ? Math.ceil(totalPiecesToConvert / averageDailyModules) : null,
+    cashConversionCycleDays,
+    deployableCash: wiseCash - openContainerPayables,
     historicalDays,
+    inboundCoverageDays: averageDailyModules > 0 ? Math.ceil(inboundPieces / averageDailyModules) : null,
     inboundPieces,
     inventoryValue: totalPiecesToConvert * averageModuleValue,
-    openContainerPayables: activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0),
+    inventoryCoverageDays: averageDailyModules > 0 ? Math.ceil(totalPiecesToConvert / averageDailyModules) : null,
+    onHandCoverageDays: averageDailyModules > 0 ? Math.ceil(vancouverOnHand / averageDailyModules) : null,
+    openContainerPayables,
     orderCount: recentOrders.length,
     revenue,
     soldModules,
@@ -137,33 +149,55 @@ function HistorySelector({ activeDays }: { activeDays: number }) {
   );
 }
 
-function CashCyclePanel({ cycle }: { cycle: CashCycle }) {
-  const cashAfterPayables = cycle.cashBalance - cycle.openContainerPayables;
+function daysLabel(value: number | null) {
+  return value === null ? "Unavailable" : `${value} days`;
+}
 
+function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
   return (
     <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cash conversion cycle</p>
+          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Inventory coverage</p>
           <h1 className="mt-2 text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
-            {cycle.days === null ? "Needs sales data" : `${cycle.days} days`}
+            {daysLabel(metrics.inventoryCoverageDays)}
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-            CCC estimate based on Vancouver on-hand inventory plus active container manifests, divided by Shopify module sales velocity.
+            On-hand and inbound inventory divided by Shopify module sales velocity from the selected history window.
           </p>
         </div>
-        <HistorySelector activeDays={cycle.historicalDays} />
+        <HistorySelector activeDays={metrics.historicalDays} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Vancouver on hand" note="Current sellable inventory" value={cycle.vancouverOnHand} />
-        <StatCard label="Inbound containers" note="From container manifests" value={cycle.inboundPieces} />
-        <StatCard label="Total pieces to convert" note="On hand + inbound" value={cycle.totalPiecesToConvert} />
-        <StatCard label="Sales velocity" note="Modules per day" value={cycle.averageDailyModules.toFixed(1)} />
-        <StatCard label="Modules sold" note={`${cycle.orderCount} Shopify orders`} value={cycle.soldModules} />
-        <StatCard label="Revenue in window" note={`${cycle.historicalDays} day Shopify window`} value={money(cycle.revenue)} />
-        <StatCard label="Inventory value" note="Pieces x average module value" value={money(cycle.inventoryValue)} />
-        <StatCard label="Cash after payables" note="Wise cash minus open container payables" value={money(cashAfterPayables)} />
+        <StatCard
+          label="On-hand coverage"
+          note={`${metrics.vancouverOnHand} Vancouver pieces`}
+          value={daysLabel(metrics.onHandCoverageDays)}
+        />
+        <StatCard
+          label="Inbound coverage"
+          note={`${metrics.inboundPieces} active container pieces`}
+          value={daysLabel(metrics.inboundCoverageDays)}
+        />
+        <StatCard label="Sales velocity" note="Modules per day" value={metrics.averageDailyModules.toFixed(1)} />
+        <StatCard
+          label="Deployable cash"
+          note="Wise CAD cash minus open container payables"
+          value={money(metrics.deployableCash)}
+        />
+        <StatCard
+          label="Cash Conversion Cycle"
+          note="Needs inventory payment dates and customer cash receipt dates"
+          value={daysLabel(metrics.cashConversionCycleDays)}
+        />
+        <StatCard
+          label="Capital Velocity"
+          note="365 divided by CCC once CCC is available"
+          value={metrics.capitalVelocity === null ? "Unavailable" : metrics.capitalVelocity.toFixed(1)}
+        />
+        <StatCard label="Revenue in window" note={`${metrics.historicalDays} day Shopify window`} value={money(metrics.revenue)} />
+        <StatCard label="Inventory value" note={`${metrics.totalPiecesToConvert} total pieces x average module value`} value={money(metrics.inventoryValue)} />
       </div>
     </section>
   );
@@ -197,7 +231,7 @@ export default async function HomePage({
   const cadCash = wiseSummary.balances
     .filter((balance) => balance.currency === "CAD")
     .reduce((sum, balance) => sum + balance.amount, 0);
-  const cashCycle = calculateCashCycle({
+  const metrics = calculateDashboardMetrics({
     containers: containers || [],
     historicalDays,
     orders: orders || [],
@@ -212,7 +246,7 @@ export default async function HomePage({
           Unable to load the cash conversion cycle.
         </section>
       ) : (
-        <CashCyclePanel cycle={cashCycle} />
+        <DashboardPanel metrics={metrics} />
       )}
     </main>
   );
