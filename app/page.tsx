@@ -8,7 +8,7 @@ type DashboardMetrics = {
   averageModuleValue: number;
   capitalVelocityTurns: number | null;
   cashBalance: number;
-  cashConversionCycleTurns: number | null;
+  cashConversionCycleDays: number | null;
   customerAcquisitionCost: number | null;
   deployableCash: number;
   historicalDays: number;
@@ -95,17 +95,19 @@ function calculateDashboardMetrics({
   const selectedMetaSpend = metaExpenses
     .filter((expense) => expense.currency === "CAD" && isInHistoryWindow(expense.date, historicalDays))
     .reduce((sum, expense) => sum + expense.amount, 0);
-  const annualizedModuleSales = averageDailyModules * 365;
-  const cashConversionCycleTurns = totalPiecesToConvert > 0 && annualizedModuleSales > 0
-    ? annualizedModuleSales / totalPiecesToConvert
+  const cashConversionCycleDays = totalPiecesToConvert > 0 && averageDailyModules > 0
+    ? totalPiecesToConvert / averageDailyModules
+    : null;
+  const capitalVelocityTurns = cashConversionCycleDays && cashConversionCycleDays > 0
+    ? 365 / cashConversionCycleDays
     : null;
 
   return {
     averageDailyModules,
     averageModuleValue,
-    capitalVelocityTurns: cashConversionCycleTurns,
+    capitalVelocityTurns,
     cashBalance: wiseCash,
-    cashConversionCycleTurns,
+    cashConversionCycleDays,
     customerAcquisitionCost: recentOrders.length > 0 && selectedMetaSpend > 0 ? selectedMetaSpend / recentOrders.length : null,
     deployableCash: wiseCash - openContainerPayables,
     historicalDays,
@@ -168,6 +170,10 @@ function turnsLabel(value: number | null) {
   return value === null ? "Unavailable" : `${value.toFixed(1)}x`;
 }
 
+function daysLabel(value: number | null) {
+  return value === null ? "Unavailable" : `${Math.ceil(value)} days`;
+}
+
 function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
   return (
     <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
@@ -175,10 +181,10 @@ function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
         <div>
           <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cash Conversion Cycle</p>
           <h1 className="mt-2 text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
-            {turnsLabel(metrics.cashConversionCycleTurns)}
+            {daysLabel(metrics.cashConversionCycleDays)}
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-            Annual inventory flips based on Shopify module sales velocity divided by Vancouver on-hand plus active inbound container inventory.
+            Estimated days cash is tied up in inventory, based on Vancouver on-hand plus active inbound container inventory divided by Shopify module sales velocity.
           </p>
         </div>
         <HistorySelector activeDays={metrics.historicalDays} />
@@ -195,12 +201,12 @@ function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
         />
         <StatCard
           label="Cash Conversion Cycle"
-          note={`${metrics.totalPiecesToConvert} pieces against annualized module sales`}
-          value={turnsLabel(metrics.cashConversionCycleTurns)}
+          note={`${metrics.totalPiecesToConvert} pieces / ${metrics.averageDailyModules.toFixed(1)} modules per day`}
+          value={daysLabel(metrics.cashConversionCycleDays)}
         />
         <StatCard
           label="Capital Velocity"
-          note="Same annual turn rate until payment timing is tracked"
+          note="365 divided by CCC"
           value={turnsLabel(metrics.capitalVelocityTurns)}
         />
         <StatCard
