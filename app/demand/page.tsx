@@ -20,10 +20,13 @@ type ContainerDemand = {
 };
 
 type SaleEvent = {
+  dailyBudget: number | null;
   date: Date;
+  endDate: Date;
   label: string;
   modules: number;
   orders: number | null;
+  totalBudget: number | null;
 };
 
 type CalendarCell = {
@@ -50,6 +53,8 @@ type DemandPlan = {
 };
 
 const saleLeadDays = 20;
+const saleDurationDays = 10;
+const saleGapDays = 7;
 
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -159,12 +164,14 @@ function calculateAverageOrderValue(orders: ShopifyOrder[]) {
 function buildSaleEvents({
   averageModulesPerOrder,
   containers,
+  customerAcquisitionCost,
   selectedMonth,
   vancouverOnHandSaleDate,
   vancouverOnHand
 }: {
   averageModulesPerOrder: number | null;
   containers: ContainerDemand[];
+  customerAcquisitionCost: number | null;
   selectedMonth: MonthOption;
   vancouverOnHandSaleDate: Date | null;
   vancouverOnHand: number;
@@ -173,13 +180,19 @@ function buildSaleEvents({
   const initialEvents: SaleEvent[] = [];
 
   if (vancouverOnHandSaleDate && vancouverOnHand > 0) {
+    const orders = averageModulesPerOrder ? Math.ceil(vancouverOnHand / averageModulesPerOrder) : null;
+    const totalBudget = orders !== null && customerAcquisitionCost !== null ? orders * customerAcquisitionCost : null;
+
     initialEvents.push({
+      dailyBudget: totalBudget === null ? null : totalBudget / saleDurationDays,
       date: vancouverOnHandSaleDate,
+      endDate: addDays(vancouverOnHandSaleDate, saleDurationDays - 1),
       label: "Vancouver on hand",
       modules: vancouverOnHand,
-      orders: averageModulesPerOrder ? Math.ceil(vancouverOnHand / averageModulesPerOrder) : null
+      orders,
+      totalBudget
     });
-    nextAvailableSaleDate = addDays(vancouverOnHandSaleDate, 8);
+    nextAvailableSaleDate = addDays(vancouverOnHandSaleDate, saleDurationDays + saleGapDays);
   }
 
   return containers.reduce<SaleEvent[]>((events, item) => {
@@ -187,14 +200,19 @@ function buildSaleEvents({
 
     const saleDate = laterDate(item.demandOpenDate, nextAvailableSaleDate);
     if (saleDate > selectedMonth.end) return events;
+    const orders = averageModulesPerOrder ? Math.ceil(item.pieces / averageModulesPerOrder) : null;
+    const totalBudget = orders !== null && customerAcquisitionCost !== null ? orders * customerAcquisitionCost : null;
 
     events.push({
+      dailyBudget: totalBudget === null ? null : totalBudget / saleDurationDays,
       date: saleDate,
+      endDate: addDays(saleDate, saleDurationDays - 1),
       label: item.container.container_number,
       modules: item.pieces,
-      orders: averageModulesPerOrder ? Math.ceil(item.pieces / averageModulesPerOrder) : null
+      orders,
+      totalBudget
     });
-    nextAvailableSaleDate = addDays(saleDate, 8);
+    nextAvailableSaleDate = addDays(saleDate, saleDurationDays + saleGapDays);
     return events;
   }, initialEvents);
 }
@@ -249,6 +267,7 @@ function calculateDemandPlan({
   const saleEvents = buildSaleEvents({
     averageModulesPerOrder,
     containers: containersEligibleThisMonth,
+    customerAcquisitionCost,
     selectedMonth,
     vancouverOnHand: selectedVancouverOnHand,
     vancouverOnHandSaleDate
@@ -336,13 +355,19 @@ function DemandAction({ plan }: { plan: DemandPlan }) {
             : `Wait ${waitDays} days for ${containerName}`}
       </h2>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-        Incoming inventory becomes eligible for advertising when its ETA to Canada is within {saleLeadDays} days. This uses live container ETAs, not a past-period filter.
+        Incoming inventory becomes eligible for advertising when its ETA to Canada is within {saleLeadDays} days. Each sale runs at least {saleDurationDays} days with {saleGapDays} blank days before the next sale.
       </p>
     </section>
   );
 }
 
 function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
+  function saleRangeFor(label: string) {
+    const event = plan.saleEvents.find((saleEvent) => saleEvent.label === label);
+    if (!event) return "Not scheduled";
+    return `${formatDate(event.date)} to ${formatDate(event.endDate)}`;
+  }
+
   return (
     <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-950">Inventory available to sell this month</h2>
@@ -351,7 +376,7 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
           <div className="flex items-center justify-between gap-4 py-3">
             <span>
               <span className="block font-medium text-slate-700">Vancouver on hand</span>
-              <span className="text-xs text-blue-700">Available now unless already sold</span>
+              <span className="text-xs text-blue-700">{saleRangeFor("Vancouver on hand")}</span>
             </span>
             <span className="font-semibold text-slate-950">{plan.vancouverOnHand} modules</span>
           </div>
@@ -364,7 +389,7 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
               <span>
                 <span className="block font-medium text-slate-700">{item.container.container_number}</span>
                 <span className="text-xs text-blue-700">
-                  Advertising opens {formatDate(item.demandOpenDate)}. ETA {formatDate(item.eta)}
+                  Sale {saleRangeFor(item.container.container_number)}. ETA {formatDate(item.eta)}
                 </span>
               </span>
               <span className="font-semibold text-slate-950">{item.pieces} modules</span>
@@ -383,7 +408,7 @@ function SaleCalendar({ plan }: { plan: DemandPlan }) {
     ...Array.from({ length: firstDay }, (_, index) => ({ date: null, event: null, key: `blank-${index}` })),
     ...Array.from({ length: daysInMonth }, (_, index) => {
       const date = new Date(plan.selectedMonth.start.getFullYear(), plan.selectedMonth.start.getMonth(), index + 1);
-      const event = plan.saleEvents.find((saleEvent) => saleEvent.date.toDateString() === date.toDateString());
+      const event = plan.saleEvents.find((saleEvent) => date >= saleEvent.date && date <= saleEvent.endDate);
 
       return {
         date,
@@ -397,7 +422,7 @@ function SaleCalendar({ plan }: { plan: DemandPlan }) {
     <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-4">
         <h2 className="text-lg font-semibold text-slate-950">Sale calendar</h2>
-        <p className="text-xs font-medium text-slate-500">7 blank days between sale starts</p>
+        <p className="text-xs font-medium text-slate-500">10-day sales. 7 blank days between sales.</p>
       </div>
       <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-normal text-slate-500">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
@@ -419,10 +444,15 @@ function SaleCalendar({ plan }: { plan: DemandPlan }) {
                 <div className="font-semibold text-slate-700">{cell.date.getDate()}</div>
                 {cell.event ? (
                   <div className="mt-2 rounded-lg bg-white p-2 text-left text-xs leading-5">
-                    <div className="font-semibold text-blue-700">Sale</div>
+                    <div className="font-semibold text-blue-700">
+                      {cell.date.toDateString() === cell.event.date.toDateString() ? "Sale starts" : "Sale"}
+                    </div>
                     <div className="font-medium text-slate-950">{cell.event.label}</div>
                     <div className="text-slate-500">{cell.event.modules} modules</div>
                     <div className="text-slate-500">{cell.event.orders ?? "Unavailable"} orders</div>
+                    <div className="font-semibold text-slate-950">
+                      {cell.event.dailyBudget === null ? "Budget unavailable" : `${money(cell.event.dailyBudget)} / day`}
+                    </div>
                   </div>
                 ) : null}
               </>
@@ -432,7 +462,7 @@ function SaleCalendar({ plan }: { plan: DemandPlan }) {
       </div>
       {plan.saleEvents.length === 0 ? (
         <p className="mt-4 rounded-2xl border border-dashed border-line bg-slate-50 p-4 text-sm text-slate-500">
-          No sale scheduled this month because no container inventory is inside the 20-day Canada ETA rule.
+          No sale scheduled this month because there is no Vancouver inventory and no container inventory inside the 20-day Canada ETA rule.
         </p>
       ) : null}
     </section>

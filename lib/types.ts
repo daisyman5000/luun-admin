@@ -77,3 +77,32 @@ export type ContainerEntry = {
   created_at: string;
   updated_at: string;
 };
+
+export type JobTicketCategory =
+  | "customer_inquiry"
+  | "ads_created"
+  | "customer_followup_reviews"
+  | "social_media_posts"
+  | "technology_improvements";
+
+export type JobTicketStatus = "open" | "in_progress" | "blocked" | "done";
+export type JobTicketPriority = "low" | "normal" | "high" | "urgent";
+
+export type JobTicket = {
+  id: string;
+  title: string;
+  category: JobTicketCategory;
+  status: JobTicketStatus;
+  priority: JobTicketPriority;
+  customer_name: string | null;
+  customer_email: string | null;
+  order_number: string | null;
+  owner_name: string | null;
+  details: string | null;
+  next_step: string | null;
+  due_at: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
