@@ -5,7 +5,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { ContainerEntry, ContainerManifestItem } from "@/lib/types";
 
-const manifestColors = ["White", "Dark grey", "Peach", "Aqua", "Jade"] as const;
+const manifestColors = ["White", "Dark grey", "Peach", "Aqua", "Jade", "Slipcover design"] as const;
 const manifestModules = ["corner", "armless", "ottoman"] as const;
 
 type ManifestColor = (typeof manifestColors)[number];
