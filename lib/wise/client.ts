@@ -65,6 +65,11 @@ export type WiseMetaSpendSummary = {
   expenses: WiseMetaExpense[];
   firstDetectedAt: string | null;
   lookbackDays: number;
+  monthlyTotals: {
+    amount: number;
+    currency: string;
+    month: string;
+  }[];
   totals: {
     amount: number;
     currency: string;
@@ -158,6 +163,7 @@ function emptyMetaSpend(lookbackDays: number): WiseMetaSpendSummary {
     expenses: [],
     firstDetectedAt: null,
     lookbackDays,
+    monthlyTotals: [],
     totals: []
   };
 }
@@ -240,15 +246,30 @@ async function getMetaSpendSummary(balances: WiseBalanceSummary[], lookbackDays:
     .flat()
     .sort((left, right) => Date.parse(left.date) - Date.parse(right.date));
   const totalsByCurrency = new Map<string, number>();
+  const monthlyTotalsByCurrency = new Map<string, number>();
 
   for (const expense of expenses) {
     totalsByCurrency.set(expense.currency, (totalsByCurrency.get(expense.currency) || 0) + expense.amount);
+    const month = expense.date.slice(0, 7);
+    const key = `${month}:${expense.currency}`;
+    monthlyTotalsByCurrency.set(key, (monthlyTotalsByCurrency.get(key) || 0) + expense.amount);
   }
 
   return {
     expenses,
     firstDetectedAt: expenses[0]?.date || null,
     lookbackDays,
+    monthlyTotals: Array.from(monthlyTotalsByCurrency.entries())
+      .map(([key, amount]) => {
+        const [month, currency] = key.split(":");
+
+        return {
+          amount,
+          currency,
+          month
+        };
+      })
+      .sort((left, right) => right.month.localeCompare(left.month)),
     totals: Array.from(totalsByCurrency.entries()).map(([currency, amount]) => ({
       amount,
       currency

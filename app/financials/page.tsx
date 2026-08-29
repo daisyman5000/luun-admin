@@ -37,6 +37,20 @@ function formatDate(value?: string | null) {
   });
 }
 
+function formatMonth(value: string) {
+  const date = new Date(`${value}-01T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC"
+  });
+}
+
 function CombinedCash({ balances }: { balances: WiseBalanceSummary[] }) {
   const combinedBalances = getCombinedBalances(balances);
 
@@ -64,10 +78,7 @@ function CombinedCash({ balances }: { balances: WiseBalanceSummary[] }) {
 }
 
 function MetaSpendPanel({ metaSpend }: { metaSpend: WiseMetaSpendSummary }) {
-  const monthlyBaseline = metaSpend.totals.map((total) => ({
-    amount: (total.amount / metaSpend.lookbackDays) * 30,
-    currency: total.currency
-  }));
+  const latestMonth = metaSpend.monthlyTotals[0];
 
   return (
     <section className="rounded-2xl border border-line bg-white p-5 shadow-sm">
@@ -95,14 +106,15 @@ function MetaSpendPanel({ metaSpend }: { metaSpend: WiseMetaSpendSummary }) {
           </div>
         </div>
         <div className="rounded-2xl bg-slate-50 p-4">
-          <p className="text-sm font-medium text-slate-500">Monthly baseline</p>
+          <p className="text-sm font-medium text-slate-500">Latest month</p>
           <div className="mt-3 space-y-1">
-            {monthlyBaseline.length > 0 ? (
-              monthlyBaseline.map((total) => (
-                <p className="text-2xl font-semibold text-slate-950" key={total.currency}>
-                  {money(total.amount, total.currency)}
+            {latestMonth ? (
+              <>
+                <p className="text-2xl font-semibold text-slate-950">
+                  {money(latestMonth.amount, latestMonth.currency)}
                 </p>
-              ))
+                <p className="text-xs font-medium text-slate-500">{formatMonth(latestMonth.month)}</p>
+              </>
             ) : (
               <p className="text-2xl font-semibold text-slate-950">$0</p>
             )}
@@ -115,6 +127,26 @@ function MetaSpendPanel({ metaSpend }: { metaSpend: WiseMetaSpendSummary }) {
           </p>
         </div>
       </div>
+
+      {metaSpend.monthlyTotals.length > 0 ? (
+        <div className="mt-5 overflow-hidden rounded-2xl border border-line">
+          <div className="grid grid-cols-[1fr_140px] bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <span>Month</span>
+            <span className="text-right">Meta spend</span>
+          </div>
+          {metaSpend.monthlyTotals.map((month) => (
+            <div
+              className="grid grid-cols-[1fr_140px] border-t border-line px-4 py-3 text-sm"
+              key={`${month.month}-${month.currency}`}
+            >
+              <span className="font-semibold text-slate-900">{formatMonth(month.month)}</span>
+              <span className="text-right font-semibold text-slate-950">
+                {money(month.amount, month.currency)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {metaSpend.expenses.length > 0 ? (
         <div className="mt-5 overflow-hidden rounded-2xl border border-line">
