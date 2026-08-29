@@ -148,6 +148,9 @@ export function DemandSaleCalendar({
   }
 
   const hasSales = saleEvents.length > 0;
+  const activeSale = saleEvents[0] || null;
+  const activeSaleDays = activeSale?.days.length || 0;
+  const dailyBudget = activeSale?.dailyBudget ?? null;
   const cells = [
     ...Array.from({ length: plan.selectedMonth.firstDay }, (_, index) => ({ day: null, key: `blank-${index}` })),
     ...Array.from({ length: plan.selectedMonth.endDay }, (_, index) => {
@@ -171,6 +174,29 @@ export function DemandSaleCalendar({
       {error ? (
         <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>
       ) : null}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-2xl border border-line bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Sale days selected</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{activeSaleDays}</p>
+        </div>
+        <div className="rounded-2xl border border-line bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Orders to sell</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{activeSale?.orders ?? "Unavailable"}</p>
+        </div>
+        <div className="rounded-2xl border border-line bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Total ad spend</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">
+            {activeSale?.totalBudget === null || activeSale?.totalBudget === undefined ? "Unavailable" : money(activeSale.totalBudget)}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">Budget per sale day</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">
+            {dailyBudget === null ? "Unavailable" : `${money(dailyBudget)} / day`}
+          </p>
+        </div>
+      </div>
 
       <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-normal text-slate-500">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
