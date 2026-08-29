@@ -6,8 +6,11 @@ import { useState } from "react";
 export type DemandCalendarEvent = {
   dailyBudget: number | null;
   date: string;
+  days: {
+    date: string;
+    id: string;
+  }[];
   endDate: string;
-  id: string;
   labels: string[];
   modules: number;
   orders: number | null;
@@ -24,8 +27,6 @@ export type DemandCalendarPlan = {
   };
 };
 
-const minimumDaysBetweenSaleStarts = 17;
-
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
     currency: "CAD",
@@ -39,17 +40,10 @@ function dayKey(month: string, day: number) {
 }
 
 function getDayStatus(date: string, events: DemandCalendarEvent[]) {
-  return events.find((event) => date >= event.date && date <= event.endDate) || null;
-}
+  const event = events.find((item) => item.days.some((day) => day.date === date));
+  const day = event?.days.find((item) => item.date === date) || null;
 
-function daysBetweenKeys(left: string, right: string) {
-  const leftDate = new Date(`${left}T00:00:00`);
-  const rightDate = new Date(`${right}T00:00:00`);
-  return Math.abs(Math.round((leftDate.getTime() - rightDate.getTime()) / 86_400_000));
-}
-
-function isGapDay(date: string, events: DemandCalendarEvent[]) {
-  return events.some((event) => date > event.endDate && daysBetweenKeys(event.date, date) < minimumDaysBetweenSaleStarts);
+  return event && day ? { day, event } : null;
 }
 
 export function DemandSaleCalendar({
@@ -63,13 +57,13 @@ export function DemandSaleCalendar({
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function addSale(date: string) {
+  async function addSale(date: string, durationDays: number) {
     if (!canEdit || pendingDate) return;
     setPendingDate(date);
     setError(null);
 
     const response = await fetch("/api/demand-sales", {
-      body: JSON.stringify({ sale_date: date }),
+      body: JSON.stringify({ duration_days: durationDays, sale_date: date }),
       headers: { "Content-Type": "application/json" },
       method: "POST"
     });
@@ -85,12 +79,12 @@ export function DemandSaleCalendar({
     setPendingDate(null);
   }
 
-  async function deleteSale(event: DemandCalendarEvent) {
+  async function deleteSaleDay(day: { date: string; id: string }) {
     if (!canEdit || pendingDate) return;
-    setPendingDate(event.date);
+    setPendingDate(day.date);
     setError(null);
 
-    const response = await fetch(`/api/demand-sales/${event.id}`, { method: "DELETE" });
+    const response = await fetch(`/api/demand-sales/${day.id}`, { method: "DELETE" });
 
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -103,6 +97,7 @@ export function DemandSaleCalendar({
     setPendingDate(null);
   }
 
+  const hasSales = plan.saleEvents.length > 0;
   const cells = [
     ...Array.from({ length: plan.selectedMonth.firstDay }, (_, index) => ({ day: null, key: `blank-${index}` })),
     ...Array.from({ length: plan.selectedMonth.endDay }, (_, index) => {
@@ -134,8 +129,9 @@ export function DemandSaleCalendar({
       </div>
       <div className="mt-2 grid grid-cols-7 gap-2">
         {cells.map((cell) => {
-          const event = cell.day ? getDayStatus(cell.key, plan.saleEvents) : null;
-          const isGap = cell.day && !event ? isGapDay(cell.key, plan.saleEvents) : false;
+          const status = cell.day ? getDayStatus(cell.key, plan.saleEvents) : null;
+          const event = status?.event || null;
+          const saleDay = status?.day || null;
           const isStart = event?.date === cell.key;
 
           return (
@@ -144,8 +140,7 @@ export function DemandSaleCalendar({
                 "min-h-28 rounded-xl border p-2 text-left text-sm transition",
                 cell.day ? "border-line bg-slate-50 hover:border-blue-200 hover:bg-blue-50" : "border-transparent",
                 event ? "border-blue-200 bg-blue-50 shadow-sm" : "",
-                isGap ? "bg-slate-100" : "",
-                !canEdit || !cell.day || event || isGap ? "cursor-default" : ""
+                !canEdit || !cell.day || event ? "cursor-default" : ""
               ].join(" ")}
               key={cell.key}
             >
@@ -160,31 +155,29 @@ export function DemandSaleCalendar({
                       <div className="font-semibold text-slate-950">
                         {event.dailyBudget === null ? "Budget unavailable" : `${money(event.dailyBudget)} / day`}
                       </div>
-                      {isStart && canEdit ? (
+                      {saleDay && canEdit ? (
                         <button
                           className="mt-2 inline-flex rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-700"
                           disabled={Boolean(pendingDate)}
                           onClick={() => {
-                            void deleteSale(event);
+                            void deleteSaleDay(saleDay);
                           }}
                           type="button"
                         >
-                          Delete
+                          Remove day
                         </button>
                       ) : null}
                     </div>
-                  ) : isGap ? (
-                    <div className="mt-8 text-center text-xs font-semibold text-slate-400">Rest week</div>
                   ) : canEdit ? (
                     <button
                       className="mt-8 w-full rounded-full border border-blue-100 bg-white px-3 py-2 text-center text-xs font-semibold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
                       disabled={Boolean(pendingDate)}
                       onClick={() => {
-                        void addSale(cell.key);
+                        void addSale(cell.key, hasSales ? 1 : 10);
                       }}
                       type="button"
                     >
-                      Add sale
+                      {hasSales ? "Add day" : "Add 10-day sale"}
                     </button>
                   ) : null}
                 </>

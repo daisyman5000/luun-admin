@@ -24,8 +24,8 @@ type ContainerDemand = {
 type SaleEvent = {
   dailyBudget: number | null;
   date: Date;
+  days: DemandSale[];
   endDate: Date;
-  id: string;
   labels: string[];
   modules: number;
   orders: number | null;
@@ -174,9 +174,11 @@ function buildSaleEvents({
 }) {
   let remainingVancouverOnHand = vancouverOnHand;
   const allocatedContainerIds = new Set<string>();
+  const saleGroups = groupConsecutiveSaleDays(plannedSales);
 
-  return plannedSales.reduce<SaleEvent[]>((events, sale) => {
-    const saleDate = new Date(`${sale.sale_date}T00:00:00`);
+  return saleGroups.reduce<SaleEvent[]>((events, group) => {
+    const saleDate = new Date(`${group[0].sale_date}T00:00:00`);
+    const endDate = new Date(`${group[group.length - 1].sale_date}T00:00:00`);
     const labels: string[] = [];
     let modules = 0;
 
@@ -199,10 +201,10 @@ function buildSaleEvents({
     const totalBudget = orders !== null && customerAcquisitionCost !== null ? orders * customerAcquisitionCost : null;
 
     events.push({
-      dailyBudget: totalBudget === null ? null : totalBudget / saleDurationDays,
+      dailyBudget: totalBudget === null ? null : totalBudget / group.length,
       date: saleDate,
-      endDate: addDays(saleDate, saleDurationDays - 1),
-      id: sale.id,
+      days: group,
+      endDate,
       labels,
       modules,
       orders,
@@ -210,6 +212,29 @@ function buildSaleEvents({
     });
 
     return events;
+  }, []);
+}
+
+function groupConsecutiveSaleDays(plannedSales: DemandSale[]) {
+  return plannedSales.reduce<DemandSale[][]>((groups, sale) => {
+    const previousGroup = groups.at(-1);
+    const previousSale = previousGroup?.at(-1);
+
+    if (!previousSale) {
+      groups.push([sale]);
+      return groups;
+    }
+
+    const previousDate = new Date(`${previousSale.sale_date}T00:00:00`);
+    const currentDate = new Date(`${sale.sale_date}T00:00:00`);
+
+    if (daysBetween(previousDate, currentDate) === 1) {
+      previousGroup?.push(sale);
+    } else {
+      groups.push([sale]);
+    }
+
+    return groups;
   }, []);
 }
 
@@ -400,8 +425,11 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
     saleEvents: plan.saleEvents.map((event) => ({
       dailyBudget: event.dailyBudget,
       date: dateInputValue(event.date),
+      days: event.days.map((day) => ({
+        date: day.sale_date,
+        id: day.id
+      })),
       endDate: dateInputValue(event.endDate),
-      id: event.id,
       labels: event.labels,
       modules: event.modules,
       orders: event.orders,
