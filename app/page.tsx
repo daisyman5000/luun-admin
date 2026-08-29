@@ -3,33 +3,22 @@ import { requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
 
-type ModuleTotals = {
-  armless: number;
-  corner: number;
-  ottoman: number;
-};
-
-type FabricInventory = {
-  fabric: string;
-  modules: ModuleTotals;
-  total: number;
-};
-
 type CashCycle = {
   averageDailyModules: number;
   averageModuleValue: number;
-  baselineAdSpend: number;
   cashBalance: number;
   days: number | null;
   historicalDays: number;
+  inboundPieces: number;
   inventoryValue: number;
   openContainerPayables: number;
   orderCount: number;
   revenue: number;
   soldModules: number;
+  totalPiecesToConvert: number;
+  vancouverOnHand: number;
 };
 
-const modules: (keyof ModuleTotals)[] = ["corner", "armless", "ottoman"];
 const historyOptions = [
   { days: 30, label: "30 days" },
   { days: 90, label: "3 months" },
@@ -40,47 +29,6 @@ function getHistoryDays(value?: string | string[]) {
   const rawValue = Array.isArray(value) ? value[0] : value;
   const days = Number(rawValue || 90);
   return historyOptions.some((option) => option.days === days) ? days : 90;
-}
-
-function titleCase(value?: string | null) {
-  if (!value) return "";
-
-  return value
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function emptyTotals(): ModuleTotals {
-  return {
-    armless: 0,
-    corner: 0,
-    ottoman: 0
-  };
-}
-
-function summarizeVancouverInventory(rows: InventoryRow[]): FabricInventory[] {
-  const byFabric = new Map<string, ModuleTotals>();
-
-  for (const row of rows) {
-    const fabric = row.fabric_slug || "unknown";
-    const moduleName = row.module_slug;
-
-    if (!moduleName || !modules.includes(moduleName as keyof ModuleTotals)) {
-      continue;
-    }
-
-    const totals = byFabric.get(fabric) || emptyTotals();
-    totals[moduleName as keyof ModuleTotals] += Number(row.available_qty || 0);
-    byFabric.set(fabric, totals);
-  }
-
-  return Array.from(byFabric.entries())
-    .map(([fabric, totals]) => ({
-      fabric,
-      modules: totals,
-      total: modules.reduce((sum, module) => sum + totals[module], 0)
-    }))
-    .sort((left, right) => left.fabric.localeCompare(right.fabric));
 }
 
 function money(value: number) {
@@ -101,41 +49,48 @@ function getRecentOrders(orders: ShopifyOrder[], days: number) {
   });
 }
 
+function totalContainerPieces(container: ContainerEntry) {
+  return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+}
+
 function calculateCashCycle({
   containers,
   historicalDays,
-  metaSpend,
   orders,
-  totalPieces,
+  vancouverOnHand,
   wiseCash
 }: {
   containers: ContainerEntry[];
   historicalDays: number;
-  metaSpend: { amount: number; currency: string }[];
   orders: ShopifyOrder[];
-  totalPieces: number;
+  vancouverOnHand: number;
   wiseCash: number;
 }): CashCycle {
+  const activeContainers = containers.filter((container) => container.status !== "closed");
+  const inboundPieces = activeContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
   const recentOrders = getRecentOrders(orders, historicalDays);
-  const recentModules = recentOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
-  const recentRevenue = recentOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+  const soldModules = recentOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+  const revenue = recentOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
   const allModules = orders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
   const allRevenue = orders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
-  const averageDailyModules = recentModules / historicalDays;
-  const averageModuleValue = recentModules > 0 ? recentRevenue / recentModules : allModules > 0 ? allRevenue / allModules : 0;
+  const averageDailyModules = soldModules / historicalDays;
+  const averageModuleValue = soldModules > 0 ? revenue / soldModules : allModules > 0 ? allRevenue / allModules : 0;
+  const totalPiecesToConvert = vancouverOnHand + inboundPieces;
 
   return {
     averageDailyModules,
     averageModuleValue,
-    baselineAdSpend: metaSpend.find((total) => total.currency === "CAD")?.amount ?? 0,
     cashBalance: wiseCash,
-    days: averageDailyModules > 0 ? Math.ceil(totalPieces / averageDailyModules) : null,
+    days: averageDailyModules > 0 ? Math.ceil(totalPiecesToConvert / averageDailyModules) : null,
     historicalDays,
-    inventoryValue: totalPieces * averageModuleValue,
-    openContainerPayables: containers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0),
+    inboundPieces,
+    inventoryValue: totalPiecesToConvert * averageModuleValue,
+    openContainerPayables: activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0),
     orderCount: recentOrders.length,
-    revenue: recentRevenue,
-    soldModules: recentModules
+    revenue,
+    soldModules,
+    totalPiecesToConvert,
+    vancouverOnHand
   };
 }
 
@@ -149,7 +104,7 @@ function StatCard({
   value: string | number;
 }) {
   return (
-    <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
+    <div className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className="mt-3 text-4xl font-semibold tracking-normal text-slate-950">{value}</p>
       {note ? <p className="mt-2 text-xs leading-5 text-slate-500">{note}</p> : null}
@@ -183,128 +138,32 @@ function HistorySelector({ activeDays }: { activeDays: number }) {
 }
 
 function CashCyclePanel({ cycle }: { cycle: CashCycle }) {
+  const cashAfterPayables = cycle.cashBalance - cycle.openContainerPayables;
+
   return (
-    <section className="rounded-3xl border border-blue-100 bg-blue-50 p-6 shadow-sm">
-      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
+      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cashflow conversion cycle</p>
-          <p className="mt-1 text-sm text-slate-600">Shopify history window: {cycle.historicalDays} days</p>
+          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cash conversion cycle</p>
+          <h1 className="mt-2 text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
+            {cycle.days === null ? "Needs sales data" : `${cycle.days} days`}
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+            CCC estimate based on Vancouver on-hand inventory plus active container manifests, divided by Shopify module sales velocity.
+          </p>
         </div>
         <HistorySelector activeDays={cycle.historicalDays} />
       </div>
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="mt-3 text-5xl font-semibold tracking-normal text-slate-950">
-            {cycle.days === null ? "Not enough sales data" : `${cycle.days} days`}
-          </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-            Estimated days to convert current Vancouver inventory into cash based on Shopify module sales from the selected history window.
-          </p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[700px]">
-          <StatCard
-            label="Sales velocity"
-            note="Modules per day"
-            value={cycle.averageDailyModules.toFixed(1)}
-          />
-          <StatCard
-            label="Modules sold"
-            note={`${cycle.orderCount} Shopify orders`}
-            value={cycle.soldModules}
-          />
-          <StatCard
-            label="Revenue in window"
-            note="From imported Shopify orders"
-            value={money(cycle.revenue)}
-          />
-          <StatCard
-            label="Inventory value"
-            note="On-hand pieces x average module value"
-            value={money(cycle.inventoryValue)}
-          />
-          <StatCard
-            label="Open container payables"
-            note="Amount still to be paid"
-            value={money(cycle.openContainerPayables)}
-          />
-          <StatCard
-            label="Meta ad baseline"
-            note="Latest detected Wise month"
-            value={money(cycle.baselineAdSpend)}
-          />
-        </div>
-      </div>
-    </section>
-  );
-}
 
-function InventoryTable({ rows }: { rows: FabricInventory[] }) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-line bg-white p-6 text-sm text-slate-600">
-        No Vancouver on-hand inventory rows are available yet.
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
-      <table className="min-w-full border-collapse text-sm">
-        <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
-          <tr>
-            <th className="px-4 py-3 text-left">Fabric</th>
-            <th className="px-4 py-3 text-right">Corner</th>
-            <th className="px-4 py-3 text-right">Armless</th>
-            <th className="px-4 py-3 text-right">Ottoman</th>
-            <th className="px-4 py-3 text-right">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr className="border-t border-line" key={row.fabric}>
-              <td className="px-4 py-4 font-semibold text-slate-950">{titleCase(row.fabric)}</td>
-              <td className="px-4 py-4 text-right font-medium text-slate-800">{row.modules.corner}</td>
-              <td className="px-4 py-4 text-right font-medium text-slate-800">{row.modules.armless}</td>
-              <td className="px-4 py-4 text-right font-medium text-slate-800">{row.modules.ottoman}</td>
-              <td className="px-4 py-4 text-right text-lg font-semibold text-slate-950">{row.total}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ModuleMix({ rows }: { rows: FabricInventory[] }) {
-  const totals = rows.reduce<ModuleTotals>((summary, row) => {
-    for (const moduleName of modules) {
-      summary[moduleName] += row.modules[moduleName];
-    }
-    return summary;
-  }, emptyTotals());
-  const max = Math.max(...modules.map((module) => totals[module]), 1);
-
-  return (
-    <section className="rounded-2xl border border-line bg-white p-5 shadow-sm">
-      <div className="mb-5">
-        <h2 className="text-lg font-semibold text-slate-950">Module mix</h2>
-        <p className="mt-1 text-sm text-slate-500">Actual pieces on hand in Vancouver.</p>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        {modules.map((module) => (
-          <div className="rounded-2xl bg-slate-50 p-4" key={module}>
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-semibold capitalize text-slate-800">{module}</span>
-              <span className="text-2xl font-semibold text-slate-950">{totals[module]}</span>
-            </div>
-            <div className="h-3 overflow-hidden rounded-full bg-white">
-              <div
-                className="h-full rounded-full bg-blue-600"
-                style={{ width: `${Math.max(8, (totals[module] / max) * 100)}%` }}
-              />
-            </div>
-          </div>
-        ))}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Vancouver on hand" note="Current sellable inventory" value={cycle.vancouverOnHand} />
+        <StatCard label="Inbound containers" note="From container manifests" value={cycle.inboundPieces} />
+        <StatCard label="Total pieces to convert" note="On hand + inbound" value={cycle.totalPiecesToConvert} />
+        <StatCard label="Sales velocity" note="Modules per day" value={cycle.averageDailyModules.toFixed(1)} />
+        <StatCard label="Modules sold" note={`${cycle.orderCount} Shopify orders`} value={cycle.soldModules} />
+        <StatCard label="Revenue in window" note={`${cycle.historicalDays} day Shopify window`} value={money(cycle.revenue)} />
+        <StatCard label="Inventory value" note="Pieces x average module value" value={money(cycle.inventoryValue)} />
+        <StatCard label="Cash after payables" note="Wise cash minus open container payables" value={money(cashAfterPayables)} />
       </div>
     </section>
   );
@@ -318,12 +177,10 @@ export default async function HomePage({
   const resolvedSearchParams = await searchParams;
   const historicalDays = getHistoryDays(resolvedSearchParams?.history);
   const { supabase } = await requireUser();
-  const { data, error } = await supabase
+  const { data: inventoryRows, error } = await supabase
     .from("inventory")
-    .select("*")
-    .order("fabric_slug", { ascending: true })
-    .order("module_slug", { ascending: true })
-    .returns<InventoryRow[]>();
+    .select("available_qty")
+    .returns<Pick<InventoryRow, "available_qty">[]>();
   const { data: orders } = await supabase
     .from("shopify_orders")
     .select("created_at,total_modules,total_price")
@@ -332,66 +189,30 @@ export default async function HomePage({
     .returns<ShopifyOrder[]>();
   const { data: containers } = await supabase
     .from("container_entries")
-    .select("amount_to_be_paid")
+    .select("amount_to_be_paid,manifest_json,status")
     .returns<ContainerEntry[]>();
   const wiseSummary = await getWiseSummary();
 
-  const inventoryRows = summarizeVancouverInventory(data || []);
-  const totalPieces = inventoryRows.reduce((sum, row) => sum + row.total, 0);
+  const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
   const cadCash = wiseSummary.balances
     .filter((balance) => balance.currency === "CAD")
     .reduce((sum, balance) => sum + balance.amount, 0);
   const cashCycle = calculateCashCycle({
     containers: containers || [],
     historicalDays,
-    metaSpend: wiseSummary.metaSpend.monthlyTotals,
     orders: orders || [],
-    totalPieces,
+    vancouverOnHand,
     wiseCash: cadCash
   });
 
   return (
     <main className="px-5 py-8 sm:px-8 lg:px-10">
-      <div className="mb-6 max-w-4xl">
-        <p className="mb-2 text-sm font-semibold text-blue-700">Luun Admin</p>
-        <h1 className="text-3xl font-semibold tracking-normal sm:text-4xl">Vancouver inventory</h1>
-        <p className="mt-3 text-base leading-7 text-slate-600">
-          Real on-hand inventory only. Forecasting, planned sales, fake purchase orders, and fake incoming containers are not shown here.
-        </p>
-      </div>
-
       {error ? (
-        <section className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-800">
-          Unable to load Vancouver inventory.
+        <section className="rounded-[28px] border border-red-200 bg-red-50 p-5 text-sm text-red-800">
+          Unable to load the cash conversion cycle.
         </section>
       ) : (
-        <div className="space-y-5">
-          <CashCyclePanel cycle={cashCycle} />
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Total on hand" value={totalPieces} />
-            <StatCard label="Fabrics" value={inventoryRows.length} />
-            <StatCard label="Wise CAD cash" value={money(cashCycle.cashBalance)} />
-            <StatCard
-              label="Corner pieces"
-              value={inventoryRows.reduce((sum, row) => sum + row.modules.corner, 0)}
-            />
-            <StatCard
-              label="Armless pieces"
-              value={inventoryRows.reduce((sum, row) => sum + row.modules.armless, 0)}
-            />
-          </section>
-
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.8fr)]">
-            <div>
-              <div className="mb-3">
-                <h2 className="text-lg font-semibold text-slate-950">Inventory by fabric</h2>
-                <p className="mt-1 text-sm text-slate-500">Available quantity from the Inventory table.</p>
-              </div>
-              <InventoryTable rows={inventoryRows} />
-            </div>
-            <ModuleMix rows={inventoryRows} />
-          </section>
-        </div>
+        <CashCyclePanel cycle={cashCycle} />
       )}
     </main>
   );
