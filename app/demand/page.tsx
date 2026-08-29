@@ -1,60 +1,73 @@
 import Link from "next/link";
+import { DemandBudgetCalculator } from "@/components/demand-budget-calculator";
 import { requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
 
-type DemandMetrics = {
-  averageDailyModules: number;
-  averageDailyOrders: number;
+type MonthOption = {
+  end: Date;
+  href: string;
+  isActive: boolean;
+  label: string;
+  month: string;
+  start: Date;
+};
+
+type ContainerDemand = {
+  container: ContainerEntry;
+  demandOpenDate: Date | null;
+  eta: Date | null;
+  pieces: number;
+};
+
+type DemandPlan = {
   averageModulesPerOrder: number | null;
-  currentMetaSpendPerDay: number | null;
+  containersOpeningThisMonth: ContainerDemand[];
   customerAcquisitionCost: number | null;
-  historicalDays: number;
-  inboundPieces: number;
-  nextContainer: ContainerEntry | null;
-  nextSaleDate: Date | null;
-  orderCount: number;
-  selectedMetaSpend: number;
-  soldModules: number;
-  totalInventoryToSell: number;
+  currentMonth: string;
+  daysUntilNextDemandWindow: number | null;
+  nextDemandContainer: ContainerDemand | null;
+  selectedMonth: MonthOption;
+  targetMetaBudget: number | null;
+  targetModulesToSell: number;
+  targetOrdersToSell: number | null;
   vancouverOnHand: number;
-  waitDays: number | null;
 };
 
 const saleLeadDays = 21;
-const historyOptions = [
-  { days: 30, label: "30 days" },
-  { days: 90, label: "3 months" },
-  { days: 180, label: "6 months" },
-  { days: 365, label: "12 months" }
-];
 
-function getHistoryDays(value?: string | string[]) {
-  const rawValue = Array.isArray(value) ? value[0] : value;
-  const days = Number(rawValue || 90);
-  return historyOptions.some((option) => option.days === days) ? days : 90;
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function getRecentOrders(orders: ShopifyOrder[], days: number) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
+function monthBounds(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const start = new Date(year, monthNumber - 1, 1);
+  const end = new Date(year, monthNumber, 0, 23, 59, 59, 999);
 
-  return orders.filter((order) => {
-    const createdAt = new Date(order.created_at);
-    return !Number.isNaN(createdAt.getTime()) && createdAt >= cutoff;
+  return { end, start };
+}
+
+function getMonthOptions(selectedMonthValue?: string | string[]) {
+  const rawMonth = Array.isArray(selectedMonthValue) ? selectedMonthValue[0] : selectedMonthValue;
+  const today = new Date();
+  const currentMonth = dateKey(today);
+  const selectedMonth = rawMonth && /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : currentMonth;
+
+  return Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(today.getFullYear(), today.getMonth() + index, 1);
+    const month = dateKey(date);
+    const { end, start } = monthBounds(month);
+
+    return {
+      end,
+      href: `/demand?month=${month}`,
+      isActive: month === selectedMonth,
+      label: new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(date),
+      month,
+      start
+    };
   });
-}
-
-function isInHistoryWindow(date: string, days: number) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const parsedDate = new Date(date);
-
-  return !Number.isNaN(parsedDate.getTime()) && parsedDate >= cutoff;
-}
-
-function totalContainerPieces(container: ContainerEntry) {
-  return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 }
 
 function getContainerEta(container: ContainerEntry) {
@@ -75,12 +88,12 @@ function daysBetween(start: Date, end: Date) {
   return Math.ceil((endDay.getTime() - startDay.getTime()) / 86_400_000);
 }
 
-function money(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "CAD",
-    maximumFractionDigits: 0,
-    style: "currency"
-  }).format(value);
+function isWithin(date: Date | null, start: Date, end: Date) {
+  return Boolean(date && date >= start && date <= end);
+}
+
+function totalContainerPieces(container: ContainerEntry) {
+  return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 }
 
 function formatDate(date: Date | null) {
@@ -92,84 +105,116 @@ function formatDate(date: Date | null) {
   }).format(date);
 }
 
-function calculateDemandMetrics({
-  containers,
-  historicalDays,
+function money(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "CAD",
+    maximumFractionDigits: 0,
+    style: "currency"
+  }).format(value);
+}
+
+function calculateCustomerAcquisitionCost({
   metaExpenses,
+  orders
+}: {
+  metaExpenses: { amount: number; currency: string; date: string }[];
+  orders: ShopifyOrder[];
+}) {
+  const cadMetaExpenses = metaExpenses.filter((expense) => expense.currency === "CAD");
+  const firstMetaDate = cadMetaExpenses[0]?.date ? new Date(cadMetaExpenses[0].date) : null;
+  const ordersInWindow = firstMetaDate
+    ? orders.filter((order) => new Date(order.created_at) >= firstMetaDate)
+    : orders;
+  const totalMetaSpend = cadMetaExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+  if (ordersInWindow.length === 0 || totalMetaSpend <= 0) return null;
+  return totalMetaSpend / ordersInWindow.length;
+}
+
+function calculateAverageModulesPerOrder(orders: ShopifyOrder[]) {
+  const totalModules = orders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+  return orders.length > 0 && totalModules > 0 ? totalModules / orders.length : null;
+}
+
+function calculateDemandPlan({
+  containers,
+  customerAcquisitionCost,
   orders,
+  selectedMonth,
   vancouverOnHand
 }: {
   containers: ContainerEntry[];
-  historicalDays: number;
-  metaExpenses: { amount: number; currency: string; date: string }[];
+  customerAcquisitionCost: number | null;
   orders: ShopifyOrder[];
+  selectedMonth: MonthOption;
   vancouverOnHand: number;
-}): DemandMetrics {
+}): DemandPlan {
   const today = new Date();
+  const currentMonth = dateKey(today);
+  const averageModulesPerOrder = calculateAverageModulesPerOrder(orders);
   const activeContainers = containers.filter((container) => container.status !== "closed");
-  const inboundPieces = activeContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
-  const sortedContainers = activeContainers
-    .filter((container) => {
+  const containerDemand = activeContainers
+    .map((container) => {
       const eta = getContainerEta(container);
-      return eta ? eta >= new Date(today.getFullYear(), today.getMonth(), today.getDate()) : false;
+      return {
+        container,
+        demandOpenDate: eta ? addDays(eta, -saleLeadDays) : null,
+        eta,
+        pieces: totalContainerPieces(container)
+      };
     })
-    .sort((left, right) => {
-      const leftEta = getContainerEta(left)?.getTime() || Number.MAX_SAFE_INTEGER;
-      const rightEta = getContainerEta(right)?.getTime() || Number.MAX_SAFE_INTEGER;
-      return leftEta - rightEta;
-    });
-  const nextContainer = sortedContainers[0] || null;
-  const nextEta = nextContainer ? getContainerEta(nextContainer) : null;
-  const nextSaleDate = nextEta ? addDays(nextEta, -saleLeadDays) : null;
-  const waitDays = nextSaleDate ? Math.max(0, daysBetween(today, nextSaleDate)) : null;
-  const recentOrders = getRecentOrders(orders, historicalDays);
-  const soldModules = recentOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
-  const selectedMetaSpend = metaExpenses
-    .filter((expense) => expense.currency === "CAD" && isInHistoryWindow(expense.date, historicalDays))
-    .reduce((sum, expense) => sum + expense.amount, 0);
-  const averageDailyOrders = recentOrders.length / historicalDays;
-  const averageDailyModules = soldModules / historicalDays;
+    .sort((left, right) => (left.demandOpenDate?.getTime() || Number.MAX_SAFE_INTEGER) - (right.demandOpenDate?.getTime() || Number.MAX_SAFE_INTEGER));
+  const containersOpeningThisMonth = containerDemand.filter((item) =>
+    isWithin(item.demandOpenDate, selectedMonth.start, selectedMonth.end)
+  );
+  const nextDemandContainer = containerDemand.find((item) => {
+    if (!item.demandOpenDate) return false;
+    return item.demandOpenDate >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  }) || null;
+  const selectedContainerPieces = containersOpeningThisMonth.reduce((sum, item) => sum + item.pieces, 0);
+  const targetModulesToSell = selectedMonth.month === currentMonth
+    ? vancouverOnHand + selectedContainerPieces
+    : selectedContainerPieces;
+  const targetOrdersToSell = averageModulesPerOrder
+    ? Math.ceil(targetModulesToSell / averageModulesPerOrder)
+    : null;
 
   return {
-    averageDailyModules,
-    averageDailyOrders,
-    averageModulesPerOrder: recentOrders.length > 0 ? soldModules / recentOrders.length : null,
-    currentMetaSpendPerDay: selectedMetaSpend > 0 ? selectedMetaSpend / historicalDays : null,
-    customerAcquisitionCost: recentOrders.length > 0 && selectedMetaSpend > 0 ? selectedMetaSpend / recentOrders.length : null,
-    historicalDays,
-    inboundPieces,
-    nextContainer,
-    nextSaleDate,
-    orderCount: recentOrders.length,
-    selectedMetaSpend,
-    soldModules,
-    totalInventoryToSell: vancouverOnHand + inboundPieces,
-    vancouverOnHand,
-    waitDays
+    averageModulesPerOrder,
+    containersOpeningThisMonth,
+    currentMonth,
+    customerAcquisitionCost,
+    daysUntilNextDemandWindow: nextDemandContainer?.demandOpenDate
+      ? Math.max(0, daysBetween(today, nextDemandContainer.demandOpenDate))
+      : null,
+    nextDemandContainer,
+    selectedMonth,
+    targetMetaBudget: targetOrdersToSell !== null && customerAcquisitionCost !== null
+      ? targetOrdersToSell * customerAcquisitionCost
+      : null,
+    targetModulesToSell,
+    targetOrdersToSell,
+    vancouverOnHand
   };
 }
 
-function HistorySelector({ activeDays }: { activeDays: number }) {
+function MonthSelector({ options }: { options: MonthOption[] }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {historyOptions.map((option) => {
-        const isActive = option.days === activeDays;
-
-        return (
-          <Link
-            className={[
-              "rounded-full border px-4 py-2 text-sm font-semibold transition",
-              isActive
-                ? "border-blue-600 bg-blue-600 text-white shadow-sm"
-                : "border-blue-100 bg-white/80 text-blue-700 hover:bg-blue-50"
-            ].join(" ")}
-            href={`/demand?history=${option.days}`}
-            key={option.days}
-          >
-            {option.label}
-          </Link>
-        );
-      })}
+      {options.map((option) => (
+        <Link
+          className={[
+            "rounded-full border px-4 py-2 text-sm font-semibold transition",
+            option.isActive
+              ? "border-blue-600 bg-blue-600 text-white shadow-sm"
+              : "border-blue-100 bg-white/80 text-blue-700 hover:bg-blue-50"
+          ].join(" ")}
+          href={option.href}
+          key={option.month}
+        >
+          {option.label}
+        </Link>
+      ))}
     </div>
   );
 }
@@ -192,88 +237,53 @@ function StatCard({
   );
 }
 
-function DemandAction({ metrics }: { metrics: DemandMetrics }) {
-  const containerName = metrics.nextContainer?.container_number || "next container";
-  const canRampNow = metrics.waitDays === 0;
-  const hasNextContainer = Boolean(metrics.nextContainer);
+function DemandAction({ plan }: { plan: DemandPlan }) {
+  const waitDays = plan.daysUntilNextDemandWindow;
+  const containerName = plan.nextDemandContainer?.container.container_number || "next container";
 
   return (
     <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Next action</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950 sm:text-4xl">
-            {!hasNextContainer
-              ? "No inbound container ETA found"
-              : canRampNow
-                ? `Demand window is open for ${containerName}`
-                : `Wait ${metrics.waitDays} days for ${containerName}`}
-          </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-            Demand should not be pushed until the next container is within {saleLeadDays} days of arrival. The app is using the live container ETA and live inventory counts.
-          </p>
-        </div>
-        <div className="rounded-[24px] border border-white/80 bg-white/80 p-5 text-sm shadow-sm lg:min-w-72">
-          <div className="flex items-center justify-between gap-6">
-            <span className="font-medium text-slate-500">Demand opens</span>
-            <span className="font-semibold text-slate-950">{formatDate(metrics.nextSaleDate)}</span>
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-6">
-            <span className="font-medium text-slate-500">Next ETA</span>
-            <span className="font-semibold text-slate-950">{formatDate(metrics.nextContainer ? getContainerEta(metrics.nextContainer) : null)}</span>
-          </div>
-        </div>
-      </div>
+      <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Next action</p>
+      <h2 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950">
+        {waitDays === null
+          ? "No upcoming container demand window"
+          : waitDays === 0
+            ? `Demand window is open for ${containerName}`
+            : `Wait ${waitDays} days for ${containerName}`}
+      </h2>
+      <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+        Incoming inventory becomes sellable when its ETA is within {saleLeadDays} days. This uses live container ETAs, not a past-period filter.
+      </p>
     </section>
   );
 }
 
-function InventoryToSell({ containers, vancouverOnHand }: { containers: ContainerEntry[]; vancouverOnHand: number }) {
-  const activeContainers = containers.filter((container) => container.status !== "closed");
-
+function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
   return (
     <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-950">Inventory to sell</h2>
+      <h2 className="text-lg font-semibold text-slate-950">Inventory available to sell this month</h2>
       <div className="mt-5 divide-y divide-line text-sm">
-        <div className="flex items-center justify-between gap-4 py-3">
-          <span className="font-medium text-slate-700">Available now</span>
-          <span className="font-semibold text-slate-950">{vancouverOnHand} modules</span>
-        </div>
-        {activeContainers.map((container) => (
-          <div className="flex items-center justify-between gap-4 py-3" key={container.id}>
-            <span>
-              <span className="block font-medium text-slate-700">{container.container_number}</span>
-              <span className="text-xs text-blue-700">Arrives {formatDate(getContainerEta(container))}</span>
-            </span>
-            <span className="font-semibold text-slate-950">{totalContainerPieces(container)} modules</span>
+        {plan.selectedMonth.month === plan.currentMonth ? (
+          <div className="flex items-center justify-between gap-4 py-3">
+            <span className="font-medium text-slate-700">Available now</span>
+            <span className="font-semibold text-slate-950">{plan.vancouverOnHand} modules</span>
           </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function Assumptions({ metrics }: { metrics: DemandMetrics }) {
-  return (
-    <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-950">Live inputs</h2>
-      <div className="mt-5 space-y-4 text-sm">
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500">Demand lead rule</span>
-          <span className="font-semibold text-slate-950">{saleLeadDays} days before ETA</span>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500">Shopify orders</span>
-          <span className="font-semibold text-slate-950">{metrics.orderCount}</span>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500">Modules sold</span>
-          <span className="font-semibold text-slate-950">{metrics.soldModules}</span>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-slate-500">Wise Meta spend</span>
-          <span className="font-semibold text-slate-950">{money(metrics.selectedMetaSpend)}</span>
-        </div>
+        ) : null}
+        {plan.containersOpeningThisMonth.length === 0 ? (
+          <div className="py-3 text-slate-500">No container demand windows open in this month.</div>
+        ) : (
+          plan.containersOpeningThisMonth.map((item) => (
+            <div className="flex items-center justify-between gap-4 py-3" key={item.container.id}>
+              <span>
+                <span className="block font-medium text-slate-700">{item.container.container_number}</span>
+                <span className="text-xs text-blue-700">
+                  Demand opens {formatDate(item.demandOpenDate)}. ETA {formatDate(item.eta)}
+                </span>
+              </span>
+              <span className="font-semibold text-slate-950">{item.pieces} modules</span>
+            </div>
+          ))
+        )}
       </div>
     </section>
   );
@@ -282,10 +292,11 @@ function Assumptions({ metrics }: { metrics: DemandMetrics }) {
 export default async function DemandPage({
   searchParams
 }: {
-  searchParams?: Promise<{ history?: string | string[] }>;
+  searchParams?: Promise<{ month?: string | string[] }>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const historicalDays = getHistoryDays(resolvedSearchParams?.history);
+  const monthOptions = getMonthOptions(resolvedSearchParams?.month);
+  const selectedMonth = monthOptions.find((option) => option.isActive) || monthOptions[0];
   const { supabase } = await requireUser();
   const { data: inventoryRows, error: inventoryError } = await supabase
     .from("inventory")
@@ -305,11 +316,15 @@ export default async function DemandPage({
   const wiseSummary = await getWiseSummary();
 
   const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
-  const metrics = calculateDemandMetrics({
-    containers: containers || [],
-    historicalDays,
+  const customerAcquisitionCost = calculateCustomerAcquisitionCost({
     metaExpenses: wiseSummary.metaSpend.expenses,
+    orders: orders || []
+  });
+  const plan = calculateDemandPlan({
+    containers: containers || [],
+    customerAcquisitionCost,
     orders: orders || [],
+    selectedMonth,
     vancouverOnHand
   });
 
@@ -319,13 +334,13 @@ export default async function DemandPage({
         <div>
           <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Demand plan</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950 sm:text-4xl">
-            Demand Plan
+            {selectedMonth.label}
           </h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Plan ad spend using live inventory, inbound containers, Shopify sales velocity, and Wise Meta spend.
+            Forward monthly sell plan based on live inventory, container ETAs, Shopify orders, and Wise Meta spend.
           </p>
         </div>
-        <HistorySelector activeDays={historicalDays} />
+        <MonthSelector options={monthOptions} />
       </div>
 
       {inventoryError ? (
@@ -334,21 +349,22 @@ export default async function DemandPage({
         </section>
       ) : (
         <div className="space-y-5">
-          <DemandAction metrics={metrics} />
+          <DemandAction plan={plan} />
 
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <StatCard label="Inventory available now" note="Vancouver on hand" value={metrics.vancouverOnHand} />
-            <StatCard label="Incoming inventory" note={`${containers?.filter((container) => container.status !== "closed").length || 0} active containers`} value={metrics.inboundPieces} />
-            <StatCard label="Total inventory to sell" note="On hand + inbound" value={metrics.totalInventoryToSell} />
-            <StatCard label="Current sales velocity" note="Modules per day" value={metrics.averageDailyModules.toFixed(1)} />
-            <StatCard label="Meta spend / day" note={`${historicalDays} day Wise window`} value={metrics.currentMetaSpendPerDay === null ? "Unavailable" : money(metrics.currentMetaSpendPerDay)} />
-            <StatCard label="CAC" note="Wise Meta spend / Shopify orders" value={metrics.customerAcquisitionCost === null ? "Unavailable" : money(metrics.customerAcquisitionCost)} />
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <StatCard label="Modules to sell this month" note="Open demand windows this month" value={plan.targetModulesToSell} />
+            <StatCard label="Orders to sell this month" note="Modules / live avg modules per order" value={plan.targetOrdersToSell ?? "Unavailable"} />
+            <StatCard label="Avg modules per order" note="From imported Shopify orders" value={plan.averageModulesPerOrder === null ? "Unavailable" : plan.averageModulesPerOrder.toFixed(1)} />
+            <StatCard label="CAC" note="Wise Meta spend / Shopify orders" value={plan.customerAcquisitionCost === null ? "Unavailable" : money(plan.customerAcquisitionCost)} />
+            <StatCard label="Required Meta budget" note="Target orders x CAC" value={plan.targetMetaBudget === null ? "Unavailable" : money(plan.targetMetaBudget)} />
           </section>
 
-          <section className="grid gap-5 xl:grid-cols-2">
-            <InventoryToSell containers={containers || []} vancouverOnHand={metrics.vancouverOnHand} />
-            <Assumptions metrics={metrics} />
-          </section>
+          <DemandBudgetCalculator
+            baselineOrders={plan.targetOrdersToSell}
+            customerAcquisitionCost={plan.customerAcquisitionCost}
+          />
+
+          <MonthlyInventoryList plan={plan} />
         </div>
       )}
     </main>
