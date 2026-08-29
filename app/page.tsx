@@ -15,7 +15,6 @@ type DashboardMetrics = {
   inboundCoverageDays: number | null;
   inboundPieces: number;
   inventoryValue: number;
-  inventoryCoverageDays: number | null;
   onHandCoverageDays: number | null;
   openContainerPayables: number;
   orderCount: number;
@@ -98,7 +97,10 @@ function calculateDashboardMetrics({
   const selectedMetaSpend = metaExpenses
     .filter((expense) => expense.currency === "CAD" && isInHistoryWindow(expense.date, historicalDays))
     .reduce((sum, expense) => sum + expense.amount, 0);
-  const cashConversionCycleTurns = null;
+  const annualizedModuleSales = averageDailyModules * 365;
+  const cashConversionCycleTurns = totalPiecesToConvert > 0 && annualizedModuleSales > 0
+    ? annualizedModuleSales / totalPiecesToConvert
+    : null;
 
   return {
     averageDailyModules,
@@ -112,7 +114,6 @@ function calculateDashboardMetrics({
     inboundCoverageDays: averageDailyModules > 0 ? Math.ceil(inboundPieces / averageDailyModules) : null,
     inboundPieces,
     inventoryValue: totalPiecesToConvert * averageModuleValue,
-    inventoryCoverageDays: averageDailyModules > 0 ? Math.ceil(totalPiecesToConvert / averageDailyModules) : null,
     onHandCoverageDays: averageDailyModules > 0 ? Math.ceil(vancouverOnHand / averageDailyModules) : null,
     openContainerPayables,
     orderCount: recentOrders.length,
@@ -180,12 +181,12 @@ function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
     <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Inventory coverage</p>
+          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cash Conversion Cycle</p>
           <h1 className="mt-2 text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
-            {daysLabel(metrics.inventoryCoverageDays)}
+            {turnsLabel(metrics.cashConversionCycleTurns)}
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-            On-hand and inbound inventory divided by Shopify module sales velocity from the selected history window.
+            Annual inventory flips based on Shopify module sales velocity divided by Vancouver on-hand plus active inbound container inventory.
           </p>
         </div>
         <HistorySelector activeDays={metrics.historicalDays} />
@@ -210,12 +211,12 @@ function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
         />
         <StatCard
           label="Cash Conversion Cycle"
-          note="Annual inventory flips. Needs inventory payment dates and customer cash receipt dates"
+          note={`${metrics.totalPiecesToConvert} pieces against annualized module sales`}
           value={turnsLabel(metrics.cashConversionCycleTurns)}
         />
         <StatCard
           label="Capital Velocity"
-          note="Annual cash conversion turns once CCC is available"
+          note="Same annual turn rate until payment timing is tracked"
           value={turnsLabel(metrics.capitalVelocityTurns)}
         />
         <StatCard
