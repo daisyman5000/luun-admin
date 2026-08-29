@@ -40,9 +40,7 @@ type DemandPlan = {
   containersEligibleThisMonth: ContainerDemand[];
   currentMonth: string;
   customerAcquisitionCost: number | null;
-  daysUntilNextDemandWindow: number | null;
   maxRevenue: number | null;
-  nextDemandContainer: ContainerDemand | null;
   openPayables: number;
   selectedMonth: MonthOption;
   recommendedSaleStart: Date | null;
@@ -104,12 +102,6 @@ function addDays(date: Date, days: number) {
   const nextDate = new Date(date);
   nextDate.setDate(nextDate.getDate() + days);
   return nextDate;
-}
-
-function daysBetween(start: Date, end: Date) {
-  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  return Math.ceil((endDay.getTime() - startDay.getTime()) / 86_400_000);
 }
 
 function totalContainerPieces(container: ContainerEntry) {
@@ -259,10 +251,6 @@ function calculateDemandPlan({
         item.eta >= selectedMonth.start
     )
   );
-  const nextDemandContainer = containerDemand.find((item) => {
-    if (!item.demandOpenDate || !item.eta) return false;
-    return item.eta >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  }) || null;
   const selectedContainerPieces = containersEligibleThisMonth.reduce((sum, item) => sum + item.pieces, 0);
   const selectedVancouverOnHand = vancouverOnHand;
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -291,13 +279,9 @@ function calculateDemandPlan({
     containersEligibleThisMonth,
     currentMonth,
     customerAcquisitionCost,
-    daysUntilNextDemandWindow: nextDemandContainer?.demandOpenDate
-      ? Math.max(0, daysBetween(today, nextDemandContainer.demandOpenDate))
-      : null,
     maxRevenue: targetOrdersToSell !== null && averageOrderValue !== null
       ? targetOrdersToSell * averageOrderValue
       : null,
-    nextDemandContainer,
     openPayables,
     recommendedSaleStart: firstPossibleSaleDate,
     selectedMonth,
@@ -347,27 +331,6 @@ function StatCard({
       <p className="mt-3 text-3xl font-semibold tracking-normal text-slate-950">{value}</p>
       {note ? <p className="mt-2 text-xs leading-5 text-slate-500">{note}</p> : null}
     </div>
-  );
-}
-
-function DemandAction({ plan }: { plan: DemandPlan }) {
-  const waitDays = plan.daysUntilNextDemandWindow;
-  const containerName = plan.nextDemandContainer?.container.container_number || "next container";
-
-  return (
-    <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
-      <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Next action</p>
-      <h2 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950">
-        {waitDays === null
-          ? "No upcoming container demand window"
-          : waitDays === 0
-            ? `Demand window is open for ${containerName}`
-            : `Wait ${waitDays} days for ${containerName}`}
-      </h2>
-      <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-        Incoming inventory becomes eligible for advertising when its ETA to Canada is within {saleLeadDays} days. Sale budget per day is total required Meta spend divided by the sale days selected on the calendar.
-      </p>
-    </section>
   );
 }
 
@@ -511,13 +474,8 @@ export default async function DemandPage({
     <main className="px-5 py-8 sm:px-8 lg:px-10">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Demand plan</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950 sm:text-4xl">
-            {selectedMonth.label}
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Forward monthly sell plan based on live inventory, container ETAs, Shopify orders, and Wise Meta spend.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-normal text-slate-950 sm:text-3xl">Demand</h1>
+          <p className="mt-1 text-sm text-slate-500">{selectedMonth.label}</p>
         </div>
         <MonthSelector options={monthOptions} />
       </div>
@@ -528,8 +486,6 @@ export default async function DemandPage({
         </section>
       ) : (
         <div className="space-y-5">
-          <DemandAction plan={plan} />
-
           {plannedSalesError ? (
             <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
               Demand sale dates are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
