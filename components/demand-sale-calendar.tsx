@@ -73,6 +73,13 @@ function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function shortDate(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short"
+  }).format(date);
+}
+
 function recalculateEvent(event: DemandCalendarEvent): DemandCalendarEvent {
   const days = [...event.days].sort((left, right) => left.date.localeCompare(right.date));
 
@@ -374,6 +381,18 @@ export function DemandSaleCalendar({
         </div>
       </div>
 
+      <CashSwingChart
+        cashBalance={plan.defaultSale.cashBalance}
+        dailyBudget={dailyBudget}
+        maxRevenue={maxRevenue}
+        minimumCashReserve={minimumCashReserve}
+        openPayables={plan.defaultSale.openPayables}
+        payoutDelayDays={payoutDelayDays}
+        projectedCashAfterRevenue={projectedCashAfterRevenue}
+        saleDays={activeSale?.days.map((day) => day.date) || []}
+        totalAdSpend={totalAdSpend}
+      />
+
       <div className="mt-4 grid gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-line bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Sale days selected</p>
@@ -514,6 +533,159 @@ function MiniMetric({ label, value }: { label: string; value: string | number })
     <div className="rounded-xl bg-white/80 p-3">
       <p className="text-xs font-medium text-slate-500">{label}</p>
       <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function CashSwingChart({
+  cashBalance,
+  dailyBudget,
+  maxRevenue,
+  minimumCashReserve,
+  openPayables,
+  payoutDelayDays,
+  projectedCashAfterRevenue,
+  saleDays,
+  totalAdSpend
+}: {
+  cashBalance: number;
+  dailyBudget: number | null;
+  maxRevenue: number | null;
+  minimumCashReserve: number;
+  openPayables: number;
+  payoutDelayDays: number;
+  projectedCashAfterRevenue: number;
+  saleDays: string[];
+  totalAdSpend: number | null;
+}) {
+  const sortedSaleDays = [...saleDays].sort();
+  const today = new Date();
+  let runningCash = cashBalance;
+  const points: { amount: number; date: Date; label: string; type: "start" | "out" | "low" | "in" }[] = [
+    { amount: runningCash, date: today, label: "Starting cash", type: "start" }
+  ];
+
+  if (openPayables > 0) {
+    runningCash -= openPayables;
+    points.push({ amount: runningCash, date: today, label: "After payables", type: "out" });
+  }
+
+  const spendPerDay = dailyBudget || 0;
+  sortedSaleDays.forEach((saleDate, index) => {
+    runningCash -= spendPerDay;
+    points.push({
+      amount: runningCash,
+      date: dateFromKey(saleDate),
+      label: `Sale day ${index + 1}`,
+      type: index === sortedSaleDays.length - 1 ? "low" : "out"
+    });
+  });
+
+  const lastSaleDate = sortedSaleDays.at(-1);
+
+  if (lastSaleDate && maxRevenue) {
+    points.push({
+      amount: projectedCashAfterRevenue,
+      date: addDays(dateFromKey(lastSaleDate), payoutDelayDays),
+      label: "Projected cash back",
+      type: "in"
+    });
+  }
+
+  const values = [...points.map((point) => point.amount), minimumCashReserve];
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const range = Math.max(1, maxValue - minValue);
+  const chartWidth = 720;
+  const chartHeight = 260;
+  const paddingX = 44;
+  const paddingY = 34;
+  const plotWidth = chartWidth - paddingX * 2;
+  const plotHeight = chartHeight - paddingY * 2;
+  const coordinates = points.map((point, index) => ({
+    ...point,
+    x: paddingX + (points.length === 1 ? 0 : (index / (points.length - 1)) * plotWidth),
+    y: paddingY + ((maxValue - point.amount) / range) * plotHeight
+  }));
+  const path = coordinates.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const reserveY = paddingY + ((maxValue - minimumCashReserve) / range) * plotHeight;
+  const lowestPoint = coordinates.reduce((lowest, point) => (point.amount < lowest.amount ? point : lowest), coordinates[0]);
+  const selectedSaleDays = sortedSaleDays.length;
+
+  return (
+    <section className="mt-4 rounded-2xl border border-line bg-slate-950 p-4 text-white shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-normal text-blue-300">Cash swing</p>
+          <h3 className="mt-1 text-2xl font-semibold">
+            {lowestPoint ? `Low point ${money(lowestPoint.amount)}` : "Select sale days to see the dip"}
+          </h3>
+          <p className="mt-1 text-sm text-slate-300">
+            Shows payables, ad spend drawdown, and projected Shopify cash recovery.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-right text-xs sm:grid-cols-4 lg:min-w-[520px]">
+          <DarkMetric label="Sale days" value={selectedSaleDays || "None"} />
+          <DarkMetric label="Daily spend" value={dailyBudget === null ? "Select days" : money(dailyBudget)} />
+          <DarkMetric label="Total spend" value={totalAdSpend === null ? "Unavailable" : money(totalAdSpend)} />
+          <DarkMetric label="Reserve" value={money(minimumCashReserve)} />
+        </div>
+      </div>
+
+      <div className="mt-5 overflow-x-auto">
+        <svg className="min-w-[720px]" height={chartHeight} role="img" viewBox={`0 0 ${chartWidth} ${chartHeight}`} width="100%">
+          <defs>
+            <linearGradient id="cashLineGradient" x1="0%" x2="100%" y1="0%" y2="0%">
+              <stop offset="0%" stopColor="#60a5fa" />
+              <stop offset="55%" stopColor="#f97316" />
+              <stop offset="100%" stopColor="#22c55e" />
+            </linearGradient>
+            <linearGradient id="cashFillGradient" x1="0%" x2="0%" y1="0%" y2="100%">
+              <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#60a5fa" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <rect fill="#020617" height={chartHeight} rx="18" width={chartWidth} />
+          <line stroke="#334155" strokeDasharray="6 6" strokeWidth="1" x1={paddingX} x2={chartWidth - paddingX} y1={reserveY} y2={reserveY} />
+          <text fill="#93c5fd" fontSize="11" fontWeight="700" x={paddingX} y={Math.max(14, reserveY - 8)}>
+            Cash reserve {money(minimumCashReserve)}
+          </text>
+          {coordinates.length > 1 ? (
+            <>
+              <path d={`${path} L ${coordinates.at(-1)?.x || paddingX} ${chartHeight - paddingY} L ${paddingX} ${chartHeight - paddingY} Z`} fill="url(#cashFillGradient)" />
+              <path d={path} fill="none" stroke="url(#cashLineGradient)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
+            </>
+          ) : null}
+          {coordinates.map((point) => (
+            <g key={`${point.label}-${point.x}`}>
+              <circle
+                cx={point.x}
+                cy={point.y}
+                fill={point.type === "in" ? "#22c55e" : point.type === "low" || point.amount < minimumCashReserve ? "#ef4444" : "#60a5fa"}
+                r="6"
+              />
+              <text fill="#f8fafc" fontSize="11" fontWeight="700" textAnchor="middle" x={point.x} y={point.y - 13}>
+                {money(point.amount)}
+              </text>
+              <text fill="#94a3b8" fontSize="10" textAnchor="middle" x={point.x} y={chartHeight - 16}>
+                {point.label}
+              </text>
+              <text fill="#cbd5e1" fontSize="10" textAnchor="middle" x={point.x} y={chartHeight - 4}>
+                {shortDate(point.date)}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </section>
+  );
+}
+
+function DarkMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/10 p-3">
+      <p className="font-medium text-slate-300">{label}</p>
+      <p className="mt-1 text-base font-semibold text-white">{value}</p>
     </div>
   );
 }
