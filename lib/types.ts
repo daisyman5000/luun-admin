@@ -106,3 +106,10 @@ export type JobTicket = {
   created_at: string;
   updated_at: string;
 };
+
+export type DemandSale = {
+  id: string;
+  sale_date: string;
+  created_by: string | null;
+  created_at: string;
+};
