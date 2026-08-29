@@ -45,6 +45,7 @@ type DemandPlan = {
   nextDemandContainer: ContainerDemand | null;
   openPayables: number;
   selectedMonth: MonthOption;
+  recommendedSaleStart: Date | null;
   saleEvents: SaleEvent[];
   targetMetaBudget: number | null;
   targetModulesToSell: number;
@@ -264,6 +265,12 @@ function calculateDemandPlan({
   }) || null;
   const selectedContainerPieces = containersEligibleThisMonth.reduce((sum, item) => sum + item.pieces, 0);
   const selectedVancouverOnHand = vancouverOnHand;
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const firstPossibleSaleDate = selectedVancouverOnHand > 0
+    ? selectedMonth.month === currentMonth
+      ? todayStart
+      : selectedMonth.start
+    : containersEligibleThisMonth[0]?.demandOpenDate || null;
   const saleEvents = buildSaleEvents({
     averageModulesPerOrder,
     containers: containersEligibleThisMonth,
@@ -292,6 +299,7 @@ function calculateDemandPlan({
       : null,
     nextDemandContainer,
     openPayables,
+    recommendedSaleStart: firstPossibleSaleDate,
     selectedMonth,
     saleEvents,
     targetMetaBudget: targetOrdersToSell !== null && customerAcquisitionCost !== null
@@ -414,6 +422,7 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
       modules: plan.targetModulesToSell,
       openPayables: plan.openPayables,
       orders: plan.targetOrdersToSell,
+      recommendedStartDate: plan.recommendedSaleStart ? dateInputValue(plan.recommendedSaleStart) : null,
       totalBudget: plan.targetMetaBudget
     },
     monthLabel: plan.selectedMonth.label,
@@ -446,6 +455,7 @@ export default async function DemandPage({
   const resolvedSearchParams = await searchParams;
   const monthOptions = getMonthOptions(resolvedSearchParams?.month);
   const selectedMonth = monthOptions.find((option) => option.isActive) || monthOptions[0];
+  const saleQueryEnd = addDays(selectedMonth.end, 120);
   const { profile, supabase } = await requireUser();
   const [
     { data: inventoryRows, error: inventoryError },
@@ -473,7 +483,7 @@ export default async function DemandPage({
       .from("demand_sales")
       .select("*")
       .gte("sale_date", dateInputValue(selectedMonth.start))
-      .lte("sale_date", dateInputValue(selectedMonth.end))
+      .lte("sale_date", dateInputValue(saleQueryEnd))
       .order("sale_date", { ascending: true })
       .returns<DemandSale[]>(),
     getCachedWiseSummary()

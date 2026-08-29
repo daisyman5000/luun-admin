@@ -26,6 +26,7 @@ export type DemandCalendarPlan = {
     modules: number;
     openPayables: number;
     orders: number | null;
+    recommendedStartDate: string | null;
     totalBudget: number | null;
   };
   monthLabel: string;
@@ -66,6 +67,10 @@ function getDayStatus(date: string, events: DemandCalendarEvent[]) {
 
 function dateFromKey(date: string) {
   return new Date(`${date}T00:00:00`);
+}
+
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function recalculateEvent(event: DemandCalendarEvent): DemandCalendarEvent {
@@ -114,7 +119,9 @@ export function DemandSaleCalendar({
   );
   const [minimumCashReserve, setMinimumCashReserve] = useState(defaultCashReserve);
   const [cacOverride, setCacOverride] = useState(Math.round(plan.defaultSale.customerAcquisitionCost || 250));
+  const [maxDailyAdSpend, setMaxDailyAdSpend] = useState(600);
   const [factoryLeadDays, setFactoryLeadDays] = useState(90);
+  const [payoutDelayDays, setPayoutDelayDays] = useState(3);
   const [safetyStockDays, setSafetyStockDays] = useState(30);
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -178,14 +185,27 @@ export function DemandSaleCalendar({
   const ordersToSell = plan.defaultSale.averageModulesPerOrder && plan.defaultSale.modules > 0
     ? Math.ceil(plan.defaultSale.modules / plan.defaultSale.averageModulesPerOrder)
     : plan.defaultSale.orders;
-  const totalAdSpend = ordersToSell !== null && ordersToSell !== undefined ? ordersToSell * cacOverride : null;
+  const cashAvailableForAds = Math.max(0, plan.defaultSale.cashBalance - plan.defaultSale.openPayables - minimumCashReserve);
+  const requiredAdSpend = ordersToSell !== null && ordersToSell !== undefined ? ordersToSell * cacOverride : null;
+  const selectedDayAdCapacity = activeSaleDays > 0 ? maxDailyAdSpend * activeSaleDays : Number.POSITIVE_INFINITY;
+  const totalAdSpend = requiredAdSpend === null ? null : Math.min(requiredAdSpend, cashAvailableForAds, selectedDayAdCapacity);
+  const projectedOrders = totalAdSpend !== null ? Math.min(ordersToSell || 0, Math.floor(totalAdSpend / cacOverride)) : null;
   const dailyBudget = totalAdSpend !== null && activeSaleDays > 0 ? totalAdSpend / activeSaleDays : null;
-  const maxRevenue = ordersToSell !== null && ordersToSell !== undefined && plan.defaultSale.averageOrderValue
-    ? ordersToSell * plan.defaultSale.averageOrderValue
+  const maxRevenue = projectedOrders !== null && plan.defaultSale.averageOrderValue
+    ? projectedOrders * plan.defaultSale.averageOrderValue
     : null;
-  const plannedSoldModules = ordersToSell !== null && ordersToSell !== undefined && plan.defaultSale.averageModulesPerOrder
-    ? Math.min(plan.defaultSale.modules, Math.ceil(ordersToSell * plan.defaultSale.averageModulesPerOrder))
+  const plannedSoldModules = projectedOrders !== null && plan.defaultSale.averageModulesPerOrder
+    ? Math.min(plan.defaultSale.modules, Math.ceil(projectedOrders * plan.defaultSale.averageModulesPerOrder))
     : 0;
+  const automaticAdSpend = requiredAdSpend === null ? null : Math.min(requiredAdSpend, cashAvailableForAds);
+  const autoSaleDays = automaticAdSpend && maxDailyAdSpend > 0 ? Math.max(1, Math.ceil(automaticAdSpend / maxDailyAdSpend)) : 0;
+  const autoStartDate = plan.defaultSale.recommendedStartDate ? dateFromKey(plan.defaultSale.recommendedStartDate) : null;
+  const autoEndDate = autoStartDate && autoSaleDays > 0 ? addDays(autoStartDate, autoSaleDays - 1) : null;
+  const cashLowDate = autoEndDate ? addDays(autoEndDate, payoutDelayDays) : null;
+  const lowestCash = plan.defaultSale.cashBalance - plan.defaultSale.openPayables - (totalAdSpend || 0);
+  const projectedCashAfterRevenue = lowestCash + (maxRevenue || 0);
+  const blockedByCash = requiredAdSpend !== null && automaticAdSpend !== null && automaticAdSpend < requiredAdSpend;
+  const blockedByDailyCap = requiredAdSpend !== null && totalAdSpend !== null && activeSaleDays > 0 && totalAdSpend < Math.min(requiredAdSpend, cashAvailableForAds);
   const projectedRemainingModules = Math.max(0, plan.defaultSale.modules - plannedSoldModules);
   const safetyStockModules = Math.ceil(plan.defaultSale.averageDailyModules * safetyStockDays);
   const modulesToOrder = Math.max(0, safetyStockModules - projectedRemainingModules);
@@ -245,6 +265,15 @@ export function DemandSaleCalendar({
               value={minimumCashReserve}
             />
             <SliderControl
+              label="Max daily ad spend"
+              max={2000}
+              min={50}
+              onChange={setMaxDailyAdSpend}
+              prefix="$"
+              step={25}
+              value={maxDailyAdSpend}
+            />
+            <SliderControl
               label="CAC"
               max={800}
               min={50}
@@ -261,6 +290,15 @@ export function DemandSaleCalendar({
               step={5}
               suffix=" days"
               value={factoryLeadDays}
+            />
+            <SliderControl
+              label="Shopify payout delay"
+              max={14}
+              min={0}
+              onChange={setPayoutDelayDays}
+              step={1}
+              suffix=" days"
+              value={payoutDelayDays}
             />
             <SliderControl
               label="Safety stock target"
@@ -286,6 +324,56 @@ export function DemandSaleCalendar({
         </div>
       </div>
 
+      <div className="mt-4 rounded-2xl border border-line bg-white p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">Auto sale projection</p>
+            <h3 className="mt-1 text-xl font-semibold text-slate-950">
+              {autoStartDate && autoEndDate
+                ? `${formatDate(autoStartDate)} to ${formatDate(autoEndDate)}`
+                : "No automatic sale window available"}
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {blockedByCash
+                ? "Cash reserve is limiting the plan before all orders can be acquired."
+                : blockedByDailyCap
+                  ? "Add more sale days or raise max daily ad spend to reach the full revenue target."
+                : "Plan targets maximum revenue with the current cash and ad spend controls."}
+            </p>
+          </div>
+          {autoStartDate && autoSaleDays > 0 && canEdit ? (
+            <button
+              className="rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
+              disabled={Boolean(pendingDate)}
+              onClick={() => {
+                void addSale(dateKey(autoStartDate), autoSaleDays);
+              }}
+              type="button"
+            >
+              Apply auto dates
+            </button>
+          ) : null}
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <MiniMetric label="Auto sale days" value={autoSaleDays || "Unavailable"} />
+          <MiniMetric label="Projected orders" value={projectedOrders ?? "Unavailable"} />
+          <MiniMetric label="Lowest cash point" value={money(lowestCash)} />
+          <MiniMetric label="Cash recovers around" value={cashLowDate ? formatDate(cashLowDate) : "Unavailable"} />
+        </div>
+        <div className="mt-4 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className={["h-3 rounded-full", lowestCash < minimumCashReserve ? "bg-red-500" : "bg-blue-600"].join(" ")}
+            style={{
+              width: `${Math.max(3, Math.min(100, plan.defaultSale.cashBalance > 0 ? (lowestCash / plan.defaultSale.cashBalance) * 100 : 0))}%`
+            }}
+          />
+        </div>
+        <div className="mt-2 flex items-center justify-between text-xs font-medium text-slate-500">
+          <span>Cash after ad spend: {money(lowestCash)}</span>
+          <span>After projected revenue: {money(projectedCashAfterRevenue)}</span>
+        </div>
+      </div>
+
       <div className="mt-4 grid gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-line bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Sale days selected</p>
@@ -293,7 +381,7 @@ export function DemandSaleCalendar({
         </div>
         <div className="rounded-2xl border border-line bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Orders to sell</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{ordersToSell ?? "Unavailable"}</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{projectedOrders ?? "Unavailable"}</p>
         </div>
         <div className="rounded-2xl border border-line bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Total ad spend</p>
@@ -338,7 +426,7 @@ export function DemandSaleCalendar({
                     <div className="mt-2 rounded-lg bg-white p-2 text-xs leading-5">
                       <div className="font-semibold text-blue-700">{isStart ? "Sale starts" : "Sale"}</div>
                       <div className="font-medium text-slate-950">{event.modules} modules</div>
-                      <div className="text-slate-500">{ordersToSell ?? "Unavailable"} orders</div>
+                      <div className="text-slate-500">{projectedOrders ?? "Unavailable"} orders</div>
                       <div className="font-semibold text-slate-950">
                         {dailyBudget === null ? "Budget unavailable" : `${money(dailyBudget)} / day`}
                       </div>

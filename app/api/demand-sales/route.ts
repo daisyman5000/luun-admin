@@ -12,7 +12,7 @@ function cleanDate(value: unknown) {
 function cleanDuration(value: unknown) {
   const duration = Number(value || 10);
   if (!Number.isInteger(duration) || duration < 1) return undefined;
-  return Math.min(duration, 31);
+  return Math.min(duration, 120);
 }
 
 function addDaysToDateString(date: string, days: number) {
