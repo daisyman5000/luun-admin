@@ -6,9 +6,10 @@ import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
 type DashboardMetrics = {
   averageDailyModules: number;
   averageModuleValue: number;
-  capitalVelocity: number | null;
+  capitalVelocityTurns: number | null;
   cashBalance: number;
-  cashConversionCycleDays: number | null;
+  cashConversionCycleTurns: number | null;
+  customerAcquisitionCost: number | null;
   deployableCash: number;
   historicalDays: number;
   inboundCoverageDays: number | null;
@@ -19,6 +20,7 @@ type DashboardMetrics = {
   openContainerPayables: number;
   orderCount: number;
   revenue: number;
+  selectedMetaSpend: number;
   soldModules: number;
   totalPiecesToConvert: number;
   vancouverOnHand: number;
@@ -27,7 +29,8 @@ type DashboardMetrics = {
 const historyOptions = [
   { days: 30, label: "30 days" },
   { days: 90, label: "3 months" },
-  { days: 180, label: "6 months" }
+  { days: 180, label: "6 months" },
+  { days: 365, label: "12 months" }
 ];
 
 function getHistoryDays(value?: string | string[]) {
@@ -54,6 +57,14 @@ function getRecentOrders(orders: ShopifyOrder[], days: number) {
   });
 }
 
+function isInHistoryWindow(date: string, days: number) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const parsedDate = new Date(date);
+
+  return !Number.isNaN(parsedDate.getTime()) && parsedDate >= cutoff;
+}
+
 function totalContainerPieces(container: ContainerEntry) {
   return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 }
@@ -61,12 +72,14 @@ function totalContainerPieces(container: ContainerEntry) {
 function calculateDashboardMetrics({
   containers,
   historicalDays,
+  metaExpenses,
   orders,
   vancouverOnHand,
   wiseCash
 }: {
   containers: ContainerEntry[];
   historicalDays: number;
+  metaExpenses: { amount: number; currency: string; date: string }[];
   orders: ShopifyOrder[];
   vancouverOnHand: number;
   wiseCash: number;
@@ -82,14 +95,18 @@ function calculateDashboardMetrics({
   const averageModuleValue = soldModules > 0 ? revenue / soldModules : allModules > 0 ? allRevenue / allModules : 0;
   const totalPiecesToConvert = vancouverOnHand + inboundPieces;
   const openContainerPayables = activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0);
-  const cashConversionCycleDays = null;
+  const selectedMetaSpend = metaExpenses
+    .filter((expense) => expense.currency === "CAD" && isInHistoryWindow(expense.date, historicalDays))
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  const cashConversionCycleTurns = null;
 
   return {
     averageDailyModules,
     averageModuleValue,
-    capitalVelocity: cashConversionCycleDays === null ? null : 365 / cashConversionCycleDays,
+    capitalVelocityTurns: cashConversionCycleTurns,
     cashBalance: wiseCash,
-    cashConversionCycleDays,
+    cashConversionCycleTurns,
+    customerAcquisitionCost: recentOrders.length > 0 && selectedMetaSpend > 0 ? selectedMetaSpend / recentOrders.length : null,
     deployableCash: wiseCash - openContainerPayables,
     historicalDays,
     inboundCoverageDays: averageDailyModules > 0 ? Math.ceil(inboundPieces / averageDailyModules) : null,
@@ -100,6 +117,7 @@ function calculateDashboardMetrics({
     openContainerPayables,
     orderCount: recentOrders.length,
     revenue,
+    selectedMetaSpend,
     soldModules,
     totalPiecesToConvert,
     vancouverOnHand
@@ -153,6 +171,10 @@ function daysLabel(value: number | null) {
   return value === null ? "Unavailable" : `${value} days`;
 }
 
+function turnsLabel(value: number | null) {
+  return value === null ? "Unavailable" : `${value.toFixed(1)}x`;
+}
+
 function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
   return (
     <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
@@ -188,15 +210,19 @@ function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
         />
         <StatCard
           label="Cash Conversion Cycle"
-          note="Needs inventory payment dates and customer cash receipt dates"
-          value={daysLabel(metrics.cashConversionCycleDays)}
+          note="Annual inventory flips. Needs inventory payment dates and customer cash receipt dates"
+          value={turnsLabel(metrics.cashConversionCycleTurns)}
         />
         <StatCard
           label="Capital Velocity"
-          note="365 divided by CCC once CCC is available"
-          value={metrics.capitalVelocity === null ? "Unavailable" : metrics.capitalVelocity.toFixed(1)}
+          note="Annual cash conversion turns once CCC is available"
+          value={turnsLabel(metrics.capitalVelocityTurns)}
         />
-        <StatCard label="Revenue in window" note={`${metrics.historicalDays} day Shopify window`} value={money(metrics.revenue)} />
+        <StatCard
+          label="Cost to acquire customer"
+          note={`${money(metrics.selectedMetaSpend)} Meta spend / ${metrics.orderCount} Shopify orders`}
+          value={metrics.customerAcquisitionCost === null ? "Unavailable" : money(metrics.customerAcquisitionCost)}
+        />
         <StatCard label="Inventory value" note={`${metrics.totalPiecesToConvert} total pieces x average module value`} value={money(metrics.inventoryValue)} />
       </div>
     </section>
@@ -234,6 +260,7 @@ export default async function HomePage({
   const metrics = calculateDashboardMetrics({
     containers: containers || [],
     historicalDays,
+    metaExpenses: wiseSummary.metaSpend.expenses,
     orders: orders || [],
     vancouverOnHand,
     wiseCash: cadCash
