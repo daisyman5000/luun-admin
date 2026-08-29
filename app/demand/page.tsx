@@ -19,14 +19,29 @@ type ContainerDemand = {
   pieces: number;
 };
 
+type SaleEvent = {
+  date: Date;
+  label: string;
+  modules: number;
+  orders: number | null;
+};
+
+type CalendarCell = {
+  date: Date | null;
+  event: SaleEvent | null;
+  key: string;
+};
+
 type DemandPlan = {
   averageModulesPerOrder: number | null;
+  averageOrderValue: number | null;
   containersEligibleThisMonth: ContainerDemand[];
   customerAcquisitionCost: number | null;
-  currentMonth: string;
   daysUntilNextDemandWindow: number | null;
+  maxRevenue: number | null;
   nextDemandContainer: ContainerDemand | null;
   selectedMonth: MonthOption;
+  saleEvents: SaleEvent[];
   targetMetaBudget: number | null;
   targetModulesToSell: number;
   targetOrdersToSell: number | null;
@@ -53,7 +68,7 @@ function getMonthOptions(selectedMonthValue?: string | string[]) {
   const currentMonth = dateKey(today);
   const selectedMonth = rawMonth && /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : currentMonth;
 
-  return Array.from({ length: 6 }, (_, index) => {
+  return Array.from({ length: 2 }, (_, index) => {
     const date = new Date(today.getFullYear(), today.getMonth() + index, 1);
     const month = dateKey(date);
     const { end, start } = monthBounds(month);
@@ -79,6 +94,10 @@ function addDays(date: Date, days: number) {
   const nextDate = new Date(date);
   nextDate.setDate(nextDate.getDate() + days);
   return nextDate;
+}
+
+function laterDate(left: Date, right: Date) {
+  return left > right ? left : right;
 }
 
 function daysBetween(start: Date, end: Date) {
@@ -131,6 +150,39 @@ function calculateAverageModulesPerOrder(orders: ShopifyOrder[]) {
   return orders.length > 0 && totalModules > 0 ? totalModules / orders.length : null;
 }
 
+function calculateAverageOrderValue(orders: ShopifyOrder[]) {
+  const revenue = orders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+  return orders.length > 0 && revenue > 0 ? revenue / orders.length : null;
+}
+
+function buildSaleEvents({
+  averageModulesPerOrder,
+  containers,
+  selectedMonth
+}: {
+  averageModulesPerOrder: number | null;
+  containers: ContainerDemand[];
+  selectedMonth: MonthOption;
+}) {
+  let nextAvailableSaleDate = selectedMonth.start;
+
+  return containers.reduce<SaleEvent[]>((events, item) => {
+    if (!item.demandOpenDate || item.pieces <= 0) return events;
+
+    const saleDate = laterDate(item.demandOpenDate, nextAvailableSaleDate);
+    if (saleDate > selectedMonth.end) return events;
+
+    events.push({
+      date: saleDate,
+      label: item.container.container_number,
+      modules: item.pieces,
+      orders: averageModulesPerOrder ? Math.ceil(item.pieces / averageModulesPerOrder) : null
+    });
+    nextAvailableSaleDate = addDays(saleDate, 8);
+    return events;
+  }, []);
+}
+
 function calculateDemandPlan({
   containers,
   customerAcquisitionCost,
@@ -145,8 +197,8 @@ function calculateDemandPlan({
   vancouverOnHand: number;
 }): DemandPlan {
   const today = new Date();
-  const currentMonth = dateKey(today);
   const averageModulesPerOrder = calculateAverageModulesPerOrder(orders);
+  const averageOrderValue = calculateAverageOrderValue(orders);
   const activeContainers = containers.filter((container) => container.status !== "closed");
   const containerDemand = activeContainers
     .map((container) => {
@@ -168,27 +220,34 @@ function calculateDemandPlan({
     )
   );
   const nextDemandContainer = containerDemand.find((item) => {
-    if (!item.demandOpenDate) return false;
-    return item.demandOpenDate >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    if (!item.demandOpenDate || !item.eta) return false;
+    return item.eta >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
   }) || null;
   const selectedContainerPieces = containersEligibleThisMonth.reduce((sum, item) => sum + item.pieces, 0);
-  const targetModulesToSell = selectedMonth.month === currentMonth
-    ? vancouverOnHand + selectedContainerPieces
-    : selectedContainerPieces;
+  const saleEvents = buildSaleEvents({
+    averageModulesPerOrder,
+    containers: containersEligibleThisMonth,
+    selectedMonth
+  });
+  const targetModulesToSell = selectedContainerPieces;
   const targetOrdersToSell = averageModulesPerOrder
     ? Math.ceil(targetModulesToSell / averageModulesPerOrder)
     : null;
 
   return {
     averageModulesPerOrder,
+    averageOrderValue,
     containersEligibleThisMonth,
-    currentMonth,
     customerAcquisitionCost,
     daysUntilNextDemandWindow: nextDemandContainer?.demandOpenDate
       ? Math.max(0, daysBetween(today, nextDemandContainer.demandOpenDate))
       : null,
+    maxRevenue: targetOrdersToSell !== null && averageOrderValue !== null
+      ? targetOrdersToSell * averageOrderValue
+      : null,
     nextDemandContainer,
     selectedMonth,
+    saleEvents,
     targetMetaBudget: targetOrdersToSell !== null && customerAcquisitionCost !== null
       ? targetOrdersToSell * customerAcquisitionCost
       : null,
@@ -263,12 +322,6 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
     <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-950">Inventory available to sell this month</h2>
       <div className="mt-5 divide-y divide-line text-sm">
-        {plan.selectedMonth.month === plan.currentMonth ? (
-          <div className="flex items-center justify-between gap-4 py-3">
-            <span className="font-medium text-slate-700">Available now</span>
-            <span className="font-semibold text-slate-950">{plan.vancouverOnHand} modules</span>
-          </div>
-        ) : null}
         {plan.containersEligibleThisMonth.length === 0 ? (
           <div className="py-3 text-slate-500">No containers are inside the 20-day advertising window this month.</div>
         ) : (
@@ -285,6 +338,69 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
           ))
         )}
       </div>
+    </section>
+  );
+}
+
+function SaleCalendar({ plan }: { plan: DemandPlan }) {
+  const daysInMonth = plan.selectedMonth.end.getDate();
+  const firstDay = plan.selectedMonth.start.getDay();
+  const cells: CalendarCell[] = [
+    ...Array.from({ length: firstDay }, (_, index) => ({ date: null, event: null, key: `blank-${index}` })),
+    ...Array.from({ length: daysInMonth }, (_, index) => {
+      const date = new Date(plan.selectedMonth.start.getFullYear(), plan.selectedMonth.start.getMonth(), index + 1);
+      const event = plan.saleEvents.find((saleEvent) => saleEvent.date.toDateString() === date.toDateString());
+
+      return {
+        date,
+        event: event || null,
+        key: date.toISOString()
+      };
+    })
+  ];
+
+  return (
+    <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-lg font-semibold text-slate-950">Sale calendar</h2>
+        <p className="text-xs font-medium text-slate-500">7 blank days between sale starts</p>
+      </div>
+      <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-normal text-slate-500">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+          <div key={day}>{day}</div>
+        ))}
+      </div>
+      <div className="mt-2 grid grid-cols-7 gap-2">
+        {cells.map((cell) => (
+          <div
+            className={[
+              "min-h-24 rounded-xl border p-2 text-sm",
+              cell.date ? "border-line bg-slate-50" : "border-transparent",
+              cell.event ? "border-blue-200 bg-blue-50 shadow-sm" : ""
+            ].join(" ")}
+            key={cell.key}
+          >
+            {cell.date ? (
+              <>
+                <div className="font-semibold text-slate-700">{cell.date.getDate()}</div>
+                {cell.event ? (
+                  <div className="mt-2 rounded-lg bg-white p-2 text-left text-xs leading-5">
+                    <div className="font-semibold text-blue-700">Sale</div>
+                    <div className="font-medium text-slate-950">{cell.event.label}</div>
+                    <div className="text-slate-500">{cell.event.modules} modules</div>
+                    <div className="text-slate-500">{cell.event.orders ?? "Unavailable"} orders</div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {plan.saleEvents.length === 0 ? (
+        <p className="mt-4 rounded-2xl border border-dashed border-line bg-slate-50 p-4 text-sm text-slate-500">
+          No sale scheduled this month because no container inventory is inside the 20-day Canada ETA rule.
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -351,14 +467,16 @@ export default async function DemandPage({
         <div className="space-y-5">
           <DemandAction plan={plan} />
 
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <StatCard label="Maximum modules to sell" note="On hand plus containers inside the 20-day rule" value={plan.targetModulesToSell} />
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <StatCard label="Maximum modules to sell" note="Containers inside the 20-day rule" value={plan.targetModulesToSell} />
             <StatCard label="Maximum orders to sell" note="Maximum modules / live avg modules per order" value={plan.targetOrdersToSell ?? "Unavailable"} />
             <StatCard label="Avg modules per order" note="From imported Shopify orders" value={plan.averageModulesPerOrder === null ? "Unavailable" : plan.averageModulesPerOrder.toFixed(1)} />
             <StatCard label="CAC" note="Wise Meta spend / Shopify orders" value={plan.customerAcquisitionCost === null ? "Unavailable" : money(plan.customerAcquisitionCost)} />
             <StatCard label="Required Meta budget" note="Maximum orders x live CAC" value={plan.targetMetaBudget === null ? "Unavailable" : money(plan.targetMetaBudget)} />
+            <StatCard label="Max revenue" note="Maximum orders x live average order value" value={plan.maxRevenue === null ? "Unavailable" : money(plan.maxRevenue)} />
           </section>
 
+          <SaleCalendar plan={plan} />
           <MonthlyInventoryList plan={plan} />
         </div>
       )}
