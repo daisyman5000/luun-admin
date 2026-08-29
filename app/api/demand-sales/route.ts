@@ -10,6 +10,12 @@ function cleanDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? undefined : value;
 }
 
+function addDaysToDateString(date: string, days: number) {
+  const nextDate = new Date(`${date}T00:00:00`);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate.toISOString().slice(0, 10);
+}
+
 function daysBetweenDates(left: string, right: string) {
   const leftDate = new Date(`${left}T00:00:00`);
   const rightDate = new Date(`${right}T00:00:00`);
@@ -37,10 +43,24 @@ export async function POST(request: NextRequest) {
   const { data: existingSales, error: existingSalesError } = await supabase
     .from("demand_sales")
     .select("sale_date")
+    .gte("sale_date", addDaysToDateString(saleDate, -minimumDaysBetweenSaleStarts + 1))
+    .lte("sale_date", addDaysToDateString(saleDate, minimumDaysBetweenSaleStarts - 1))
     .returns<Pick<DemandSale, "sale_date">[]>();
 
   if (existingSalesError) {
-    return NextResponse.json({ error: "Unable to check existing sales" }, { status: 500 });
+    const tableMissing =
+      existingSalesError.code === "42P01" ||
+      existingSalesError.message.toLowerCase().includes("schema cache") ||
+      existingSalesError.message.toLowerCase().includes("demand_sales");
+
+    return NextResponse.json(
+      {
+        error: tableMissing
+          ? "Demand sales table is not ready in Supabase yet. Run the demand_sales SQL migration once."
+          : "Unable to check existing sales. Please refresh and try again."
+      },
+      { status: 500 }
+    );
   }
 
   const tooClose = (existingSales || []).some((sale) =>

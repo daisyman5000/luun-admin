@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { DemandSaleCalendar, type DemandCalendarPlan } from "@/components/demand-sale-calendar";
 import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
@@ -51,6 +52,7 @@ type DemandPlan = {
 const saleLeadDays = 20;
 const saleDurationDays = 10;
 const saleGapDays = 7;
+const getCachedWiseSummary = unstable_cache(getWiseSummary, ["wise-summary-demand"], { revalidate: 300 });
 
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -422,29 +424,37 @@ export default async function DemandPage({
   const monthOptions = getMonthOptions(resolvedSearchParams?.month);
   const selectedMonth = monthOptions.find((option) => option.isActive) || monthOptions[0];
   const { profile, supabase } = await requireUser();
-  const { data: inventoryRows, error: inventoryError } = await supabase
-    .from("inventory")
-    .select("available_qty")
-    .returns<Pick<InventoryRow, "available_qty">[]>();
-  const { data: orders } = await supabase
-    .from("shopify_orders")
-    .select("created_at,total_modules,total_price")
-    .order("created_at", { ascending: false })
-    .limit(1000)
-    .returns<ShopifyOrder[]>();
-  const { data: containers } = await supabase
-    .from("container_entries")
-    .select("*")
-    .order("eta", { ascending: true, nullsFirst: false })
-    .returns<ContainerEntry[]>();
-  const { data: plannedSales, error: plannedSalesError } = await supabase
-    .from("demand_sales")
-    .select("*")
-    .gte("sale_date", dateInputValue(selectedMonth.start))
-    .lte("sale_date", dateInputValue(selectedMonth.end))
-    .order("sale_date", { ascending: true })
-    .returns<DemandSale[]>();
-  const wiseSummary = await getWiseSummary();
+  const [
+    { data: inventoryRows, error: inventoryError },
+    { data: orders },
+    { data: containers },
+    { data: plannedSales, error: plannedSalesError },
+    wiseSummary
+  ] = await Promise.all([
+    supabase
+      .from("inventory")
+      .select("available_qty")
+      .returns<Pick<InventoryRow, "available_qty">[]>(),
+    supabase
+      .from("shopify_orders")
+      .select("created_at,total_modules,total_price")
+      .order("created_at", { ascending: false })
+      .limit(1000)
+      .returns<ShopifyOrder[]>(),
+    supabase
+      .from("container_entries")
+      .select("*")
+      .order("eta", { ascending: true, nullsFirst: false })
+      .returns<ContainerEntry[]>(),
+    supabase
+      .from("demand_sales")
+      .select("*")
+      .gte("sale_date", dateInputValue(selectedMonth.start))
+      .lte("sale_date", dateInputValue(selectedMonth.end))
+      .order("sale_date", { ascending: true })
+      .returns<DemandSale[]>(),
+    getCachedWiseSummary()
+  ]);
 
   const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
   const customerAcquisitionCost = calculateCustomerAcquisitionCost({
@@ -498,7 +508,7 @@ export default async function DemandPage({
             <StatCard label="Max revenue" note="Maximum orders x live average order value" value={plan.maxRevenue === null ? "Unavailable" : money(plan.maxRevenue)} />
           </section>
 
-          <DemandSaleCalendar canEdit={canUpdateOrderLogistics(profile?.role)} plan={toCalendarPlan(plan)} />
+          <DemandSaleCalendar canEdit={!plannedSalesError && canUpdateOrderLogistics(profile?.role)} plan={toCalendarPlan(plan)} />
           <MonthlyInventoryList plan={plan} />
         </div>
       )}
