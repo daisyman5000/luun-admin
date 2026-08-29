@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { canUpdateOrderLogistics, getUserContext } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { DemandSale } from "@/lib/types";
 
 const minimumDaysBetweenSaleStarts = 17;
@@ -23,7 +24,7 @@ function daysBetweenDates(left: string, right: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const { profile, supabase, user } = await getUserContext();
+  const { profile, user } = await getUserContext();
 
   if (!user) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
@@ -40,7 +41,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sale date is invalid" }, { status: 400 });
   }
 
-  const { data: existingSales, error: existingSalesError } = await supabase
+  const supabaseAdmin = createAdminClient();
+  const { data: existingSales, error: existingSalesError } = await supabaseAdmin
     .from("demand_sales")
     .select("sale_date")
     .gte("sale_date", addDaysToDateString(saleDate, -minimumDaysBetweenSaleStarts + 1))
@@ -71,14 +73,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sales need at least 10 days live plus 7 blank days between starts." }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("demand_sales")
-    .upsert({ created_by: user.id, sale_date: saleDate }, { onConflict: "sale_date" })
+    .insert({ created_by: user.id, sale_date: saleDate })
     .select()
     .single<DemandSale>();
 
   if (error) {
-    return NextResponse.json({ error: "Unable to save sale" }, { status: 500 });
+    if (error.code === "23505") {
+      return NextResponse.json({ error: "A sale already exists on this date." }, { status: 409 });
+    }
+
+    return NextResponse.json({ error: "Unable to save sale. Please refresh and try again." }, { status: 500 });
   }
 
   return NextResponse.json(data);
