@@ -86,7 +86,7 @@ function MetaSpendPanel({ metaSpend }: { metaSpend: WiseMetaSpendSummary }) {
         <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Meta ads</p>
         <h2 className="mt-1 text-lg font-semibold text-slate-900">Wise Meta expense baseline</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Filtered from Wise descriptions containing Meta, Facebook, FB Ads, or Instagram.
+          Filtered from Wise descriptions containing Meta, Facebook, FB Ads, or Instagram. May is excluded.
         </p>
       </div>
 

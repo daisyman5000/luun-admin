@@ -187,6 +187,10 @@ function isMetaExpense(transaction: WiseStatementTransaction) {
   );
 }
 
+function isExcludedMetaSpendMonth(date: string) {
+  return date.slice(5, 7) === "05";
+}
+
 function getStatementWindow(days: number) {
   const intervalEnd = new Date();
   const intervalStart = new Date(intervalEnd);
@@ -223,6 +227,10 @@ async function getMetaExpensesForBalance(balance: WiseBalanceSummary, lookbackDa
         "Meta expense";
 
       if (!transaction.date || amount <= 0) {
+        return null;
+      }
+
+      if (isExcludedMetaSpendMonth(transaction.date)) {
         return null;
       }
 
