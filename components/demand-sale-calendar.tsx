@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export type DemandCalendarEvent = {
@@ -18,6 +17,11 @@ export type DemandCalendarEvent = {
 };
 
 export type DemandCalendarPlan = {
+  defaultSale: {
+    modules: number;
+    orders: number | null;
+    totalBudget: number | null;
+  };
   monthLabel: string;
   saleEvents: DemandCalendarEvent[];
   selectedMonth: {
@@ -46,6 +50,37 @@ function getDayStatus(date: string, events: DemandCalendarEvent[]) {
   return event && day ? { day, event } : null;
 }
 
+function dateFromKey(date: string) {
+  return new Date(`${date}T00:00:00`);
+}
+
+function recalculateEvent(event: DemandCalendarEvent): DemandCalendarEvent {
+  const days = [...event.days].sort((left, right) => left.date.localeCompare(right.date));
+
+  return {
+    ...event,
+    dailyBudget: event.totalBudget === null || days.length === 0 ? null : event.totalBudget / days.length,
+    date: days[0]?.date || event.date,
+    days,
+    endDate: days.at(-1)?.date || event.endDate
+  };
+}
+
+function buildLocalEvent(days: { date: string; id: string }[], plan: DemandCalendarPlan): DemandCalendarEvent {
+  const sortedDays = [...days].sort((left, right) => left.date.localeCompare(right.date));
+
+  return recalculateEvent({
+    dailyBudget: null,
+    date: sortedDays[0]?.date || plan.selectedMonth.month,
+    days: sortedDays,
+    endDate: sortedDays.at(-1)?.date || plan.selectedMonth.month,
+    labels: plan.defaultSale.modules > 0 ? ["Vancouver on hand / eligible containers"] : [],
+    modules: plan.defaultSale.modules,
+    orders: plan.defaultSale.orders,
+    totalBudget: plan.defaultSale.totalBudget
+  });
+}
+
 export function DemandSaleCalendar({
   canEdit,
   plan
@@ -53,7 +88,9 @@ export function DemandSaleCalendar({
   canEdit: boolean;
   plan: DemandCalendarPlan;
 }) {
-  const router = useRouter();
+  const [saleEvents, setSaleEvents] = useState<DemandCalendarEvent[]>(() =>
+    plan.saleEvents.map(recalculateEvent)
+  );
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,7 +112,17 @@ export function DemandSaleCalendar({
       return;
     }
 
-    router.refresh();
+    const createdDays = ((await response.json()) as { id: string; sale_date: string }[])
+      .map((day) => ({ date: day.sale_date, id: day.id }));
+
+    setSaleEvents((events) => {
+      const existingDays = events.flatMap((event) => event.days);
+      const mergedDays = [...existingDays, ...createdDays]
+        .filter((day, index, days) => days.findIndex((item) => item.date === day.date) === index)
+        .sort((left, right) => left.date.localeCompare(right.date));
+
+      return mergedDays.length > 0 ? [buildLocalEvent(mergedDays, plan)] : [];
+    });
     setPendingDate(null);
   }
 
@@ -93,11 +140,14 @@ export function DemandSaleCalendar({
       return;
     }
 
-    router.refresh();
+    setSaleEvents((events) => {
+      const remainingDays = events.flatMap((event) => event.days).filter((item) => item.id !== day.id);
+      return remainingDays.length > 0 ? [buildLocalEvent(remainingDays, plan)] : [];
+    });
     setPendingDate(null);
   }
 
-  const hasSales = plan.saleEvents.length > 0;
+  const hasSales = saleEvents.length > 0;
   const cells = [
     ...Array.from({ length: plan.selectedMonth.firstDay }, (_, index) => ({ day: null, key: `blank-${index}` })),
     ...Array.from({ length: plan.selectedMonth.endDay }, (_, index) => {
@@ -112,7 +162,7 @@ export function DemandSaleCalendar({
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Sale calendar</h2>
           <p className="text-xs font-medium text-slate-500">
-            Click a day to add a 10-day sale. Remove a sale from its start day.
+            First click adds 10 sale days. After that, add or remove individual sale days.
           </p>
         </div>
         {pendingDate ? <span className="text-xs font-semibold text-blue-700">Saving...</span> : null}
@@ -129,7 +179,7 @@ export function DemandSaleCalendar({
       </div>
       <div className="mt-2 grid grid-cols-7 gap-2">
         {cells.map((cell) => {
-          const status = cell.day ? getDayStatus(cell.key, plan.saleEvents) : null;
+          const status = cell.day ? getDayStatus(cell.key, saleEvents) : null;
           const event = status?.event || null;
           const saleDay = status?.day || null;
           const isStart = event?.date === cell.key;
@@ -173,7 +223,7 @@ export function DemandSaleCalendar({
                       className="mt-8 w-full rounded-full border border-blue-100 bg-white px-3 py-2 text-center text-xs font-semibold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
                       disabled={Boolean(pendingDate)}
                       onClick={() => {
-                        void addSale(cell.key, hasSales ? 1 : 10);
+                        void addSale(cell.key, hasSales ? 1 : Math.min(10, plan.selectedMonth.endDay - dateFromKey(cell.key).getDate() + 1));
                       }}
                       type="button"
                     >
@@ -187,7 +237,7 @@ export function DemandSaleCalendar({
         })}
       </div>
 
-      {plan.saleEvents.length === 0 ? (
+      {saleEvents.length === 0 ? (
         <p className="mt-4 rounded-2xl border border-dashed border-line bg-slate-50 p-4 text-sm text-slate-500">
           No sale has been planned for {plan.monthLabel}. Click a calendar day to add one.
         </p>

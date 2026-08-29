@@ -50,8 +50,6 @@ type DemandPlan = {
 };
 
 const saleLeadDays = 20;
-const saleDurationDays = 10;
-const saleGapDays = 7;
 const getCachedWiseSummary = unstable_cache(getWiseSummary, ["wise-summary-demand"], { revalidate: 300 });
 
 function dateKey(date: Date) {
@@ -172,70 +170,34 @@ function buildSaleEvents({
   plannedSales: DemandSale[];
   vancouverOnHand: number;
 }) {
-  let remainingVancouverOnHand = vancouverOnHand;
-  const allocatedContainerIds = new Set<string>();
-  const saleGroups = groupConsecutiveSaleDays(plannedSales);
+  if (plannedSales.length === 0) return [];
 
-  return saleGroups.reduce<SaleEvent[]>((events, group) => {
-    const saleDate = new Date(`${group[0].sale_date}T00:00:00`);
-    const endDate = new Date(`${group[group.length - 1].sale_date}T00:00:00`);
-    const labels: string[] = [];
-    let modules = 0;
+  const saleDate = new Date(`${plannedSales[0].sale_date}T00:00:00`);
+  const endDate = new Date(`${plannedSales[plannedSales.length - 1].sale_date}T00:00:00`);
+  const labels = ["Vancouver on hand"];
+  let modules = vancouverOnHand;
 
-    if (remainingVancouverOnHand > 0) {
-      modules += remainingVancouverOnHand;
-      labels.push("Vancouver on hand");
-      remainingVancouverOnHand = 0;
-    }
+  for (const item of containers) {
+    if (!item.demandOpenDate || item.pieces <= 0) continue;
+    if (item.demandOpenDate > saleDate) continue;
 
-    for (const item of containers) {
-      if (!item.demandOpenDate || item.pieces <= 0 || allocatedContainerIds.has(item.container.id)) continue;
-      if (item.demandOpenDate > saleDate) continue;
+    modules += item.pieces;
+    labels.push(item.container.container_number);
+  }
 
-      allocatedContainerIds.add(item.container.id);
-      modules += item.pieces;
-      labels.push(item.container.container_number);
-    }
+  const orders = averageModulesPerOrder && modules > 0 ? Math.ceil(modules / averageModulesPerOrder) : null;
+  const totalBudget = orders !== null && customerAcquisitionCost !== null ? orders * customerAcquisitionCost : null;
 
-    const orders = averageModulesPerOrder && modules > 0 ? Math.ceil(modules / averageModulesPerOrder) : null;
-    const totalBudget = orders !== null && customerAcquisitionCost !== null ? orders * customerAcquisitionCost : null;
-
-    events.push({
-      dailyBudget: totalBudget === null ? null : totalBudget / group.length,
-      date: saleDate,
-      days: group,
-      endDate,
-      labels,
-      modules,
-      orders,
-      totalBudget
-    });
-
-    return events;
-  }, []);
-}
-
-function groupConsecutiveSaleDays(plannedSales: DemandSale[]) {
-  return plannedSales.reduce<DemandSale[][]>((groups, sale) => {
-    const previousGroup = groups.at(-1);
-    const previousSale = previousGroup?.at(-1);
-
-    if (!previousSale) {
-      groups.push([sale]);
-      return groups;
-    }
-
-    const previousDate = new Date(`${previousSale.sale_date}T00:00:00`);
-    const currentDate = new Date(`${sale.sale_date}T00:00:00`);
-
-    if (daysBetween(previousDate, currentDate) === 1) {
-      previousGroup?.push(sale);
-    } else {
-      groups.push([sale]);
-    }
-
-    return groups;
-  }, []);
+  return [{
+    dailyBudget: totalBudget === null ? null : totalBudget / plannedSales.length,
+    date: saleDate,
+    days: plannedSales,
+    endDate,
+    labels: modules > 0 ? labels : [],
+    modules,
+    orders,
+    totalBudget
+  }];
 }
 
 function calculateDemandPlan({
@@ -373,7 +335,7 @@ function DemandAction({ plan }: { plan: DemandPlan }) {
             : `Wait ${waitDays} days for ${containerName}`}
       </h2>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-        Incoming inventory becomes eligible for advertising when its ETA to Canada is within {saleLeadDays} days. Each sale runs at least {saleDurationDays} days with {saleGapDays} blank days before the next sale.
+        Incoming inventory becomes eligible for advertising when its ETA to Canada is within {saleLeadDays} days. Sale budget per day is total required Meta spend divided by the sale days selected on the calendar.
       </p>
     </section>
   );
@@ -421,6 +383,11 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
 
 function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   return {
+    defaultSale: {
+      modules: plan.targetModulesToSell,
+      orders: plan.targetOrdersToSell,
+      totalBudget: plan.targetMetaBudget
+    },
     monthLabel: plan.selectedMonth.label,
     saleEvents: plan.saleEvents.map((event) => ({
       dailyBudget: event.dailyBudget,
