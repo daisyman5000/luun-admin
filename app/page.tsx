@@ -170,22 +170,12 @@ function turnsLabel(value: number | null) {
   return value === null ? "Unavailable" : `${value.toFixed(1)}x`;
 }
 
-function daysLabel(value: number | null) {
-  return value === null ? "Unavailable" : `${Math.ceil(value)} days`;
-}
-
 function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
   return (
     <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cash Conversion Cycle</p>
-          <h1 className="mt-2 text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
-            {daysLabel(metrics.cashConversionCycleDays)}
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-            Estimated days cash is tied up in inventory, based on Vancouver on-hand plus active inbound container inventory divided by Shopify module sales velocity.
-          </p>
+          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cash dashboard</p>
         </div>
         <HistorySelector activeDays={metrics.historicalDays} />
       </div>
@@ -198,11 +188,6 @@ function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
           label="Deployable cash"
           note="Wise CAD cash minus open container payables"
           value={money(metrics.deployableCash)}
-        />
-        <StatCard
-          label="Cash Conversion Cycle"
-          note={`${metrics.totalPiecesToConvert} pieces / ${metrics.averageDailyModules.toFixed(1)} modules per day`}
-          value={daysLabel(metrics.cashConversionCycleDays)}
         />
         <StatCard
           label="Capital Velocity"
