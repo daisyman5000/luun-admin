@@ -36,6 +36,7 @@ type DemandPlan = {
   averageModulesPerOrder: number | null;
   averageOrderValue: number | null;
   containersEligibleThisMonth: ContainerDemand[];
+  currentMonth: string;
   customerAcquisitionCost: number | null;
   daysUntilNextDemandWindow: number | null;
   maxRevenue: number | null;
@@ -158,13 +159,28 @@ function calculateAverageOrderValue(orders: ShopifyOrder[]) {
 function buildSaleEvents({
   averageModulesPerOrder,
   containers,
-  selectedMonth
+  selectedMonth,
+  vancouverOnHandSaleDate,
+  vancouverOnHand
 }: {
   averageModulesPerOrder: number | null;
   containers: ContainerDemand[];
   selectedMonth: MonthOption;
+  vancouverOnHandSaleDate: Date | null;
+  vancouverOnHand: number;
 }) {
   let nextAvailableSaleDate = selectedMonth.start;
+  const initialEvents: SaleEvent[] = [];
+
+  if (vancouverOnHandSaleDate && vancouverOnHand > 0) {
+    initialEvents.push({
+      date: vancouverOnHandSaleDate,
+      label: "Vancouver on hand",
+      modules: vancouverOnHand,
+      orders: averageModulesPerOrder ? Math.ceil(vancouverOnHand / averageModulesPerOrder) : null
+    });
+    nextAvailableSaleDate = addDays(vancouverOnHandSaleDate, 8);
+  }
 
   return containers.reduce<SaleEvent[]>((events, item) => {
     if (!item.demandOpenDate || item.pieces <= 0) return events;
@@ -180,7 +196,7 @@ function buildSaleEvents({
     });
     nextAvailableSaleDate = addDays(saleDate, 8);
     return events;
-  }, []);
+  }, initialEvents);
 }
 
 function calculateDemandPlan({
@@ -197,6 +213,8 @@ function calculateDemandPlan({
   vancouverOnHand: number;
 }): DemandPlan {
   const today = new Date();
+  const currentMonth = dateKey(today);
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const averageModulesPerOrder = calculateAverageModulesPerOrder(orders);
   const averageOrderValue = calculateAverageOrderValue(orders);
   const activeContainers = containers.filter((container) => container.status !== "closed");
@@ -224,12 +242,18 @@ function calculateDemandPlan({
     return item.eta >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
   }) || null;
   const selectedContainerPieces = containersEligibleThisMonth.reduce((sum, item) => sum + item.pieces, 0);
+  const selectedVancouverOnHand = selectedMonth.month === currentMonth ? vancouverOnHand : 0;
+  const vancouverOnHandSaleDate = selectedVancouverOnHand > 0
+    ? laterDate(todayStart, selectedMonth.start)
+    : null;
   const saleEvents = buildSaleEvents({
     averageModulesPerOrder,
     containers: containersEligibleThisMonth,
-    selectedMonth
+    selectedMonth,
+    vancouverOnHand: selectedVancouverOnHand,
+    vancouverOnHandSaleDate
   });
-  const targetModulesToSell = selectedContainerPieces;
+  const targetModulesToSell = selectedVancouverOnHand + selectedContainerPieces;
   const targetOrdersToSell = averageModulesPerOrder
     ? Math.ceil(targetModulesToSell / averageModulesPerOrder)
     : null;
@@ -238,6 +262,7 @@ function calculateDemandPlan({
     averageModulesPerOrder,
     averageOrderValue,
     containersEligibleThisMonth,
+    currentMonth,
     customerAcquisitionCost,
     daysUntilNextDemandWindow: nextDemandContainer?.demandOpenDate
       ? Math.max(0, daysBetween(today, nextDemandContainer.demandOpenDate))
@@ -322,6 +347,15 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
     <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-950">Inventory available to sell this month</h2>
       <div className="mt-5 divide-y divide-line text-sm">
+        {plan.selectedMonth.month === plan.currentMonth && plan.vancouverOnHand > 0 ? (
+          <div className="flex items-center justify-between gap-4 py-3">
+            <span>
+              <span className="block font-medium text-slate-700">Vancouver on hand</span>
+              <span className="text-xs text-blue-700">Available now</span>
+            </span>
+            <span className="font-semibold text-slate-950">{plan.vancouverOnHand} modules</span>
+          </div>
+        ) : null}
         {plan.containersEligibleThisMonth.length === 0 ? (
           <div className="py-3 text-slate-500">No containers are inside the 20-day advertising window this month.</div>
         ) : (
@@ -468,7 +502,7 @@ export default async function DemandPage({
           <DemandAction plan={plan} />
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <StatCard label="Maximum modules to sell" note="Containers inside the 20-day rule" value={plan.targetModulesToSell} />
+            <StatCard label="Maximum modules to sell" note="Vancouver on-hand plus containers inside the 20-day rule" value={plan.targetModulesToSell} />
             <StatCard label="Maximum orders to sell" note="Maximum modules / live avg modules per order" value={plan.targetOrdersToSell ?? "Unavailable"} />
             <StatCard label="Avg modules per order" note="From imported Shopify orders" value={plan.averageModulesPerOrder === null ? "Unavailable" : plan.averageModulesPerOrder.toFixed(1)} />
             <StatCard label="CAC" note="Wise Meta spend / Shopify orders" value={plan.customerAcquisitionCost === null ? "Unavailable" : money(plan.customerAcquisitionCost)} />
