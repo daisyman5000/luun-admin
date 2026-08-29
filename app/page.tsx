@@ -12,10 +12,8 @@ type DashboardMetrics = {
   customerAcquisitionCost: number | null;
   deployableCash: number;
   historicalDays: number;
-  inboundCoverageDays: number | null;
   inboundPieces: number;
   inventoryValue: number;
-  onHandCoverageDays: number | null;
   openContainerPayables: number;
   orderCount: number;
   revenue: number;
@@ -111,10 +109,8 @@ function calculateDashboardMetrics({
     customerAcquisitionCost: recentOrders.length > 0 && selectedMetaSpend > 0 ? selectedMetaSpend / recentOrders.length : null,
     deployableCash: wiseCash - openContainerPayables,
     historicalDays,
-    inboundCoverageDays: averageDailyModules > 0 ? Math.ceil(inboundPieces / averageDailyModules) : null,
     inboundPieces,
     inventoryValue: totalPiecesToConvert * averageModuleValue,
-    onHandCoverageDays: averageDailyModules > 0 ? Math.ceil(vancouverOnHand / averageDailyModules) : null,
     openContainerPayables,
     orderCount: recentOrders.length,
     revenue,
@@ -168,10 +164,6 @@ function HistorySelector({ activeDays }: { activeDays: number }) {
   );
 }
 
-function daysLabel(value: number | null) {
-  return value === null ? "Unavailable" : `${value} days`;
-}
-
 function turnsLabel(value: number | null) {
   return value === null ? "Unavailable" : `${value.toFixed(1)}x`;
 }
@@ -193,16 +185,8 @@ function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="On-hand coverage"
-          note={`${metrics.vancouverOnHand} Vancouver pieces`}
-          value={daysLabel(metrics.onHandCoverageDays)}
-        />
-        <StatCard
-          label="Inbound coverage"
-          note={`${metrics.inboundPieces} active container pieces`}
-          value={daysLabel(metrics.inboundCoverageDays)}
-        />
+        <StatCard label="Vancouver on hand" note="Current sellable pieces" value={metrics.vancouverOnHand} />
+        <StatCard label="Inbound containers" note="Active container manifest pieces" value={metrics.inboundPieces} />
         <StatCard label="Sales velocity" note="Modules per day" value={metrics.averageDailyModules.toFixed(1)} />
         <StatCard
           label="Deployable cash"
