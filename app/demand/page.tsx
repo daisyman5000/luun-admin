@@ -242,7 +242,7 @@ function calculateDemandPlan({
     return item.eta >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
   }) || null;
   const selectedContainerPieces = containersEligibleThisMonth.reduce((sum, item) => sum + item.pieces, 0);
-  const selectedVancouverOnHand = selectedMonth.month === currentMonth ? vancouverOnHand : 0;
+  const selectedVancouverOnHand = vancouverOnHand;
   const vancouverOnHandSaleDate = selectedVancouverOnHand > 0
     ? laterDate(todayStart, selectedMonth.start)
     : null;
@@ -347,11 +347,11 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
     <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-950">Inventory available to sell this month</h2>
       <div className="mt-5 divide-y divide-line text-sm">
-        {plan.selectedMonth.month === plan.currentMonth && plan.vancouverOnHand > 0 ? (
+        {plan.vancouverOnHand > 0 ? (
           <div className="flex items-center justify-between gap-4 py-3">
             <span>
               <span className="block font-medium text-slate-700">Vancouver on hand</span>
-              <span className="text-xs text-blue-700">Available now</span>
+              <span className="text-xs text-blue-700">Available now unless already sold</span>
             </span>
             <span className="font-semibold text-slate-950">{plan.vancouverOnHand} modules</span>
           </div>
