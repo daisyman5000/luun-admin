@@ -51,9 +51,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                       { href: "/cac", label: "CAC" },
                       { href: "/jobs", label: "Jobs" },
                       { href: "/ticketing", label: "Ticketing" },
-                      { href: "/forecasting", label: "Forecasting" },
-                      { href: "/forecasting/calendar", label: "Calendar Forecast" },
-                      { href: "/financials", label: "Financials" },
+                      { href: "/forecasting/containers", label: "Containers" },
                       { href: "/settings/users", label: "Users" }
                     ].map((link) => (
                       <Link

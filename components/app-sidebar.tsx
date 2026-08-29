@@ -12,10 +12,7 @@ const primaryLinks = [
   { href: "/cac", label: "CAC", short: "CAC" },
   { href: "/jobs", label: "Jobs", short: "J" },
   { href: "/ticketing", label: "Ticketing", short: "T", soon: true },
-  { href: "/forecasting", label: "Forecasting", short: "F", exact: true },
-  { href: "/forecasting/containers", label: "Containers", short: "Co" },
-  { href: "/forecasting/calendar", label: "Calendar Forecast", short: "C" },
-  { href: "/financials", label: "Financials", short: "Fi" }
+  { href: "/forecasting/containers", label: "Containers", short: "Co" }
 ];
 
 const adminLinks = [{ href: "/settings/users", label: "Users", short: "U" }];
