@@ -33,14 +33,17 @@ type SaleEvent = {
 };
 
 type DemandPlan = {
+  averageDailyModules: number;
   averageModulesPerOrder: number | null;
   averageOrderValue: number | null;
+  cashBalance: number;
   containersEligibleThisMonth: ContainerDemand[];
   currentMonth: string;
   customerAcquisitionCost: number | null;
   daysUntilNextDemandWindow: number | null;
   maxRevenue: number | null;
   nextDemandContainer: ContainerDemand | null;
+  openPayables: number;
   selectedMonth: MonthOption;
   saleEvents: SaleEvent[];
   targetMetaBudget: number | null;
@@ -157,6 +160,18 @@ function calculateAverageOrderValue(orders: ShopifyOrder[]) {
   return orders.length > 0 && revenue > 0 ? revenue / orders.length : null;
 }
 
+function calculateAverageDailyModules(orders: ShopifyOrder[]) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const recentOrders = orders.filter((order) => {
+    const createdAt = new Date(order.created_at);
+    return !Number.isNaN(createdAt.getTime()) && createdAt >= cutoff;
+  });
+  const recentModules = recentOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+
+  return recentModules / 30;
+}
+
 function buildSaleEvents({
   averageModulesPerOrder,
   containers,
@@ -203,6 +218,7 @@ function buildSaleEvents({
 function calculateDemandPlan({
   containers,
   customerAcquisitionCost,
+  cashBalance,
   orders,
   plannedSales,
   selectedMonth,
@@ -210,6 +226,7 @@ function calculateDemandPlan({
 }: {
   containers: ContainerEntry[];
   customerAcquisitionCost: number | null;
+  cashBalance: number;
   orders: ShopifyOrder[];
   plannedSales: DemandSale[];
   selectedMonth: MonthOption;
@@ -219,7 +236,9 @@ function calculateDemandPlan({
   const currentMonth = dateKey(today);
   const averageModulesPerOrder = calculateAverageModulesPerOrder(orders);
   const averageOrderValue = calculateAverageOrderValue(orders);
+  const averageDailyModules = calculateAverageDailyModules(orders);
   const activeContainers = containers.filter((container) => container.status !== "closed");
+  const openPayables = activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0);
   const containerDemand = activeContainers
     .map((container) => {
       const eta = getContainerEta(container);
@@ -258,8 +277,10 @@ function calculateDemandPlan({
     : null;
 
   return {
+    averageDailyModules,
     averageModulesPerOrder,
     averageOrderValue,
+    cashBalance,
     containersEligibleThisMonth,
     currentMonth,
     customerAcquisitionCost,
@@ -270,6 +291,7 @@ function calculateDemandPlan({
       ? targetOrdersToSell * averageOrderValue
       : null,
     nextDemandContainer,
+    openPayables,
     selectedMonth,
     saleEvents,
     targetMetaBudget: targetOrdersToSell !== null && customerAcquisitionCost !== null
@@ -384,7 +406,13 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
 function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   return {
     defaultSale: {
+      averageDailyModules: plan.averageDailyModules,
+      averageModulesPerOrder: plan.averageModulesPerOrder,
+      averageOrderValue: plan.averageOrderValue,
+      cashBalance: plan.cashBalance,
+      customerAcquisitionCost: plan.customerAcquisitionCost,
       modules: plan.targetModulesToSell,
+      openPayables: plan.openPayables,
       orders: plan.targetOrdersToSell,
       totalBudget: plan.targetMetaBudget
     },
@@ -452,12 +480,16 @@ export default async function DemandPage({
   ]);
 
   const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
+  const cashBalance = wiseSummary.balances
+    .filter((balance) => balance.currency === "CAD")
+    .reduce((sum, balance) => sum + balance.amount, 0);
   const customerAcquisitionCost = calculateCustomerAcquisitionCost({
     metaExpenses: wiseSummary.metaSpend.expenses,
     orders: orders || []
   });
   const plan = calculateDemandPlan({
     containers: containers || [],
+    cashBalance,
     customerAcquisitionCost,
     orders: orders || [],
     plannedSales: plannedSales || [],
