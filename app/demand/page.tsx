@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { DemandBudgetCalculator } from "@/components/demand-budget-calculator";
 import { requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
@@ -22,7 +21,7 @@ type ContainerDemand = {
 
 type DemandPlan = {
   averageModulesPerOrder: number | null;
-  containersOpeningThisMonth: ContainerDemand[];
+  containersEligibleThisMonth: ContainerDemand[];
   customerAcquisitionCost: number | null;
   currentMonth: string;
   daysUntilNextDemandWindow: number | null;
@@ -34,7 +33,7 @@ type DemandPlan = {
   vancouverOnHand: number;
 };
 
-const saleLeadDays = 21;
+const saleLeadDays = 20;
 
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -86,10 +85,6 @@ function daysBetween(start: Date, end: Date) {
   const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
   return Math.ceil((endDay.getTime() - startDay.getTime()) / 86_400_000);
-}
-
-function isWithin(date: Date | null, start: Date, end: Date) {
-  return Boolean(date && date >= start && date <= end);
 }
 
 function totalContainerPieces(container: ContainerEntry) {
@@ -164,14 +159,19 @@ function calculateDemandPlan({
       };
     })
     .sort((left, right) => (left.demandOpenDate?.getTime() || Number.MAX_SAFE_INTEGER) - (right.demandOpenDate?.getTime() || Number.MAX_SAFE_INTEGER));
-  const containersOpeningThisMonth = containerDemand.filter((item) =>
-    isWithin(item.demandOpenDate, selectedMonth.start, selectedMonth.end)
+  const containersEligibleThisMonth = containerDemand.filter((item) =>
+    Boolean(
+      item.demandOpenDate &&
+        item.eta &&
+        item.demandOpenDate <= selectedMonth.end &&
+        item.eta >= selectedMonth.start
+    )
   );
   const nextDemandContainer = containerDemand.find((item) => {
     if (!item.demandOpenDate) return false;
     return item.demandOpenDate >= new Date(today.getFullYear(), today.getMonth(), today.getDate());
   }) || null;
-  const selectedContainerPieces = containersOpeningThisMonth.reduce((sum, item) => sum + item.pieces, 0);
+  const selectedContainerPieces = containersEligibleThisMonth.reduce((sum, item) => sum + item.pieces, 0);
   const targetModulesToSell = selectedMonth.month === currentMonth
     ? vancouverOnHand + selectedContainerPieces
     : selectedContainerPieces;
@@ -181,7 +181,7 @@ function calculateDemandPlan({
 
   return {
     averageModulesPerOrder,
-    containersOpeningThisMonth,
+    containersEligibleThisMonth,
     currentMonth,
     customerAcquisitionCost,
     daysUntilNextDemandWindow: nextDemandContainer?.demandOpenDate
@@ -252,7 +252,7 @@ function DemandAction({ plan }: { plan: DemandPlan }) {
             : `Wait ${waitDays} days for ${containerName}`}
       </h2>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-        Incoming inventory becomes sellable when its ETA is within {saleLeadDays} days. This uses live container ETAs, not a past-period filter.
+        Incoming inventory becomes eligible for advertising when its ETA to Canada is within {saleLeadDays} days. This uses live container ETAs, not a past-period filter.
       </p>
     </section>
   );
@@ -269,15 +269,15 @@ function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
             <span className="font-semibold text-slate-950">{plan.vancouverOnHand} modules</span>
           </div>
         ) : null}
-        {plan.containersOpeningThisMonth.length === 0 ? (
-          <div className="py-3 text-slate-500">No container demand windows open in this month.</div>
+        {plan.containersEligibleThisMonth.length === 0 ? (
+          <div className="py-3 text-slate-500">No containers are inside the 20-day advertising window this month.</div>
         ) : (
-          plan.containersOpeningThisMonth.map((item) => (
+          plan.containersEligibleThisMonth.map((item) => (
             <div className="flex items-center justify-between gap-4 py-3" key={item.container.id}>
               <span>
                 <span className="block font-medium text-slate-700">{item.container.container_number}</span>
                 <span className="text-xs text-blue-700">
-                  Demand opens {formatDate(item.demandOpenDate)}. ETA {formatDate(item.eta)}
+                  Advertising opens {formatDate(item.demandOpenDate)}. ETA {formatDate(item.eta)}
                 </span>
               </span>
               <span className="font-semibold text-slate-950">{item.pieces} modules</span>
@@ -352,17 +352,12 @@ export default async function DemandPage({
           <DemandAction plan={plan} />
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <StatCard label="Modules to sell this month" note="Open demand windows this month" value={plan.targetModulesToSell} />
-            <StatCard label="Orders to sell this month" note="Modules / live avg modules per order" value={plan.targetOrdersToSell ?? "Unavailable"} />
+            <StatCard label="Maximum modules to sell" note="On hand plus containers inside the 20-day rule" value={plan.targetModulesToSell} />
+            <StatCard label="Maximum orders to sell" note="Maximum modules / live avg modules per order" value={plan.targetOrdersToSell ?? "Unavailable"} />
             <StatCard label="Avg modules per order" note="From imported Shopify orders" value={plan.averageModulesPerOrder === null ? "Unavailable" : plan.averageModulesPerOrder.toFixed(1)} />
             <StatCard label="CAC" note="Wise Meta spend / Shopify orders" value={plan.customerAcquisitionCost === null ? "Unavailable" : money(plan.customerAcquisitionCost)} />
-            <StatCard label="Required Meta budget" note="Target orders x CAC" value={plan.targetMetaBudget === null ? "Unavailable" : money(plan.targetMetaBudget)} />
+            <StatCard label="Required Meta budget" note="Maximum orders x live CAC" value={plan.targetMetaBudget === null ? "Unavailable" : money(plan.targetMetaBudget)} />
           </section>
-
-          <DemandBudgetCalculator
-            baselineOrders={plan.targetOrdersToSell}
-            customerAcquisitionCost={plan.customerAcquisitionCost}
-          />
 
           <MonthlyInventoryList plan={plan} />
         </div>
