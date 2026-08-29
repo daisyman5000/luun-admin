@@ -47,6 +47,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                       { href: "/", label: "Home" },
                       { href: "/data", label: "Orders" },
                       { href: "/inventory", label: "Inventory" },
+                      { href: "/demand", label: "Demand Plan" },
                       { href: "/ticketing", label: "Ticketing" },
                       { href: "/forecasting", label: "Forecasting" },
                       { href: "/forecasting/calendar", label: "Calendar Forecast" },
