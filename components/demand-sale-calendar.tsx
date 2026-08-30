@@ -61,6 +61,14 @@ function dayKey(month: string, day: number) {
   return `${month}-${String(day).padStart(2, "0")}`;
 }
 
+function localMoney(value: number, currency: string) {
+  return new Intl.NumberFormat("en-US", {
+    currency,
+    maximumFractionDigits: 0,
+    style: "currency"
+  }).format(value);
+}
+
 function getDayStatus(date: string, events: DemandCalendarEvent[]) {
   const event = events.find((item) => item.days.some((day) => day.date === date));
   const day = event?.days.find((item) => item.date === date) || null;
@@ -194,6 +202,21 @@ export function DemandSaleCalendar({
       return sum;
     }, 0);
   }
+
+  function adSpendThrough(date: string) {
+    if (dailyBudget === null) return 0;
+    return saleDayDates.filter((saleDate) => saleDate <= date).length * dailyBudget;
+  }
+
+  function cashAfterDate(date: string) {
+    if (hasUnconvertedObligations) return null;
+    return plan.defaultSale.cashBalance - obligationSpendThrough(date) - adSpendThrough(date);
+  }
+
+  function obligationsDueOn(date: string) {
+    return plan.cashObligations.filter((item) => item.dueDate === date);
+  }
+
   const cells = [
     ...Array.from({ length: plan.selectedMonth.firstDay }, (_, index) => ({ day: null, key: `blank-${index}` })),
     ...Array.from({ length: plan.selectedMonth.endDay }, (_, index) => {
@@ -280,10 +303,9 @@ export function DemandSaleCalendar({
           const event = status?.event || null;
           const saleDay = status?.day || null;
           const isStart = event?.date === cell.key;
-          const saleDayIndex = saleDay ? saleDayDates.indexOf(saleDay.date) : -1;
-          const cashAfterThisDay = dailyBudget !== null && saleDayIndex >= 0 && !hasUnconvertedObligations
-            ? plan.defaultSale.cashBalance - obligationSpendThrough(saleDayDates[saleDayIndex]) - dailyBudget * (saleDayIndex + 1)
-            : null;
+          const dueObligations = cell.day ? obligationsDueOn(cell.key) : [];
+          const hasCashActivity = Boolean(event || dueObligations.length > 0);
+          const cashAfterThisDay = cell.day && hasCashActivity ? cashAfterDate(cell.key) : null;
 
           return (
             <div
@@ -322,7 +344,32 @@ export function DemandSaleCalendar({
                         </button>
                       ) : null}
                     </div>
-                  ) : canEdit ? (
+                  ) : null}
+                  {dueObligations.length > 0 ? (
+                    <div className="mt-2 space-y-1 rounded-lg bg-amber-50 p-2 text-xs leading-5 text-amber-950">
+                      {dueObligations.map((obligation) => (
+                        <div key={`${obligation.type}-${obligation.id}`}>
+                          <div className="font-semibold">
+                            {obligation.type === "wayflyer"
+                              ? "Wayflyer"
+                              : obligation.type === "container"
+                                ? "Container"
+                                : "Invoice"}
+                          </div>
+                          <div>
+                            {localMoney(obligation.amount, obligation.currency)}
+                            {obligation.amountCad !== null && obligation.currency !== "CAD"
+                              ? ` / ${money(obligation.amountCad)}`
+                              : ""}
+                          </div>
+                        </div>
+                      ))}
+                      <div className="border-t border-amber-200 pt-1 font-semibold">
+                        Cash after: {cashAfterThisDay === null ? "Unavailable" : money(cashAfterThisDay)}
+                      </div>
+                    </div>
+                  ) : null}
+                  {!event && canEdit ? (
                     <button
                       className="mt-8 w-full rounded-full border border-blue-100 bg-white px-3 py-2 text-center text-xs font-semibold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
                       disabled={Boolean(pendingDate)}

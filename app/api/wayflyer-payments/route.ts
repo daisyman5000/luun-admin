@@ -23,10 +23,22 @@ function cleanDate(value: unknown) {
   return value;
 }
 
+function addWeeks(date: string, weeks: number) {
+  const nextDate = new Date(`${date}T00:00:00`);
+  nextDate.setDate(nextDate.getDate() + weeks * 7);
+  return nextDate.toISOString().slice(0, 10);
+}
+
 function cleanCurrency(value: unknown) {
   if (typeof value !== "string") return "CAD";
   const currency = value.trim().toUpperCase();
   return currency === "USD" || currency === "CAD" ? currency : undefined;
+}
+
+function cleanWeeks(value: unknown) {
+  const weeks = Number(value || 1);
+  if (!Number.isInteger(weeks) || weeks < 1) return undefined;
+  return Math.min(weeks, 260);
 }
 
 export async function POST(request: NextRequest) {
@@ -40,11 +52,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Not authorized to add Wayflyer payments" }, { status: 403 });
   }
 
-  const body = (await request.json()) as Partial<WayflyerPayment>;
+  const body = (await request.json()) as Partial<WayflyerPayment> & { weeks?: unknown };
   const label = cleanText(body.label, true);
   const amount = cleanMoney(body.amount);
   const currency = cleanCurrency(body.currency);
   const dueDate = cleanDate(body.due_date);
+  const weeks = cleanWeeks(body.weeks);
 
   if (!label) {
     return NextResponse.json({ error: "Payment label is required" }, { status: 400 });
@@ -62,19 +75,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Payment due date is invalid" }, { status: 400 });
   }
 
+  if (!dueDate) {
+    return NextResponse.json({ error: "First payment date is required" }, { status: 400 });
+  }
+
+  if (!weeks) {
+    return NextResponse.json({ error: "Number of weeks is invalid" }, { status: 400 });
+  }
+
+  const rows = Array.from({ length: weeks }, (_, index) => ({
+    amount,
+    created_by: user.id,
+    currency,
+    due_date: addWeeks(dueDate, index),
+    label: weeks === 1 ? label : `${label} ${index + 1}/${weeks}`,
+    notes: cleanText(body.notes),
+    status: "scheduled"
+  }));
+
   const { data, error } = await supabase
     .from("wayflyer_payments")
-    .insert({
-      amount,
-      created_by: user.id,
-      currency,
-      due_date: dueDate,
-      label,
-      notes: cleanText(body.notes),
-      status: "scheduled"
-    })
+    .insert(rows)
     .select()
-    .single<WayflyerPayment>();
+    .returns<WayflyerPayment[]>();
 
   if (error) {
     const tableMissing =

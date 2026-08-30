@@ -20,6 +20,7 @@ export function WayflyerPaymentTable({
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("CAD");
   const [dueDate, setDueDate] = useState("");
+  const [weeks, setWeeks] = useState("");
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -35,7 +36,8 @@ export function WayflyerPaymentTable({
         currency,
         due_date: dueDate || null,
         label,
-        notes
+        notes,
+        weeks
       }),
       headers: { "Content-Type": "application/json" },
       method: "POST"
@@ -52,9 +54,10 @@ export function WayflyerPaymentTable({
     setAmount("");
     setCurrency("CAD");
     setDueDate("");
+    setWeeks("");
     setNotes("");
     setSavingId(null);
-    setMessage("Wayflyer payment saved.");
+    setMessage("Wayflyer schedule saved.");
     router.refresh();
   }
 
@@ -113,7 +116,7 @@ export function WayflyerPaymentTable({
         <div>
           <h2 className="text-xl font-semibold tracking-normal text-slate-950">Wayflyer financing</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Enter each weekly payback amount and due date so Demand can subtract it from cashflow.
+            Enter the schedule once. The app creates each weekly payback and Demand subtracts it on the due date.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -141,7 +144,7 @@ export function WayflyerPaymentTable({
       ) : null}
 
       {canEdit ? (
-        <form className="mb-5 grid gap-3 lg:grid-cols-[1.2fr_0.7fr_0.55fr_0.8fr_1.2fr_auto]" onSubmit={createPayment}>
+        <form className="mb-5 grid gap-3 lg:grid-cols-[1.2fr_0.7fr_0.55fr_0.8fr_0.6fr_1.2fr_auto]" onSubmit={createPayment}>
           <input
             className={inputClass}
             onChange={(event) => setLabel(event.target.value)}
@@ -176,6 +179,15 @@ export function WayflyerPaymentTable({
           />
           <input
             className={inputClass}
+            min={1}
+            onChange={(event) => setWeeks(event.target.value)}
+            placeholder="Weeks"
+            required
+            type="number"
+            value={weeks}
+          />
+          <input
+            className={inputClass}
             onChange={(event) => setNotes(event.target.value)}
             placeholder="Notes"
             value={notes}
@@ -185,7 +197,7 @@ export function WayflyerPaymentTable({
             disabled={savingId === "new"}
             type="submit"
           >
-            {savingId === "new" ? "Saving..." : "Add week"}
+            {savingId === "new" ? "Saving..." : "Create schedule"}
           </button>
         </form>
       ) : null}
