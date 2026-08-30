@@ -1,16 +1,28 @@
 import { ContainerEntryTable } from "@/components/container-entry-table";
+import { MajorExpenseTable } from "@/components/major-expense-table";
 import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
-import type { ContainerEntry } from "@/lib/types";
+import type { ContainerEntry, MajorExpense } from "@/lib/types";
 
 export default async function ContainersPage() {
   const { profile, supabase } = await requireUser();
   const canEdit = canUpdateOrderLogistics(profile?.role);
-  const { data, error } = await supabase
-    .from("container_entries")
-    .select("*")
-    .order("eta", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .returns<ContainerEntry[]>();
+  const [
+    { data: containers, error: containersError },
+    { data: majorExpenses, error: majorExpensesError }
+  ] = await Promise.all([
+    supabase
+      .from("container_entries")
+      .select("*")
+      .order("eta", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .returns<ContainerEntry[]>(),
+    supabase
+      .from("major_expenses")
+      .select("*")
+      .eq("status", "open")
+      .order("due_date", { ascending: true, nullsFirst: false })
+      .returns<MajorExpense[]>()
+  ]);
 
   return (
     <main className="px-4 py-4 sm:px-6 lg:px-8">
@@ -18,20 +30,30 @@ export default async function ContainersPage() {
         <header className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">Forecasting</div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-normal">Containers</h1>
+            <h1 className="mt-1 text-2xl font-semibold tracking-normal">Invoices</h1>
           </div>
           <p className="max-w-2xl text-sm leading-6 text-slate-500">
-            Enter containers, SKUs on board, paid amounts, payment due dates, and ETA.
+            Track container payments and other major invoices so Demand can gauge cashflow.
           </p>
         </header>
 
-        {error ? (
-          <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
-            The Containers table is not ready in Supabase yet. Apply the latest database migration, then refresh this page.
-          </div>
-        ) : (
-          <ContainerEntryTable canEdit={canEdit} containers={data || []} />
-        )}
+        <div className="space-y-5">
+          {majorExpensesError ? (
+            <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
+              Major invoices are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
+            </div>
+          ) : (
+            <MajorExpenseTable canEdit={canEdit} expenses={majorExpenses || []} />
+          )}
+
+          {containersError ? (
+            <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
+              The Containers table is not ready in Supabase yet. Apply the latest database migration, then refresh this page.
+            </div>
+          ) : (
+            <ContainerEntryTable canEdit={canEdit} containers={containers || []} />
+          )}
+        </div>
       </section>
     </main>
   );
