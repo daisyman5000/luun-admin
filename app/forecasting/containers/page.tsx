@@ -1,14 +1,16 @@
 import { ContainerEntryTable } from "@/components/container-entry-table";
 import { MajorExpenseTable } from "@/components/major-expense-table";
+import { WayflyerPaymentTable } from "@/components/wayflyer-payment-table";
 import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
-import type { ContainerEntry, MajorExpense } from "@/lib/types";
+import type { ContainerEntry, MajorExpense, WayflyerPayment } from "@/lib/types";
 
 export default async function ContainersPage() {
   const { profile, supabase } = await requireUser();
   const canEdit = canUpdateOrderLogistics(profile?.role);
   const [
     { data: containers, error: containersError },
-    { data: majorExpenses, error: majorExpensesError }
+    { data: majorExpenses, error: majorExpensesError },
+    { data: wayflyerPayments, error: wayflyerPaymentsError }
   ] = await Promise.all([
     supabase
       .from("container_entries")
@@ -21,7 +23,13 @@ export default async function ContainersPage() {
       .select("*")
       .eq("status", "open")
       .order("due_date", { ascending: true, nullsFirst: false })
-      .returns<MajorExpense[]>()
+      .returns<MajorExpense[]>(),
+    supabase
+      .from("wayflyer_payments")
+      .select("*")
+      .neq("status", "cancelled")
+      .order("due_date", { ascending: true, nullsFirst: false })
+      .returns<WayflyerPayment[]>()
   ]);
 
   return (
@@ -38,6 +46,14 @@ export default async function ContainersPage() {
         </header>
 
         <div className="space-y-5">
+          {wayflyerPaymentsError ? (
+            <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
+              Wayflyer payments are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
+            </div>
+          ) : (
+            <WayflyerPaymentTable canEdit={canEdit} payments={wayflyerPayments || []} />
+          )}
+
           {majorExpensesError ? (
             <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900">
               Major invoices are not ready in Supabase yet. Apply the latest database migration, then refresh this page.

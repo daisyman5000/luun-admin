@@ -3,7 +3,7 @@ import { unstable_cache } from "next/cache";
 import { DemandSaleCalendar, type DemandCalendarPlan, type DemandCashObligation } from "@/components/demand-sale-calendar";
 import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
-import type { ContainerEntry, DemandSale, InventoryRow, MajorExpense, ShopifyOrder } from "@/lib/types";
+import type { ContainerEntry, DemandSale, InventoryRow, MajorExpense, ShopifyOrder, WayflyerPayment } from "@/lib/types";
 
 type MonthOption = {
   end: Date;
@@ -382,6 +382,7 @@ export default async function DemandPage({
     { data: containers },
     { data: plannedSales, error: plannedSalesError },
     { data: majorExpenses, error: majorExpensesError },
+    { data: wayflyerPayments, error: wayflyerPaymentsError },
     wiseSummary
   ] = await Promise.all([
     supabase
@@ -412,6 +413,12 @@ export default async function DemandPage({
       .eq("status", "open")
       .order("due_date", { ascending: true, nullsFirst: false })
       .returns<MajorExpense[]>(),
+    supabase
+      .from("wayflyer_payments")
+      .select("*")
+      .eq("status", "scheduled")
+      .order("due_date", { ascending: true, nullsFirst: false })
+      .returns<WayflyerPayment[]>(),
     getCachedWiseSummary()
   ]);
 
@@ -432,7 +439,14 @@ export default async function DemandPage({
     label: expense.label,
     type: "invoice"
   }));
-  const cashObligations = [...containerObligations, ...invoiceObligations];
+  const wayflyerObligations: DemandCashObligation[] = (wayflyerPayments || []).map((payment) => ({
+    amount: Number(payment.amount || 0),
+    dueDate: payment.due_date,
+    id: payment.id,
+    label: payment.label,
+    type: "wayflyer"
+  }));
+  const cashObligations = [...containerObligations, ...invoiceObligations, ...wayflyerObligations];
   const cashBalance = wiseSummary.balances
     .filter((balance) => balance.currency === "CAD")
     .reduce((sum, balance) => sum + balance.amount, 0);
@@ -476,6 +490,12 @@ export default async function DemandPage({
           {majorExpensesError ? (
             <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
               Major invoices are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
+            </section>
+          ) : null}
+
+          {wayflyerPaymentsError ? (
+            <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+              Wayflyer payments are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
             </section>
           ) : null}
 

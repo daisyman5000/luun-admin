@@ -128,3 +128,18 @@ export type MajorExpense = {
   created_at: string;
   updated_at: string;
 };
+
+export type WayflyerPaymentStatus = "scheduled" | "paid" | "cancelled";
+
+export type WayflyerPayment = {
+  id: string;
+  label: string;
+  amount: number | null;
+  due_date: string | null;
+  status: WayflyerPaymentStatus | null;
+  notes: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};

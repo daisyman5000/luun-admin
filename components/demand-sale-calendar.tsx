@@ -21,7 +21,7 @@ export type DemandCashObligation = {
   dueDate: string | null;
   id: string;
   label: string;
-  type: "container" | "invoice";
+  type: "container" | "invoice" | "wayflyer";
 };
 
 export type DemandCalendarPlan = {
@@ -254,7 +254,10 @@ export function DemandSaleCalendar({
   const otherMajorInvoices = cashObligations
     .filter((item) => item.type === "invoice")
     .reduce((sum, item) => sum + item.amount, 0);
-  const totalObligations = containerPayables + otherMajorInvoices;
+  const wayflyerPaybacks = cashObligations
+    .filter((item) => item.type === "wayflyer")
+    .reduce((sum, item) => sum + item.amount, 0);
+  const totalObligations = containerPayables + otherMajorInvoices + wayflyerPaybacks;
   const cashBeforeAds = plan.defaultSale.cashBalance - totalObligations;
   const cashAfterAllAdSpend = totalAdSpend === null ? null : cashBeforeAds - totalAdSpend;
   const sortedObligations = [...cashObligations].sort((left, right) => {
@@ -306,6 +309,10 @@ export function DemandSaleCalendar({
         <div className="rounded-2xl border border-line bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Other major invoices</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{money(otherMajorInvoices)}</p>
+        </div>
+        <div className="rounded-2xl border border-line bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Wayflyer paybacks</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{money(wayflyerPaybacks)}</p>
         </div>
         <div className="rounded-2xl border border-line bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Sale days selected</p>
@@ -401,7 +408,13 @@ export function DemandSaleCalendar({
               <div className="grid gap-3 p-4 text-sm md:grid-cols-[1fr_auto_auto]" key={`${item.type}-${item.id}`}>
                 <div>
                   <p className="font-semibold text-slate-950">{item.label}</p>
-                  <p className="text-xs text-slate-500">{item.type === "container" ? "Container remainder" : "Major invoice"}</p>
+                  <p className="text-xs text-slate-500">
+                    {item.type === "container"
+                      ? "Container remainder"
+                      : item.type === "wayflyer"
+                        ? "Wayflyer payback"
+                        : "Major invoice"}
+                  </p>
                 </div>
                 <div className="font-semibold text-slate-950 md:text-right">{money(item.amount)}</div>
                 <div className="flex items-center justify-between gap-3 md:justify-end">
