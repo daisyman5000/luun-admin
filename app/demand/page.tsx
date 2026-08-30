@@ -34,6 +34,7 @@ type SaleEvent = {
 };
 
 type DemandPlan = {
+  activeContainerCount: number;
   averageDailyModules: number;
   averageModulesPerOrder: number | null;
   averageOrderValue: number | null;
@@ -263,6 +264,7 @@ function calculateDemandPlan({
     : null;
 
   return {
+    activeContainerCount: activeContainers.length,
     averageDailyModules,
     averageModulesPerOrder,
     averageOrderValue,
@@ -315,6 +317,7 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
     defaultSale: {
       averageDailyModules: plan.averageDailyModules,
       averageModulesPerOrder: plan.averageModulesPerOrder,
+      activeContainerCount: plan.activeContainerCount,
       averageOrderValue: plan.averageOrderValue,
       cashBalance: plan.cashBalance,
       customerAcquisitionCost: plan.customerAcquisitionCost,

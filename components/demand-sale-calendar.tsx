@@ -28,6 +28,7 @@ export type DemandCashObligation = {
 
 export type DemandCalendarPlan = {
   defaultSale: {
+    activeContainerCount: number;
     averageDailyModules: number;
     averageModulesPerOrder: number | null;
     averageOrderValue: number | null;
@@ -49,6 +50,13 @@ export type DemandCalendarPlan = {
     firstDay: number;
     month: string;
   };
+};
+
+type RecommendedContainerOrder = {
+  arrivalDate: string;
+  factoryReadyDate: string;
+  orderDate: string;
+  sequence: number;
 };
 
 function money(value: number) {
@@ -232,15 +240,35 @@ export function DemandSaleCalendar({
   const projectedSelloutDate = projectedCoverageDays === null
     ? null
     : addDaysToKey(new Date().toISOString().slice(0, 10), projectedCoverageDays);
-  const recommendedPurchaseDate = projectedSelloutDate === null
-    ? null
-    : addDaysToKey(projectedSelloutDate, -containerTotalLeadDays);
-  const recommendedFactoryReadyDate = recommendedPurchaseDate === null
-    ? null
-    : addDaysToKey(recommendedPurchaseDate, containerProductionDays);
-  const recommendedArrivalDate = recommendedPurchaseDate === null
-    ? null
-    : addDaysToKey(recommendedPurchaseDate, containerTotalLeadDays);
+  const averageInboundContainerModules = plan.defaultSale.totalActiveInboundModules > 0
+    ? Math.round(plan.defaultSale.totalActiveInboundModules / Math.max(1, plan.defaultSale.activeContainerCount))
+    : plan.defaultSale.modules;
+  const reorderCoverageDays = plan.defaultSale.averageDailyModules > 0 && averageInboundContainerModules > 0
+    ? Math.max(1, Math.floor(averageInboundContainerModules / plan.defaultSale.averageDailyModules))
+    : null;
+  const recommendedContainerOrders: RecommendedContainerOrder[] = [];
+
+  if (projectedSelloutDate !== null && reorderCoverageDays !== null) {
+    let nextSelloutDate = projectedSelloutDate;
+
+    for (let sequence = 1; sequence <= 8; sequence += 1) {
+      const orderDate = addDaysToKey(nextSelloutDate, -containerTotalLeadDays);
+
+      recommendedContainerOrders.push({
+        arrivalDate: addDaysToKey(orderDate, containerTotalLeadDays),
+        factoryReadyDate: addDaysToKey(orderDate, containerProductionDays),
+        orderDate,
+        sequence
+      });
+
+      nextSelloutDate = addDaysToKey(nextSelloutDate, reorderCoverageDays);
+    }
+  }
+
+  const firstRecommendedOrder = recommendedContainerOrders[0] || null;
+  const recommendedPurchaseDate = firstRecommendedOrder?.orderDate || null;
+  const recommendedFactoryReadyDate = firstRecommendedOrder?.factoryReadyDate || null;
+  const recommendedArrivalDate = firstRecommendedOrder?.arrivalDate || null;
   const shouldBuyNow = recommendedPurchaseDate !== null && recommendedPurchaseDate <= new Date().toISOString().slice(0, 10);
 
   function obligationSpendThrough(date: string) {
@@ -405,8 +433,12 @@ export function DemandSaleCalendar({
           const dueRevenue = cell.day ? revenueDueOn(cell.key) : [];
           const revenueDue = dueRevenue.reduce((sum, item) => sum + (item.amount || 0), 0);
           const hasCashActivity = Boolean(event || dueObligations.length > 0 || dueRevenue.length > 0);
-          const isPurchaseDay = cell.day && recommendedPurchaseDate === cell.key;
-          const isArrivalDay = cell.day && recommendedArrivalDate === cell.key;
+          const recommendedOrder = cell.day
+            ? recommendedContainerOrders.find((order) => order.orderDate === cell.key)
+            : null;
+          const recommendedArrival = cell.day
+            ? recommendedContainerOrders.find((order) => order.arrivalDate === cell.key)
+            : null;
           const cashAfterThisDay = cell.day ? cashAfterDate(cell.key) : null;
           const obligationDue = dueObligations.reduce((sum, item) => sum + (item.amountCad || 0), 0);
 
@@ -415,7 +447,7 @@ export function DemandSaleCalendar({
               className={[
                 "min-h-28 rounded-xl border p-2 text-left text-sm transition",
                 cell.day ? "border-line bg-slate-50 hover:border-blue-200 hover:bg-blue-50" : "border-transparent",
-                hasCashActivity || isPurchaseDay || isArrivalDay ? "border-blue-200 bg-blue-50 shadow-sm" : "",
+                hasCashActivity || recommendedOrder || recommendedArrival ? "border-blue-200 bg-blue-50 shadow-sm" : "",
                 !canEdit || !cell.day || event ? "cursor-default" : ""
               ].join(" ")}
               key={cell.key}
@@ -438,11 +470,15 @@ export function DemandSaleCalendar({
                       {dueObligations.length > 0 ? (
                         <div className="mt-1 font-semibold text-amber-700">Bills due: -{money(obligationDue)}</div>
                       ) : null}
-                      {isPurchaseDay ? (
-                        <div className="mt-1 font-semibold text-violet-700">Place container PO: 30% deposit</div>
+                      {recommendedOrder ? (
+                        <div className="mt-1 font-semibold text-violet-700">
+                          Container PO #{recommendedOrder.sequence}: 30% deposit
+                        </div>
                       ) : null}
-                      {isArrivalDay ? (
-                        <div className="mt-1 font-semibold text-violet-700">Container target arrival: 70% due</div>
+                      {recommendedArrival ? (
+                        <div className="mt-1 font-semibold text-violet-700">
+                          Container #{recommendedArrival.sequence} arrives: 70% due
+                        </div>
                       ) : null}
                       {saleDay && canEdit ? (
                         <button
