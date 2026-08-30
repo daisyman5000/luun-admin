@@ -113,3 +113,18 @@ export type DemandSale = {
   created_by: string | null;
   created_at: string;
 };
+
+export type MajorExpenseStatus = "open" | "paid" | "cancelled";
+
+export type MajorExpense = {
+  id: string;
+  label: string;
+  amount: number | null;
+  due_date: string | null;
+  status: MajorExpenseStatus | null;
+  notes: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};

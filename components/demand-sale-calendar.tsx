@@ -16,6 +16,14 @@ export type DemandCalendarEvent = {
   totalBudget: number | null;
 };
 
+export type DemandCashObligation = {
+  amount: number;
+  dueDate: string | null;
+  id: string;
+  label: string;
+  type: "container" | "invoice";
+};
+
 export type DemandCalendarPlan = {
   defaultSale: {
     averageDailyModules: number;
@@ -29,6 +37,7 @@ export type DemandCalendarPlan = {
     recommendedStartDate: string | null;
     totalBudget: number | null;
   };
+  cashObligations: DemandCashObligation[];
   monthLabel: string;
   saleEvents: DemandCalendarEvent[];
   selectedMonth: {
@@ -59,6 +68,14 @@ function getDayStatus(date: string, events: DemandCalendarEvent[]) {
 
 function dateFromKey(date: string) {
   return new Date(`${date}T00:00:00`);
+}
+
+function formatDateLabel(date: string | null) {
+  if (!date) return "No due date";
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short"
+  }).format(dateFromKey(date));
 }
 
 function recalculateEvent(event: DemandCalendarEvent): DemandCalendarEvent {
@@ -99,7 +116,14 @@ export function DemandSaleCalendar({
     plan.saleEvents.map(recalculateEvent)
   );
   const [pendingDate, setPendingDate] = useState<string | null>(null);
+  const [pendingExpense, setPendingExpense] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expenseError, setExpenseError] = useState<string | null>(null);
+  const [invoiceLabel, setInvoiceLabel] = useState("");
+  const [invoiceAmount, setInvoiceAmount] = useState("");
+  const [invoiceDueDate, setInvoiceDueDate] = useState("");
+  const [invoiceNotes, setInvoiceNotes] = useState("");
+  const [cashObligations, setCashObligations] = useState<DemandCashObligation[]>(plan.cashObligations);
 
   async function addSale(date: string, durationDays: number) {
     if (!canEdit || pendingDate) return;
@@ -154,14 +178,98 @@ export function DemandSaleCalendar({
     setPendingDate(null);
   }
 
+  async function addMajorInvoice() {
+    if (!canEdit || pendingExpense) return;
+    setPendingExpense(true);
+    setExpenseError(null);
+
+    const response = await fetch("/api/major-expenses", {
+      body: JSON.stringify({
+        amount: invoiceAmount,
+        due_date: invoiceDueDate || null,
+        label: invoiceLabel,
+        notes: invoiceNotes
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      setExpenseError(body?.error || "Unable to add invoice.");
+      setPendingExpense(false);
+      return;
+    }
+
+    const created = (await response.json()) as {
+      amount: number | null;
+      due_date: string | null;
+      id: string;
+      label: string;
+    };
+    setCashObligations((items) => [
+      ...items,
+      {
+        amount: Number(created.amount || 0),
+        dueDate: created.due_date,
+        id: created.id,
+        label: created.label,
+        type: "invoice"
+      }
+    ]);
+    setInvoiceLabel("");
+    setInvoiceAmount("");
+    setInvoiceDueDate("");
+    setInvoiceNotes("");
+    setPendingExpense(false);
+  }
+
+  async function deleteMajorInvoice(id: string) {
+    if (!canEdit || pendingExpense) return;
+    setPendingExpense(true);
+    setExpenseError(null);
+
+    const response = await fetch(`/api/major-expenses/${id}`, { method: "DELETE" });
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      setExpenseError(body?.error || "Unable to remove invoice.");
+      setPendingExpense(false);
+      return;
+    }
+
+    setCashObligations((items) => items.filter((item) => item.id !== id));
+    setPendingExpense(false);
+  }
+
   const hasSales = saleEvents.length > 0;
   const activeSale = saleEvents[0] || null;
   const activeSaleDays = activeSale?.days.length || 0;
   const totalAdSpend = plan.defaultSale.totalBudget;
   const dailyBudget = totalAdSpend !== null && activeSaleDays > 0 ? totalAdSpend / activeSaleDays : null;
   const saleDayDates = (activeSale?.days || []).map((day) => day.date).sort();
-  const cashBeforeAds = plan.defaultSale.cashBalance - plan.defaultSale.openPayables;
+  const containerPayables = cashObligations
+    .filter((item) => item.type === "container")
+    .reduce((sum, item) => sum + item.amount, 0);
+  const otherMajorInvoices = cashObligations
+    .filter((item) => item.type === "invoice")
+    .reduce((sum, item) => sum + item.amount, 0);
+  const totalObligations = containerPayables + otherMajorInvoices;
+  const cashBeforeAds = plan.defaultSale.cashBalance - totalObligations;
   const cashAfterAllAdSpend = totalAdSpend === null ? null : cashBeforeAds - totalAdSpend;
+  const sortedObligations = [...cashObligations].sort((left, right) => {
+    if (!left.dueDate && !right.dueDate) return left.label.localeCompare(right.label);
+    if (!left.dueDate) return 1;
+    if (!right.dueDate) return -1;
+    return left.dueDate.localeCompare(right.dueDate);
+  });
+
+  function obligationSpendThrough(date: string) {
+    return cashObligations.reduce((sum, item) => {
+      if (!item.dueDate || item.dueDate <= date) return sum + item.amount;
+      return sum;
+    }, 0);
+  }
   const cells = [
     ...Array.from({ length: plan.selectedMonth.firstDay }, (_, index) => ({ day: null, key: `blank-${index}` })),
     ...Array.from({ length: plan.selectedMonth.endDay }, (_, index) => {
@@ -186,7 +294,19 @@ export function DemandSaleCalendar({
         <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>
       ) : null}
 
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-2xl border border-line bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Wise cash</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{money(plan.defaultSale.cashBalance)}</p>
+        </div>
+        <div className="rounded-2xl border border-line bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Container remainder</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{money(containerPayables)}</p>
+        </div>
+        <div className="rounded-2xl border border-line bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Other major invoices</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{money(otherMajorInvoices)}</p>
+        </div>
         <div className="rounded-2xl border border-line bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Sale days selected</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{activeSaleDays}</p>
@@ -208,10 +328,100 @@ export function DemandSaleCalendar({
           </p>
         </div>
         <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Cash after all ad spend</p>
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Cash after obligations + ads</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">
             {cashAfterAllAdSpend === null ? "Unavailable" : money(cashAfterAllAdSpend)}
           </p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-line bg-slate-50 p-4">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="font-semibold text-slate-950">Cash obligations</h3>
+            <p className="text-xs text-slate-500">Container remainders are automatic. Add other major invoices here.</p>
+          </div>
+          {pendingExpense ? <span className="text-xs font-semibold text-blue-700">Saving...</span> : null}
+        </div>
+
+        {expenseError ? (
+          <p className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{expenseError}</p>
+        ) : null}
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr_0.8fr_1.2fr_auto]">
+          <input
+            className="rounded-2xl border border-line bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-300"
+            disabled={!canEdit || pendingExpense}
+            onChange={(event) => setInvoiceLabel(event.target.value)}
+            placeholder="Invoice name"
+            type="text"
+            value={invoiceLabel}
+          />
+          <input
+            className="rounded-2xl border border-line bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-300"
+            disabled={!canEdit || pendingExpense}
+            min="0"
+            onChange={(event) => setInvoiceAmount(event.target.value)}
+            placeholder="Amount"
+            type="number"
+            value={invoiceAmount}
+          />
+          <input
+            className="rounded-2xl border border-line bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-300"
+            disabled={!canEdit || pendingExpense}
+            onChange={(event) => setInvoiceDueDate(event.target.value)}
+            type="date"
+            value={invoiceDueDate}
+          />
+          <input
+            className="rounded-2xl border border-line bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-300"
+            disabled={!canEdit || pendingExpense}
+            onChange={(event) => setInvoiceNotes(event.target.value)}
+            placeholder="Notes"
+            type="text"
+            value={invoiceNotes}
+          />
+          <button
+            className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
+            disabled={!canEdit || pendingExpense || !invoiceLabel.trim() || !invoiceAmount}
+            onClick={() => {
+              void addMajorInvoice();
+            }}
+            type="button"
+          >
+            Add
+          </button>
+        </div>
+
+        <div className="mt-4 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white">
+          {sortedObligations.length === 0 ? (
+            <p className="p-4 text-sm text-slate-500">No cash obligations entered yet.</p>
+          ) : (
+            sortedObligations.map((item) => (
+              <div className="grid gap-3 p-4 text-sm md:grid-cols-[1fr_auto_auto]" key={`${item.type}-${item.id}`}>
+                <div>
+                  <p className="font-semibold text-slate-950">{item.label}</p>
+                  <p className="text-xs text-slate-500">{item.type === "container" ? "Container remainder" : "Major invoice"}</p>
+                </div>
+                <div className="font-semibold text-slate-950 md:text-right">{money(item.amount)}</div>
+                <div className="flex items-center justify-between gap-3 md:justify-end">
+                  <span className="text-slate-500">{formatDateLabel(item.dueDate)}</span>
+                  {item.type === "invoice" && canEdit ? (
+                    <button
+                      className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-700"
+                      disabled={pendingExpense}
+                      onClick={() => {
+                        void deleteMajorInvoice(item.id);
+                      }}
+                      type="button"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -228,7 +438,7 @@ export function DemandSaleCalendar({
           const isStart = event?.date === cell.key;
           const saleDayIndex = saleDay ? saleDayDates.indexOf(saleDay.date) : -1;
           const cashAfterThisDay = dailyBudget !== null && saleDayIndex >= 0
-            ? cashBeforeAds - dailyBudget * (saleDayIndex + 1)
+            ? plan.defaultSale.cashBalance - obligationSpendThrough(saleDayDates[saleDayIndex]) - dailyBudget * (saleDayIndex + 1)
             : null;
 
           return (

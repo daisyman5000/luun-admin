@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
-import { DemandSaleCalendar, type DemandCalendarPlan } from "@/components/demand-sale-calendar";
+import { DemandSaleCalendar, type DemandCalendarPlan, type DemandCashObligation } from "@/components/demand-sale-calendar";
 import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
-import type { ContainerEntry, DemandSale, InventoryRow, ShopifyOrder } from "@/lib/types";
+import type { ContainerEntry, DemandSale, InventoryRow, MajorExpense, ShopifyOrder } from "@/lib/types";
 
 type MonthOption = {
   end: Date;
@@ -37,6 +37,7 @@ type DemandPlan = {
   averageModulesPerOrder: number | null;
   averageOrderValue: number | null;
   cashBalance: number;
+  cashObligations: DemandCashObligation[];
   containersEligibleThisMonth: ContainerDemand[];
   currentMonth: string;
   customerAcquisitionCost: number | null;
@@ -203,6 +204,7 @@ function calculateDemandPlan({
   containers,
   customerAcquisitionCost,
   cashBalance,
+  cashObligations,
   orders,
   plannedSales,
   selectedMonth,
@@ -211,6 +213,7 @@ function calculateDemandPlan({
   containers: ContainerEntry[];
   customerAcquisitionCost: number | null;
   cashBalance: number;
+  cashObligations: DemandCashObligation[];
   orders: ShopifyOrder[];
   plannedSales: DemandSale[];
   selectedMonth: MonthOption;
@@ -267,6 +270,7 @@ function calculateDemandPlan({
     averageModulesPerOrder,
     averageOrderValue,
     cashBalance,
+    cashObligations,
     containersEligibleThisMonth,
     currentMonth,
     customerAcquisitionCost,
@@ -327,6 +331,7 @@ function StatCard({
 
 function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   return {
+    cashObligations: plan.cashObligations,
     defaultSale: {
       averageDailyModules: plan.averageDailyModules,
       averageModulesPerOrder: plan.averageModulesPerOrder,
@@ -376,6 +381,7 @@ export default async function DemandPage({
     { data: orders },
     { data: containers },
     { data: plannedSales, error: plannedSalesError },
+    { data: majorExpenses, error: majorExpensesError },
     wiseSummary
   ] = await Promise.all([
     supabase
@@ -400,10 +406,33 @@ export default async function DemandPage({
       .lte("sale_date", dateInputValue(saleQueryEnd))
       .order("sale_date", { ascending: true })
       .returns<DemandSale[]>(),
+    supabase
+      .from("major_expenses")
+      .select("*")
+      .eq("status", "open")
+      .order("due_date", { ascending: true, nullsFirst: false })
+      .returns<MajorExpense[]>(),
     getCachedWiseSummary()
   ]);
 
   const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
+  const containerObligations: DemandCashObligation[] = (containers || [])
+    .filter((container) => container.status !== "closed" && Number(container.amount_to_be_paid || 0) > 0)
+    .map((container) => ({
+      amount: Number(container.amount_to_be_paid || 0),
+      dueDate: container.payment_due_at || container.eta,
+      id: container.id,
+      label: container.container_number,
+      type: "container"
+    }));
+  const invoiceObligations: DemandCashObligation[] = (majorExpenses || []).map((expense) => ({
+    amount: Number(expense.amount || 0),
+    dueDate: expense.due_date,
+    id: expense.id,
+    label: expense.label,
+    type: "invoice"
+  }));
+  const cashObligations = [...containerObligations, ...invoiceObligations];
   const cashBalance = wiseSummary.balances
     .filter((balance) => balance.currency === "CAD")
     .reduce((sum, balance) => sum + balance.amount, 0);
@@ -414,6 +443,7 @@ export default async function DemandPage({
   const plan = calculateDemandPlan({
     containers: containers || [],
     cashBalance,
+    cashObligations,
     customerAcquisitionCost,
     orders: orders || [],
     plannedSales: plannedSales || [],
@@ -440,6 +470,12 @@ export default async function DemandPage({
           {plannedSalesError ? (
             <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
               Demand sale dates are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
+            </section>
+          ) : null}
+
+          {majorExpensesError ? (
+            <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+              Major invoices are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
             </section>
           ) : null}
 
