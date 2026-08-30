@@ -154,31 +154,118 @@ function calculateAverageDailyModules(orders: ShopifyOrder[]) {
   return recentModules / 30;
 }
 
+function groupSaleCampaigns(plannedSales: DemandSale[]) {
+  const sortedSales = [...plannedSales].sort((left, right) => left.sale_date.localeCompare(right.sale_date));
+  const campaigns: DemandSale[][] = [];
+
+  for (const sale of sortedSales) {
+    const currentCampaign = campaigns.at(-1);
+    const previousSale = currentCampaign?.at(-1);
+
+    if (!currentCampaign || !previousSale) {
+      campaigns.push([sale]);
+      continue;
+    }
+
+    const expectedNextDate = dateInputValue(addDays(new Date(`${previousSale.sale_date}T00:00:00`), 1));
+    if (sale.sale_date === expectedNextDate) {
+      currentCampaign.push(sale);
+    } else {
+      campaigns.push([sale]);
+    }
+  }
+
+  return campaigns;
+}
+
+function inventoryEligibleByDate({
+  containerDemand,
+  date,
+  vancouverOnHand
+}: {
+  containerDemand: ContainerDemand[];
+  date: Date;
+  vancouverOnHand: number;
+}) {
+  return vancouverOnHand + containerDemand.reduce((sum, item) => {
+    if (!item.demandOpenDate || item.demandOpenDate > date) return sum;
+    return sum + item.pieces;
+  }, 0);
+}
+
+function consumedModulesBeforeDate({
+  beforeDate,
+  containerDemand,
+  plannedSales,
+  vancouverOnHand
+}: {
+  beforeDate: Date;
+  containerDemand: ContainerDemand[];
+  plannedSales: DemandSale[];
+  vancouverOnHand: number;
+}) {
+  let consumedModules = 0;
+
+  for (const campaign of groupSaleCampaigns(plannedSales)) {
+    const campaignStart = new Date(`${campaign[0].sale_date}T00:00:00`);
+    if (campaignStart >= beforeDate) continue;
+
+    const eligibleInventory = inventoryEligibleByDate({
+      containerDemand,
+      date: campaignStart,
+      vancouverOnHand
+    });
+    const availableForCampaign = Math.max(0, eligibleInventory - consumedModules);
+    consumedModules += availableForCampaign;
+  }
+
+  return consumedModules;
+}
+
+function availableModulesForDate({
+  containerDemand,
+  date,
+  plannedSales,
+  vancouverOnHand
+}: {
+  containerDemand: ContainerDemand[];
+  date: Date;
+  plannedSales: DemandSale[];
+  vancouverOnHand: number;
+}) {
+  const eligibleInventory = inventoryEligibleByDate({ containerDemand, date, vancouverOnHand });
+  const consumedModules = consumedModulesBeforeDate({
+    beforeDate: date,
+    containerDemand,
+    plannedSales,
+    vancouverOnHand
+  });
+
+  return Math.max(0, eligibleInventory - consumedModules);
+}
+
 function buildSaleEvents({
   averageModulesPerOrder,
   containers,
   customerAcquisitionCost,
-  plannedSales,
-  vancouverOnHand
+  modules,
+  plannedSales
 }: {
   averageModulesPerOrder: number | null;
   containers: ContainerDemand[];
   customerAcquisitionCost: number | null;
+  modules: number;
   plannedSales: DemandSale[];
-  vancouverOnHand: number;
 }) {
   if (plannedSales.length === 0) return [];
 
   const saleDate = new Date(`${plannedSales[0].sale_date}T00:00:00`);
   const endDate = new Date(`${plannedSales[plannedSales.length - 1].sale_date}T00:00:00`);
-  const labels = ["Vancouver on hand"];
-  let modules = vancouverOnHand;
+  const labels = modules > 0 ? ["Carry-forward inventory"] : [];
 
   for (const item of containers) {
     if (!item.demandOpenDate || item.pieces <= 0) continue;
     if (item.demandOpenDate > saleDate) continue;
-
-    modules += item.pieces;
     labels.push(item.container.container_number);
   }
 
@@ -243,22 +330,47 @@ function calculateDemandPlan({
         item.eta >= selectedMonth.start
     )
   );
-  const selectedContainerPieces = containersEligibleThisMonth.reduce((sum, item) => sum + item.pieces, 0);
   const selectedVancouverOnHand = vancouverOnHand;
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const firstPossibleSaleDate = selectedVancouverOnHand > 0
-    ? selectedMonth.month === currentMonth
-      ? todayStart
-      : selectedMonth.start
-    : containersEligibleThisMonth[0]?.demandOpenDate || null;
-  const saleEvents = buildSaleEvents({
-    averageModulesPerOrder,
-    containers: containersEligibleThisMonth,
-    customerAcquisitionCost,
+  const consumedBeforeMonth = consumedModulesBeforeDate({
+    beforeDate: selectedMonth.start,
+    containerDemand,
     plannedSales,
     vancouverOnHand: selectedVancouverOnHand
   });
-  const targetModulesToSell = selectedVancouverOnHand + selectedContainerPieces;
+  const targetModulesToSell = Math.max(
+    0,
+    inventoryEligibleByDate({
+      containerDemand,
+      date: selectedMonth.end,
+      vancouverOnHand: selectedVancouverOnHand
+    }) - consumedBeforeMonth
+  );
+  const firstPossibleSaleDate = targetModulesToSell > 0
+    ? selectedMonth.month === currentMonth
+      ? todayStart
+      : selectedMonth.start
+    : containersEligibleThisMonth.find((item) => item.demandOpenDate && item.demandOpenDate >= selectedMonth.start)?.demandOpenDate || null;
+  const selectedMonthSales = plannedSales.filter((sale) => {
+    const saleDateValue = new Date(`${sale.sale_date}T00:00:00`);
+    return saleDateValue >= selectedMonth.start && saleDateValue <= selectedMonth.end;
+  });
+  const saleStartDate = selectedMonthSales[0]?.sale_date
+    ? new Date(`${selectedMonthSales[0].sale_date}T00:00:00`)
+    : selectedMonth.start;
+  const saleModules = availableModulesForDate({
+    containerDemand,
+    date: saleStartDate,
+    plannedSales,
+    vancouverOnHand: selectedVancouverOnHand
+  });
+  const saleEvents = buildSaleEvents({
+    averageModulesPerOrder,
+    containers: containerDemand,
+    customerAcquisitionCost,
+    modules: saleModules,
+    plannedSales: selectedMonthSales
+  });
   const targetOrdersToSell = averageModulesPerOrder
     ? Math.ceil(targetModulesToSell / averageModulesPerOrder)
     : null;
@@ -360,6 +472,7 @@ export default async function DemandPage({
   const monthOptions = getMonthOptions(resolvedSearchParams?.month);
   const selectedMonth = monthOptions.find((option) => option.isActive) || monthOptions[0];
   const saleQueryEnd = addDays(selectedMonth.end, 120);
+  const saleQueryStart = monthOptions[0].start;
   const { profile, supabase } = await requireUser();
   const [
     { data: inventoryRows, error: inventoryError },
@@ -388,7 +501,7 @@ export default async function DemandPage({
     supabase
       .from("demand_sales")
       .select("*")
-      .gte("sale_date", dateInputValue(selectedMonth.start))
+      .gte("sale_date", dateInputValue(saleQueryStart))
       .lte("sale_date", dateInputValue(saleQueryEnd))
       .order("sale_date", { ascending: true })
       .returns<DemandSale[]>(),
