@@ -41,6 +41,7 @@ export type DemandCalendarPlan = {
     openPayables: number;
     orders: number | null;
     recommendedStartDate: string | null;
+    shopifyOrderCount: number;
     totalActiveInboundModules: number;
     totalBudget: number | null;
     vancouverOnHand: number;
@@ -351,13 +352,35 @@ export function DemandSaleCalendar({
           <div>
             <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">Demand plan</p>
             <h3 className="mt-1 text-xl font-semibold text-slate-950">
-              {plan.defaultSale.orders ?? "Unavailable"} orders needed
+              {plan.defaultSale.orders ?? "Unavailable"} max orders this month
             </h3>
-            <p className="mt-1 text-sm text-slate-500">
-              {plan.defaultSale.modules} modules available to sell. Possible revenue:{" "}
-              <span className="font-semibold text-slate-900">
-                {possibleRevenue === null ? "Unavailable" : money(possibleRevenue)}
-              </span>
+            <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Sellable modules</span>
+                <span className="font-semibold text-slate-950">{plan.defaultSale.modules}</span>
+              </div>
+              <div>
+                <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Avg modules / order</span>
+                <span className="font-semibold text-slate-950">
+                  {plan.defaultSale.averageModulesPerOrder === null ? "Unavailable" : plan.defaultSale.averageModulesPerOrder.toFixed(1)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Avg order value</span>
+                <span className="font-semibold text-slate-950">
+                  {averageOrderValue === null ? "Unavailable" : money(averageOrderValue)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Max revenue</span>
+                <span className="font-semibold text-slate-950">
+                  {possibleRevenue === null ? "Unavailable" : money(possibleRevenue)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              Source: {plan.defaultSale.shopifyOrderCount} imported Shopify orders, Vancouver on-hand inventory,
+              eligible container ETAs, and prior planned sale days.
             </p>
           </div>
           <label className="w-full max-w-xs text-sm font-semibold text-slate-700">
@@ -395,7 +418,9 @@ export function DemandSaleCalendar({
               {totalAdSpend === null ? "Unavailable" : money(totalAdSpend)}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Required to sell this month&apos;s max orders.
+              {plan.defaultSale.orders === null || customerAcquisitionCost === null
+                ? "Needs Shopify orders and Meta spend."
+                : `${plan.defaultSale.orders} max orders x ${money(customerAcquisitionCost)} CAC.`}
             </p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
@@ -404,7 +429,9 @@ export function DemandSaleCalendar({
               {possibleRevenue === null ? "Unavailable" : money(possibleRevenue)}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Based on max orders and live average order value.
+              {plan.defaultSale.orders === null || averageOrderValue === null
+                ? "Needs imported Shopify order revenue."
+                : `${plan.defaultSale.orders} max orders x ${money(averageOrderValue)} avg order value.`}
             </p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">

@@ -53,6 +53,7 @@ type DemandPlan = {
   selectedMonth: MonthOption;
   recommendedSaleStart: Date | null;
   saleEvents: SaleEvent[];
+  shopifyOrderCount: number;
   targetMetaBudget: number | null;
   targetModulesToSell: number;
   targetOrdersToSell: number | null;
@@ -496,6 +497,7 @@ function calculateDemandPlan({
     recommendedSaleStart: firstPossibleSaleDate,
     selectedMonth,
     saleEvents,
+    shopifyOrderCount: orders.length,
     targetMetaBudget: targetOrdersToSell !== null && customerAcquisitionCost !== null
       ? targetOrdersToSell * customerAcquisitionCost
       : null,
@@ -544,6 +546,7 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
       openPayables: plan.openPayables,
       orders: plan.targetOrdersToSell,
       recommendedStartDate: plan.recommendedSaleStart ? dateInputValue(plan.recommendedSaleStart) : null,
+      shopifyOrderCount: plan.shopifyOrderCount,
       totalActiveInboundModules: plan.totalActiveInboundModules,
       totalBudget: plan.targetMetaBudget,
       vancouverOnHand: plan.vancouverOnHand,
