@@ -37,7 +37,9 @@ export type DemandCalendarPlan = {
     openPayables: number;
     orders: number | null;
     recommendedStartDate: string | null;
+    totalActiveInboundModules: number;
     totalBudget: number | null;
+    vancouverOnHand: number;
   };
   cashObligations: DemandCashObligation[];
   monthLabel: string;
@@ -59,14 +61,6 @@ function money(value: number) {
 
 function dayKey(month: string, day: number) {
   return `${month}-${String(day).padStart(2, "0")}`;
-}
-
-function localMoney(value: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    currency,
-    maximumFractionDigits: 0,
-    style: "currency"
-  }).format(value);
 }
 
 function getDayStatus(date: string, events: DemandCalendarEvent[]) {
@@ -124,6 +118,7 @@ export function DemandSaleCalendar({
     plan.saleEvents.map(recalculateEvent)
   );
   const [salesCashLeadDays, setSalesCashLeadDays] = useState(7);
+  const [purchaseLeadDays, setPurchaseLeadDays] = useState(90);
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -227,6 +222,17 @@ export function DemandSaleCalendar({
   const cashAfterPlan = totalAdSpend === null || projectedRevenue === null || hasUnconvertedObligations
     ? null
     : cashBeforeAds - totalAdSpend + projectedRevenue;
+  const totalInventoryPipeline = plan.defaultSale.vancouverOnHand + plan.defaultSale.totalActiveInboundModules;
+  const projectedCoverageDays = plan.defaultSale.averageDailyModules > 0
+    ? Math.floor(totalInventoryPipeline / plan.defaultSale.averageDailyModules)
+    : null;
+  const projectedSelloutDate = projectedCoverageDays === null
+    ? null
+    : addDaysToKey(new Date().toISOString().slice(0, 10), projectedCoverageDays);
+  const recommendedPurchaseDate = projectedSelloutDate === null
+    ? null
+    : addDaysToKey(projectedSelloutDate, -purchaseLeadDays);
+  const shouldBuyNow = recommendedPurchaseDate !== null && recommendedPurchaseDate <= new Date().toISOString().slice(0, 10);
 
   function obligationSpendThrough(date: string) {
     return plan.cashObligations.reduce((sum, item) => {
@@ -317,7 +323,7 @@ export function DemandSaleCalendar({
           </label>
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-2xl border border-line bg-white p-4">
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">CAC</p>
             <p className="mt-2 text-2xl font-semibold text-slate-950">
@@ -351,6 +357,34 @@ export function DemandSaleCalendar({
               Includes Wise cash, obligations, ads, and projected sales cash.
             </p>
           </div>
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">Next container</p>
+            <p className="mt-2 text-xl font-semibold text-slate-950">
+              {recommendedPurchaseDate === null ? "Unavailable" : shouldBuyNow ? "Buy now" : recommendedPurchaseDate}
+            </p>
+            <label className="mt-2 block text-xs font-semibold text-slate-600">
+              Supplier lead time
+              <div className="mt-1 flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-2 py-1">
+                <input
+                  className="w-14 bg-transparent font-semibold text-slate-950 outline-none"
+                  max={365}
+                  min={1}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    setPurchaseLeadDays(Number.isFinite(value) ? Math.max(1, Math.min(365, value)) : 90);
+                  }}
+                  type="number"
+                  value={purchaseLeadDays}
+                />
+                <span className="text-slate-500">days</span>
+              </div>
+            </label>
+            <p className="mt-2 text-xs text-slate-500">
+              {projectedSelloutDate === null
+                ? "Needs Shopify sales velocity."
+                : `Projected inventory runs out ${projectedSelloutDate}.`}
+            </p>
+          </div>
         </div>
 
         <div className="mt-4 grid gap-2 text-sm text-slate-600 lg:grid-cols-4">
@@ -375,16 +409,16 @@ export function DemandSaleCalendar({
           const dueObligations = cell.day ? obligationsDueOn(cell.key) : [];
           const dueRevenue = cell.day ? revenueDueOn(cell.key) : [];
           const revenueDue = dueRevenue.reduce((sum, item) => sum + (item.amount || 0), 0);
-          const ordersDue = dueRevenue.reduce((sum, item) => sum + (item.orders || 0), 0);
           const hasCashActivity = Boolean(event || dueObligations.length > 0 || dueRevenue.length > 0);
-          const cashAfterThisDay = cell.day && hasCashActivity ? cashAfterDate(cell.key) : null;
+          const cashAfterThisDay = cell.day ? cashAfterDate(cell.key) : null;
+          const obligationDue = dueObligations.reduce((sum, item) => sum + (item.amountCad || 0), 0);
 
           return (
             <div
               className={[
                 "min-h-28 rounded-xl border p-2 text-left text-sm transition",
                 cell.day ? "border-line bg-slate-50 hover:border-blue-200 hover:bg-blue-50" : "border-transparent",
-                event ? "border-blue-200 bg-blue-50 shadow-sm" : "",
+                hasCashActivity ? "border-blue-200 bg-blue-50 shadow-sm" : "",
                 !canEdit || !cell.day || event ? "cursor-default" : ""
               ].join(" ")}
               key={cell.key}
@@ -392,20 +426,21 @@ export function DemandSaleCalendar({
               {cell.day ? (
                 <>
                   <div className="font-semibold text-slate-700">{cell.day}</div>
-                  {event ? (
+                  {cashAfterThisDay !== null ? (
                     <div className="mt-2 rounded-lg bg-white p-2 text-xs leading-5">
-                      <div className="font-semibold text-blue-700">{isStart ? "Sale starts" : "Sale"}</div>
-                      <div className="font-medium text-slate-950">{event.modules} modules</div>
-                      <div className="text-slate-500">{plan.defaultSale.orders ?? "Unavailable"} orders</div>
-                      <div className="font-semibold text-slate-950">
-                        {dailyBudget === null ? "Budget unavailable" : `${money(dailyBudget)} / day`}
-                      </div>
-                      {projectedOrdersPerSaleDay !== null ? (
-                        <div className="text-slate-500">{projectedOrdersPerSaleDay.toFixed(1)} projected orders</div>
+                      <div className="text-slate-500">Cash after</div>
+                      <div className="text-base font-semibold text-slate-950">{money(cashAfterThisDay)}</div>
+                      {event ? (
+                        <div className="mt-1 font-semibold text-blue-700">
+                          {isStart ? "Sale starts" : "Sale"}: {dailyBudget === null ? "budget unavailable" : money(dailyBudget)}
+                        </div>
                       ) : null}
-                      <div className="text-slate-500">
-                        Cash after: {cashAfterThisDay === null ? "Unavailable" : money(cashAfterThisDay)}
-                      </div>
+                      {revenueDue > 0 ? (
+                        <div className="mt-1 font-semibold text-emerald-700">Sales cash: +{money(revenueDue)}</div>
+                      ) : null}
+                      {dueObligations.length > 0 ? (
+                        <div className="mt-1 font-semibold text-amber-700">Bills due: -{money(obligationDue)}</div>
+                      ) : null}
                       {saleDay && canEdit ? (
                         <button
                           className="mt-2 inline-flex rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-700"
@@ -418,40 +453,6 @@ export function DemandSaleCalendar({
                           Remove day
                         </button>
                       ) : null}
-                    </div>
-                  ) : null}
-                  {dueRevenue.length > 0 ? (
-                    <div className="mt-2 rounded-lg bg-emerald-50 p-2 text-xs leading-5 text-emerald-950">
-                      <div className="font-semibold">Projected sales cash</div>
-                      <div>{money(revenueDue)}</div>
-                      <div>{ordersDue.toFixed(1)} orders from ads {salesCashLeadDays} days earlier</div>
-                      <div className="border-t border-emerald-200 pt-1 font-semibold">
-                        Cash after: {cashAfterThisDay === null ? "Unavailable" : money(cashAfterThisDay)}
-                      </div>
-                    </div>
-                  ) : null}
-                  {dueObligations.length > 0 ? (
-                    <div className="mt-2 space-y-1 rounded-lg bg-amber-50 p-2 text-xs leading-5 text-amber-950">
-                      {dueObligations.map((obligation) => (
-                        <div key={`${obligation.type}-${obligation.id}`}>
-                          <div className="font-semibold">
-                            {obligation.type === "wayflyer"
-                              ? "Wayflyer"
-                              : obligation.type === "container"
-                                ? "Container"
-                                : "Invoice"}
-                          </div>
-                          <div>
-                            {localMoney(obligation.amount, obligation.currency)}
-                            {obligation.amountCad !== null && obligation.currency !== "CAD"
-                              ? ` / ${money(obligation.amountCad)}`
-                              : ""}
-                          </div>
-                        </div>
-                      ))}
-                      <div className="border-t border-amber-200 pt-1 font-semibold">
-                        Cash after: {cashAfterThisDay === null ? "Unavailable" : money(cashAfterThisDay)}
-                      </div>
                     </div>
                   ) : null}
                   {!event && canEdit ? (

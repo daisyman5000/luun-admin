@@ -50,6 +50,7 @@ type DemandPlan = {
   targetMetaBudget: number | null;
   targetModulesToSell: number;
   targetOrdersToSell: number | null;
+  totalActiveInboundModules: number;
   vancouverOnHand: number;
 };
 
@@ -75,11 +76,14 @@ function monthBounds(month: string) {
 function getMonthOptions(selectedMonthValue?: string | string[]) {
   const rawMonth = Array.isArray(selectedMonthValue) ? selectedMonthValue[0] : selectedMonthValue;
   const today = new Date();
-  const currentMonth = dateKey(today);
-  const selectedMonth = rawMonth && /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : currentMonth;
+  const firstPlanningDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const firstPlanningMonth = dateKey(firstPlanningDate);
+  const requestedMonth = rawMonth && /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : firstPlanningMonth;
+  const selectedMonth = requestedMonth < firstPlanningMonth ? firstPlanningMonth : requestedMonth;
+  const { start: selectedStart } = monthBounds(selectedMonth);
 
   return Array.from({ length: 2 }, (_, index) => {
-    const date = new Date(today.getFullYear(), today.getMonth() + index, 1);
+    const date = new Date(selectedStart.getFullYear(), selectedStart.getMonth() + index, 1);
     const month = dateKey(date);
     const { end, start } = monthBounds(month);
 
@@ -219,6 +223,7 @@ function calculateDemandPlan({
   const averageDailyModules = calculateAverageDailyModules(orders);
   const activeContainers = containers.filter((container) => container.status !== "closed");
   const openPayables = activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0);
+  const totalActiveInboundModules = activeContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
   const containerDemand = activeContainers
     .map((container) => {
       const eta = getContainerEta(container);
@@ -279,6 +284,7 @@ function calculateDemandPlan({
       : null,
     targetModulesToSell,
     targetOrdersToSell,
+    totalActiveInboundModules,
     vancouverOnHand
   };
 }
@@ -317,7 +323,9 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
       openPayables: plan.openPayables,
       orders: plan.targetOrdersToSell,
       recommendedStartDate: plan.recommendedSaleStart ? dateInputValue(plan.recommendedSaleStart) : null,
-      totalBudget: plan.targetMetaBudget
+      totalActiveInboundModules: plan.totalActiveInboundModules,
+      totalBudget: plan.targetMetaBudget,
+      vancouverOnHand: plan.vancouverOnHand
     },
     monthLabel: plan.selectedMonth.label,
     saleEvents: plan.saleEvents.map((event) => ({
