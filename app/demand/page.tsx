@@ -6,6 +6,9 @@ import { convertToCad, getCadRates } from "@/lib/currency";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, DemandSale, InventoryRow, MajorExpense, ShopifyOrder, WayflyerPayment } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type MonthOption = {
   end: Date;
   href: string;
@@ -38,6 +41,8 @@ type DemandPlan = {
   averageDailyModules: number;
   averageModulesPerOrder: number | null;
   averageOrderValue: number | null;
+  cacMetaSpend: number;
+  cacOrderCount: number;
   cashBalance: number;
   cashObligations: DemandCashObligation[];
   containersEligibleThisMonth: ContainerDemand[];
@@ -53,9 +58,11 @@ type DemandPlan = {
   targetOrdersToSell: number | null;
   totalActiveInboundModules: number;
   vancouverOnHand: number;
+  wiseCashBalance: number;
 };
 
 const saleLeadDays = 20;
+const salesCashLeadDays = 7;
 const getCachedWiseSummary = unstable_cache(getWiseSummary, ["wise-summary-demand"], { revalidate: 300 });
 
 function dateKey(date: Date) {
@@ -121,15 +128,20 @@ function calculateCustomerAcquisitionCost({
   metaExpenses: { amount: number; currency: string; date: string }[];
   orders: ShopifyOrder[];
 }) {
-  const cadMetaExpenses = metaExpenses.filter((expense) => expense.currency === "CAD");
+  const cadMetaExpenses = metaExpenses
+    .filter((expense) => expense.currency === "CAD")
+    .sort((left, right) => Date.parse(left.date) - Date.parse(right.date));
   const firstMetaDate = cadMetaExpenses[0]?.date ? new Date(cadMetaExpenses[0].date) : null;
   const ordersInWindow = firstMetaDate
     ? orders.filter((order) => new Date(order.created_at) >= firstMetaDate)
     : orders;
   const totalMetaSpend = cadMetaExpenses.reduce((sum, expense) => sum + expense.amount, 0);
 
-  if (ordersInWindow.length === 0 || totalMetaSpend <= 0) return null;
-  return totalMetaSpend / ordersInWindow.length;
+  return {
+    metaSpend: totalMetaSpend,
+    orderCount: ordersInWindow.length,
+    value: ordersInWindow.length === 0 || totalMetaSpend <= 0 ? null : totalMetaSpend / ordersInWindow.length
+  };
 }
 
 function calculateAverageModulesPerOrder(orders: ShopifyOrder[]) {
@@ -224,6 +236,71 @@ function consumedModulesBeforeDate({
   return Math.ceil(consumedModules);
 }
 
+function projectedCashBeforeDate({
+  averageModulesPerOrder,
+  averageOrderValue,
+  beforeDate,
+  cashBalance,
+  cashObligations,
+  containerDemand,
+  customerAcquisitionCost,
+  plannedSales,
+  vancouverOnHand
+}: {
+  averageModulesPerOrder: number | null;
+  averageOrderValue: number | null;
+  beforeDate: Date;
+  cashBalance: number;
+  cashObligations: DemandCashObligation[];
+  containerDemand: ContainerDemand[];
+  customerAcquisitionCost: number | null;
+  plannedSales: DemandSale[];
+  vancouverOnHand: number;
+}) {
+  const beforeDateKey = dateInputValue(beforeDate);
+  let projectedCash = cashBalance;
+  let consumedModules = 0;
+
+  for (const obligation of cashObligations) {
+    if (!obligation.dueDate || obligation.dueDate >= beforeDateKey) continue;
+    projectedCash -= obligation.amountCad || 0;
+  }
+
+  if (!averageModulesPerOrder || !averageOrderValue || !customerAcquisitionCost) {
+    return projectedCash;
+  }
+
+  for (const campaign of groupSaleCampaigns(plannedSales)) {
+    const campaignStart = new Date(`${campaign[0].sale_date}T00:00:00`);
+    const eligibleInventory = inventoryEligibleByDate({
+      containerDemand,
+      date: campaignStart,
+      vancouverOnHand
+    });
+    const availableForCampaign = Math.max(0, eligibleInventory - consumedModules);
+    const campaignOrders = availableForCampaign > 0 ? Math.ceil(availableForCampaign / averageModulesPerOrder) : 0;
+    const dailyAdSpend = campaign.length > 0 ? (campaignOrders * customerAcquisitionCost) / campaign.length : 0;
+    const dailyRevenue = campaign.length > 0 ? (campaignOrders * averageOrderValue) / campaign.length : 0;
+
+    for (const sale of campaign) {
+      if (sale.sale_date < beforeDateKey) {
+        projectedCash -= dailyAdSpend;
+      }
+
+      const revenueDate = dateInputValue(addDays(new Date(`${sale.sale_date}T00:00:00`), salesCashLeadDays));
+      if (revenueDate < beforeDateKey) {
+        projectedCash += dailyRevenue;
+      }
+    }
+
+    const soldDaysBeforeDate = campaign.filter((sale) => new Date(`${sale.sale_date}T00:00:00`) < beforeDate).length;
+    const dailyModules = campaign.length > 0 ? availableForCampaign / campaign.length : 0;
+    consumedModules += Math.min(availableForCampaign, dailyModules * soldDaysBeforeDate);
+  }
+
+  return projectedCash;
+}
+
 function availableModulesForDate({
   containerDemand,
   date,
@@ -291,6 +368,8 @@ function calculateDemandPlan({
   customerAcquisitionCost,
   cashBalance,
   cashObligations,
+  cacMetaSpend,
+  cacOrderCount,
   orders,
   plannedSales,
   selectedMonth,
@@ -300,6 +379,8 @@ function calculateDemandPlan({
   customerAcquisitionCost: number | null;
   cashBalance: number;
   cashObligations: DemandCashObligation[];
+  cacMetaSpend: number;
+  cacOrderCount: number;
   orders: ShopifyOrder[];
   plannedSales: DemandSale[];
   selectedMonth: MonthOption;
@@ -324,6 +405,17 @@ function calculateDemandPlan({
       };
     })
     .sort((left, right) => (left.demandOpenDate?.getTime() || Number.MAX_SAFE_INTEGER) - (right.demandOpenDate?.getTime() || Number.MAX_SAFE_INTEGER));
+  const projectedStartingCash = projectedCashBeforeDate({
+    averageModulesPerOrder,
+    averageOrderValue,
+    beforeDate: selectedMonth.start,
+    cashBalance,
+    cashObligations,
+    containerDemand,
+    customerAcquisitionCost,
+    plannedSales,
+    vancouverOnHand
+  });
   const containersEligibleThisMonth = containerDemand.filter((item) =>
     Boolean(
       item.demandOpenDate &&
@@ -382,7 +474,9 @@ function calculateDemandPlan({
     averageDailyModules,
     averageModulesPerOrder,
     averageOrderValue,
-    cashBalance,
+    cacMetaSpend,
+    cacOrderCount,
+    cashBalance: projectedStartingCash,
     cashObligations,
     containersEligibleThisMonth,
     currentMonth,
@@ -400,7 +494,8 @@ function calculateDemandPlan({
     targetModulesToSell,
     targetOrdersToSell,
     totalActiveInboundModules,
-    vancouverOnHand
+    vancouverOnHand,
+    wiseCashBalance: cashBalance
   };
 }
 
@@ -427,12 +522,14 @@ function MonthSelector({ options }: { options: MonthOption[] }) {
 
 function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   return {
-    cashObligations: plan.cashObligations,
+    cashObligations: plan.cashObligations.filter((obligation) => !obligation.dueDate || obligation.dueDate >= dateInputValue(plan.selectedMonth.start)),
     defaultSale: {
       averageDailyModules: plan.averageDailyModules,
       averageModulesPerOrder: plan.averageModulesPerOrder,
       activeContainerCount: plan.activeContainerCount,
       averageOrderValue: plan.averageOrderValue,
+      cacMetaSpend: plan.cacMetaSpend,
+      cacOrderCount: plan.cacOrderCount,
       cashBalance: plan.cashBalance,
       customerAcquisitionCost: plan.customerAcquisitionCost,
       modules: plan.targetModulesToSell,
@@ -441,7 +538,8 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
       recommendedStartDate: plan.recommendedSaleStart ? dateInputValue(plan.recommendedSaleStart) : null,
       totalActiveInboundModules: plan.totalActiveInboundModules,
       totalBudget: plan.targetMetaBudget,
-      vancouverOnHand: plan.vancouverOnHand
+      vancouverOnHand: plan.vancouverOnHand,
+      wiseCashBalance: plan.wiseCashBalance
     },
     monthLabel: plan.selectedMonth.label,
     saleEvents: plan.saleEvents.map((event) => ({
@@ -574,7 +672,9 @@ export default async function DemandPage({
     containers: containers || [],
     cashBalance,
     cashObligations,
-    customerAcquisitionCost,
+    cacMetaSpend: customerAcquisitionCost.metaSpend,
+    cacOrderCount: customerAcquisitionCost.orderCount,
+    customerAcquisitionCost: customerAcquisitionCost.value,
     orders: orders || [],
     plannedSales: plannedSales || [],
     selectedMonth,

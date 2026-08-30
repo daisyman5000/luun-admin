@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export type DemandCalendarEvent = {
   dailyBudget: number | null;
@@ -32,6 +33,8 @@ export type DemandCalendarPlan = {
     averageDailyModules: number;
     averageModulesPerOrder: number | null;
     averageOrderValue: number | null;
+    cacMetaSpend: number;
+    cacOrderCount: number;
     cashBalance: number;
     customerAcquisitionCost: number | null;
     modules: number;
@@ -41,6 +44,7 @@ export type DemandCalendarPlan = {
     totalActiveInboundModules: number;
     totalBudget: number | null;
     vancouverOnHand: number;
+    wiseCashBalance: number;
   };
   cashObligations: DemandCashObligation[];
   monthLabel: string;
@@ -122,12 +126,17 @@ export function DemandSaleCalendar({
   canEdit: boolean;
   plan: DemandCalendarPlan;
 }) {
+  const router = useRouter();
   const [saleEvents, setSaleEvents] = useState<DemandCalendarEvent[]>(() =>
     plan.saleEvents.map(recalculateEvent)
   );
   const [salesCashLeadDays, setSalesCashLeadDays] = useState(7);
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSaleEvents(plan.saleEvents.map(recalculateEvent));
+  }, [plan]);
 
   async function addSale(date: string, durationDays: number) {
     if (!canEdit || pendingDate) return;
@@ -158,6 +167,7 @@ export function DemandSaleCalendar({
 
       return mergedDays.length > 0 ? [buildLocalEvent(mergedDays, plan)] : [];
     });
+    router.refresh();
     setPendingDate(null);
   }
 
@@ -179,6 +189,7 @@ export function DemandSaleCalendar({
       const remainingDays = events.flatMap((event) => event.days).filter((item) => item.id !== day.id);
       return remainingDays.length > 0 ? [buildLocalEvent(remainingDays, plan)] : [];
     });
+    router.refresh();
     setPendingDate(null);
   }
 
@@ -366,6 +377,9 @@ export function DemandSaleCalendar({
             <p className="mt-2 text-2xl font-semibold text-slate-950">
               {customerAcquisitionCost === null ? "Unavailable" : money(customerAcquisitionCost)}
             </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {money(plan.defaultSale.cacMetaSpend)} Meta spend / {plan.defaultSale.cacOrderCount} Shopify orders.
+            </p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Ad budget</p>
@@ -411,10 +425,13 @@ export function DemandSaleCalendar({
         </div>
 
         <div className="mt-4 grid gap-2 text-sm text-slate-600 lg:grid-cols-4">
-          <div>Wise cash: <span className="font-semibold text-slate-950">{money(plan.defaultSale.cashBalance)}</span></div>
+          <div>Starting cash: <span className="font-semibold text-slate-950">{money(plan.defaultSale.cashBalance)}</span></div>
+          <div>Wise cash today: <span className="font-semibold text-slate-950">{money(plan.defaultSale.wiseCashBalance)}</span></div>
           <div>Container payables: <span className="font-semibold text-slate-950">{containerPayablesUnavailable ? "FX unavailable" : money(containerPayables)}</span></div>
           <div>Invoices: <span className="font-semibold text-slate-950">{otherMajorInvoicesUnavailable ? "FX unavailable" : money(otherMajorInvoices)}</span></div>
-          <div>Wayflyer: <span className="font-semibold text-slate-950">{wayflyerPaybacksUnavailable ? "FX unavailable" : money(wayflyerPaybacks)}</span></div>
+        </div>
+        <div className="mt-2 text-sm text-slate-600">
+          Wayflyer: <span className="font-semibold text-slate-950">{wayflyerPaybacksUnavailable ? "FX unavailable" : money(wayflyerPaybacks)}</span>
         </div>
       </div>
 
