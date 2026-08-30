@@ -214,6 +214,20 @@ function inventoryEligibleByDate({
   }, 0);
 }
 
+function saleDateValue(sale: DemandSale) {
+  return new Date(`${sale.sale_date}T00:00:00`);
+}
+
+function campaignEligibilityDate(campaign: DemandSale[], beforeDate?: Date) {
+  const soldSales = beforeDate
+    ? campaign.filter((sale) => saleDateValue(sale) < beforeDate)
+    : campaign;
+  const relevantSales = soldSales.length > 0 ? soldSales : campaign;
+  const lastSale = relevantSales.at(-1);
+
+  return lastSale ? saleDateValue(lastSale) : new Date();
+}
+
 function consumedModulesBeforeDate({
   beforeDate,
   containerDemand,
@@ -228,13 +242,12 @@ function consumedModulesBeforeDate({
   let consumedModules = 0;
 
   for (const campaign of groupSaleCampaigns(plannedSales)) {
-    const campaignStart = new Date(`${campaign[0].sale_date}T00:00:00`);
-    const soldDaysBeforeDate = campaign.filter((sale) => new Date(`${sale.sale_date}T00:00:00`) < beforeDate).length;
+    const soldDaysBeforeDate = campaign.filter((sale) => saleDateValue(sale) < beforeDate).length;
     if (soldDaysBeforeDate === 0) continue;
 
     const eligibleInventory = inventoryEligibleByDate({
       containerDemand,
-      date: campaignStart,
+      date: campaignEligibilityDate(campaign, beforeDate),
       vancouverOnHand
     });
     const availableForCampaign = Math.max(0, eligibleInventory - consumedModules);
@@ -280,10 +293,9 @@ function projectedCashBeforeDate({
   }
 
   for (const campaign of groupSaleCampaigns(plannedSales)) {
-    const campaignStart = new Date(`${campaign[0].sale_date}T00:00:00`);
     const eligibleInventory = inventoryEligibleByDate({
       containerDemand,
-      date: campaignStart,
+      date: campaignEligibilityDate(campaign),
       vancouverOnHand
     });
     const availableForCampaign = Math.max(0, eligibleInventory - consumedModules);
@@ -302,7 +314,7 @@ function projectedCashBeforeDate({
       }
     }
 
-    const soldDaysBeforeDate = campaign.filter((sale) => new Date(`${sale.sale_date}T00:00:00`) < beforeDate).length;
+    const soldDaysBeforeDate = campaign.filter((sale) => saleDateValue(sale) < beforeDate).length;
     const dailyModules = campaign.length > 0 ? availableForCampaign / campaign.length : 0;
     consumedModules += Math.min(availableForCampaign, dailyModules * soldDaysBeforeDate);
   }
@@ -461,10 +473,14 @@ function calculateDemandPlan({
   const saleStartDate = selectedMonthSales[0]?.sale_date
     ? new Date(`${selectedMonthSales[0].sale_date}T00:00:00`)
     : selectedMonth.start;
+  const saleEndDate = selectedMonthSales.at(-1)?.sale_date
+    ? new Date(`${selectedMonthSales.at(-1)?.sale_date}T00:00:00`)
+    : saleStartDate;
+  const salesBeforeSelectedCampaign = plannedSales.filter((sale) => saleDateValue(sale) < saleStartDate);
   const saleModules = availableModulesForDate({
     containerDemand,
-    date: saleStartDate,
-    plannedSales,
+    date: saleEndDate,
+    plannedSales: salesBeforeSelectedCampaign,
     vancouverOnHand: selectedVancouverOnHand
   });
   const saleEvents = buildSaleEvents({
