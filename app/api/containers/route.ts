@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
     .insert({
       amount_paid: amountPaid,
       amount_to_be_paid: amountToBePaid,
+      amount_currency: "USD",
       container_number: containerNumber,
       created_by: user.id,
       eta,

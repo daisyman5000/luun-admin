@@ -2,6 +2,7 @@ create table if not exists public.major_expenses (
   id uuid primary key default gen_random_uuid(),
   label text not null,
   amount numeric default 0,
+  currency text default 'CAD',
   due_date date,
   status text default 'open' check (status in ('open', 'paid', 'cancelled')),
   notes text,

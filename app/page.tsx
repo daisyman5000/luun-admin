@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
+import { convertToCad, getCadRates } from "@/lib/currency";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
 
@@ -10,7 +11,7 @@ type DashboardMetrics = {
   cashBalance: number;
   cashConversionCycleDays: number | null;
   customerAcquisitionCost: number | null;
-  deployableCash: number;
+  deployableCash: number | null;
   historicalDays: number;
   inboundPieces: number;
   inventoryValue: number;
@@ -44,6 +45,10 @@ function money(value: number) {
   }).format(value);
 }
 
+function nullableMoney(value: number | null) {
+  return value === null ? "Unavailable" : money(value);
+}
+
 function getRecentOrders(orders: ShopifyOrder[], days: number) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
@@ -70,6 +75,7 @@ function calculateDashboardMetrics({
   containers,
   historicalDays,
   metaExpenses,
+  openContainerPayablesCad,
   orders,
   vancouverOnHand,
   wiseCash
@@ -77,6 +83,7 @@ function calculateDashboardMetrics({
   containers: ContainerEntry[];
   historicalDays: number;
   metaExpenses: { amount: number; currency: string; date: string }[];
+  openContainerPayablesCad: number | null;
   orders: ShopifyOrder[];
   vancouverOnHand: number;
   wiseCash: number;
@@ -91,7 +98,7 @@ function calculateDashboardMetrics({
   const averageDailyModules = soldModules / historicalDays;
   const averageModuleValue = soldModules > 0 ? revenue / soldModules : allModules > 0 ? allRevenue / allModules : 0;
   const totalPiecesToConvert = vancouverOnHand + inboundPieces;
-  const openContainerPayables = activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0);
+  const openContainerPayables = openContainerPayablesCad || 0;
   const selectedMetaSpend = metaExpenses
     .filter((expense) => expense.currency === "CAD" && isInHistoryWindow(expense.date, historicalDays))
     .reduce((sum, expense) => sum + expense.amount, 0);
@@ -109,7 +116,7 @@ function calculateDashboardMetrics({
     cashBalance: wiseCash,
     cashConversionCycleDays,
     customerAcquisitionCost: recentOrders.length > 0 && selectedMetaSpend > 0 ? selectedMetaSpend / recentOrders.length : null,
-    deployableCash: wiseCash - openContainerPayables,
+    deployableCash: openContainerPayablesCad === null ? null : wiseCash - openContainerPayables,
     historicalDays,
     inboundPieces,
     inventoryValue: totalPiecesToConvert * averageModuleValue,
@@ -186,8 +193,8 @@ function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
         <StatCard label="Sales velocity" note="Modules per day" value={metrics.averageDailyModules.toFixed(1)} />
         <StatCard
           label="Deployable cash"
-          note="Wise CAD cash minus open container payables"
-          value={money(metrics.deployableCash)}
+          note="Wise CAD cash minus container payables converted to CAD"
+          value={nullableMoney(metrics.deployableCash)}
         />
         <StatCard
           label="Capital Velocity"
@@ -225,9 +232,16 @@ export default async function HomePage({
     .returns<ShopifyOrder[]>();
   const { data: containers } = await supabase
     .from("container_entries")
-    .select("amount_to_be_paid,manifest_json,status")
+    .select("amount_to_be_paid,amount_currency,manifest_json,status")
     .returns<ContainerEntry[]>();
   const wiseSummary = await getWiseSummary();
+  const cadRates = await getCadRates((containers || []).map((container) => container.amount_currency || "USD"));
+  const convertedPayables = (containers || [])
+    .filter((container) => container.status !== "closed")
+    .map((container) => convertToCad(Number(container.amount_to_be_paid || 0), container.amount_currency || "USD", cadRates));
+  const openContainerPayablesCad = convertedPayables.some((amount) => amount === null)
+    ? null
+    : convertedPayables.reduce<number>((sum, amount) => sum + (amount || 0), 0);
 
   const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
   const cadCash = wiseSummary.balances
@@ -237,6 +251,7 @@ export default async function HomePage({
     containers: containers || [],
     historicalDays,
     metaExpenses: wiseSummary.metaSpend.expenses,
+    openContainerPayablesCad,
     orders: orders || [],
     vancouverOnHand,
     wiseCash: cadCash

@@ -68,6 +68,7 @@ export type ContainerEntry = {
   manifest_json: ContainerManifestItem[] | null;
   amount_paid: number | null;
   amount_to_be_paid: number | null;
+  amount_currency: string | null;
   payment_due_at: string | null;
   eta: string | null;
   status: ContainerEntryStatus | null;
@@ -120,6 +121,7 @@ export type MajorExpense = {
   id: string;
   label: string;
   amount: number | null;
+  currency: string | null;
   due_date: string | null;
   status: MajorExpenseStatus | null;
   notes: string | null;
@@ -135,6 +137,7 @@ export type WayflyerPayment = {
   id: string;
   label: string;
   amount: number | null;
+  currency: string | null;
   due_date: string | null;
   status: WayflyerPaymentStatus | null;
   notes: string | null;

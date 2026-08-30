@@ -2,6 +2,7 @@ create table if not exists public.wayflyer_payments (
   id uuid primary key default gen_random_uuid(),
   label text not null,
   amount numeric default 0,
+  currency text default 'CAD',
   due_date date,
   status text default 'scheduled' check (status in ('scheduled', 'paid', 'cancelled')),
   notes text,

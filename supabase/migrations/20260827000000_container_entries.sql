@@ -6,6 +6,7 @@ create table if not exists public.container_entries (
   manifest_json jsonb default '[]'::jsonb,
   amount_paid numeric default 0,
   amount_to_be_paid numeric default 0,
+  amount_currency text default 'USD',
   payment_due_at date,
   eta date,
   status text default 'planning' check (status in ('planning', 'production', 'in_transit', 'arrived', 'closed')),

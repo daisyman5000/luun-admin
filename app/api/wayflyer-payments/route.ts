@@ -23,6 +23,12 @@ function cleanDate(value: unknown) {
   return value;
 }
 
+function cleanCurrency(value: unknown) {
+  if (typeof value !== "string") return "CAD";
+  const currency = value.trim().toUpperCase();
+  return currency === "USD" || currency === "CAD" ? currency : undefined;
+}
+
 export async function POST(request: NextRequest) {
   const { profile, supabase, user } = await getUserContext();
 
@@ -37,6 +43,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json()) as Partial<WayflyerPayment>;
   const label = cleanText(body.label, true);
   const amount = cleanMoney(body.amount);
+  const currency = cleanCurrency(body.currency);
   const dueDate = cleanDate(body.due_date);
 
   if (!label) {
@@ -45,6 +52,10 @@ export async function POST(request: NextRequest) {
 
   if (amount === undefined) {
     return NextResponse.json({ error: "Payment amount is invalid" }, { status: 400 });
+  }
+
+  if (!currency) {
+    return NextResponse.json({ error: "Payment currency is invalid" }, { status: 400 });
   }
 
   if (dueDate === undefined) {
@@ -56,6 +67,7 @@ export async function POST(request: NextRequest) {
     .insert({
       amount,
       created_by: user.id,
+      currency,
       due_date: dueDate,
       label,
       notes: cleanText(body.notes),

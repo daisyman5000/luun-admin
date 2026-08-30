@@ -132,6 +132,7 @@ function payloadFromDraft(draft: DraftContainer) {
   return {
     amount_paid: Number(draft.amount_paid || 0),
     amount_to_be_paid: Number(draft.amount_to_be_paid || 0),
+    amount_currency: "USD",
     container_number: draft.container_number,
     eta: draft.eta || null,
     manifest_json: manifest,
@@ -350,7 +351,7 @@ export function ContainerEntryTable({
                 value={createDraft.eta}
               />
             </Field>
-            <Field label="Amount paid">
+            <Field label="Amount paid (USD)">
               <input
                 className={inputClass}
                 min={0}
@@ -361,7 +362,7 @@ export function ContainerEntryTable({
                 value={createDraft.amount_paid}
               />
             </Field>
-            <Field label="Amount to be paid">
+            <Field label="Amount to be paid (USD)">
               <input
                 className={inputClass}
                 min={0}
@@ -424,8 +425,8 @@ export function ContainerEntryTable({
                 <tr>
                   <th className="px-4 py-3 text-left">Container</th>
                   <th className="px-4 py-3 text-left">Manifest</th>
-                  <th className="px-4 py-3 text-right">Paid</th>
-                  <th className="px-4 py-3 text-right">To be paid</th>
+                  <th className="px-4 py-3 text-right">Paid USD</th>
+                  <th className="px-4 py-3 text-right">To be paid USD</th>
                   <th className="px-4 py-3 text-left">Payment due</th>
                   <th className="px-4 py-3 text-left">ETA</th>
                   {canEdit ? <th className="px-4 py-3 text-right">Action</th> : null}
@@ -469,7 +470,7 @@ export function ContainerEntryTable({
                             value={draft.amount_paid}
                           />
                         ) : (
-                          formatMoney(container.amount_paid, "CAD")
+                          formatMoney(container.amount_paid, container.amount_currency || "USD")
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -483,7 +484,7 @@ export function ContainerEntryTable({
                             value={draft.amount_to_be_paid}
                           />
                         ) : (
-                          formatMoney(container.amount_to_be_paid, "CAD")
+                          formatMoney(container.amount_to_be_paid, container.amount_currency || "USD")
                         )}
                       </td>
                       <td className="px-4 py-3">

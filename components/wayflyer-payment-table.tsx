@@ -18,6 +18,7 @@ export function WayflyerPaymentTable({
   const router = useRouter();
   const [label, setLabel] = useState("Weekly Wayflyer payback");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState("CAD");
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -31,6 +32,7 @@ export function WayflyerPaymentTable({
     const response = await fetch("/api/wayflyer-payments", {
       body: JSON.stringify({
         amount,
+        currency,
         due_date: dueDate || null,
         label,
         notes
@@ -48,6 +50,7 @@ export function WayflyerPaymentTable({
 
     setLabel("Weekly Wayflyer payback");
     setAmount("");
+    setCurrency("CAD");
     setDueDate("");
     setNotes("");
     setSavingId(null);
@@ -95,9 +98,13 @@ export function WayflyerPaymentTable({
     router.refresh();
   }
 
-  const scheduledTotal = payments
+  const scheduledTotals = payments
     .filter((payment) => payment.status === "scheduled")
-    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    .reduce<Record<string, number>>((totals, payment) => {
+      const paymentCurrency = (payment.currency || "CAD").toUpperCase();
+      totals[paymentCurrency] = (totals[paymentCurrency] || 0) + Number(payment.amount || 0);
+      return totals;
+    }, {});
   const nextPayment = payments.find((payment) => payment.status === "scheduled");
 
   return (
@@ -112,7 +119,11 @@ export function WayflyerPaymentTable({
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Scheduled total</p>
-            <p className="mt-1 text-2xl font-semibold text-slate-950">{formatMoney(scheduledTotal, "CAD")}</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-950">
+              {Object.keys(scheduledTotals).length === 0
+                ? formatMoney(0, "CAD")
+                : Object.entries(scheduledTotals).map(([totalCurrency, total]) => formatMoney(total, totalCurrency)).join(" / ")}
+            </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Next payback</p>
@@ -130,7 +141,7 @@ export function WayflyerPaymentTable({
       ) : null}
 
       {canEdit ? (
-        <form className="mb-5 grid gap-3 lg:grid-cols-[1.2fr_0.8fr_0.8fr_1.2fr_auto]" onSubmit={createPayment}>
+        <form className="mb-5 grid gap-3 lg:grid-cols-[1.2fr_0.7fr_0.55fr_0.8fr_1.2fr_auto]" onSubmit={createPayment}>
           <input
             className={inputClass}
             onChange={(event) => setLabel(event.target.value)}
@@ -148,6 +159,14 @@ export function WayflyerPaymentTable({
             type="number"
             value={amount}
           />
+          <select
+            className={inputClass}
+            onChange={(event) => setCurrency(event.target.value)}
+            value={currency}
+          >
+            <option value="CAD">CAD</option>
+            <option value="USD">USD</option>
+          </select>
           <input
             className={inputClass}
             onChange={(event) => setDueDate(event.target.value)}
@@ -181,6 +200,7 @@ export function WayflyerPaymentTable({
                 <tr>
                   <th className="px-4 py-3 text-left">Week</th>
                   <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3 text-left">Currency</th>
                   <th className="px-4 py-3 text-left">Due</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-left">Notes</th>
@@ -192,8 +212,9 @@ export function WayflyerPaymentTable({
                   <tr className="border-t border-slate-100 align-top" key={payment.id}>
                     <td className="px-4 py-3 font-semibold text-slate-950">{payment.label}</td>
                     <td className="px-4 py-3 text-right font-semibold text-slate-950">
-                      {formatMoney(payment.amount, "CAD")}
+                      {formatMoney(payment.amount, payment.currency || "CAD")}
                     </td>
+                    <td className="px-4 py-3 text-slate-600">{payment.currency || "CAD"}</td>
                     <td className="px-4 py-3 text-slate-600">{formatDate(payment.due_date)}</td>
                     <td className="px-4 py-3">
                       <span className={[

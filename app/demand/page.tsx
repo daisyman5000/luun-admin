@@ -2,6 +2,7 @@ import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import { DemandSaleCalendar, type DemandCalendarPlan, type DemandCashObligation } from "@/components/demand-sale-calendar";
 import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
+import { convertToCad, getCadRates } from "@/lib/currency";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, DemandSale, InventoryRow, MajorExpense, ShopifyOrder, WayflyerPayment } from "@/lib/types";
 
@@ -421,19 +422,33 @@ export default async function DemandPage({
       .returns<WayflyerPayment[]>(),
     getCachedWiseSummary()
   ]);
+  const obligationCurrencies = [
+    ...(containers || []).map((container) => container.amount_currency || "USD"),
+    ...(majorExpenses || []).map((expense) => expense.currency || "CAD"),
+    ...(wayflyerPayments || []).map((payment) => payment.currency || "CAD")
+  ];
+  const cadRates = await getCadRates(obligationCurrencies);
 
   const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
   const containerObligations: DemandCashObligation[] = (containers || [])
     .filter((container) => container.status !== "closed" && Number(container.amount_to_be_paid || 0) > 0)
-    .map((container) => ({
-      amount: Number(container.amount_to_be_paid || 0),
-      dueDate: container.payment_due_at || container.eta,
-      id: container.id,
-      label: container.container_number,
-      type: "container"
-    }));
+    .map((container) => {
+      const amount = Number(container.amount_to_be_paid || 0);
+      const currency = container.amount_currency || "USD";
+      return {
+        amount,
+        amountCad: convertToCad(amount, currency, cadRates),
+        currency,
+        dueDate: container.payment_due_at || container.eta,
+        id: container.id,
+        label: container.container_number,
+        type: "container"
+      };
+    });
   const invoiceObligations: DemandCashObligation[] = (majorExpenses || []).map((expense) => ({
     amount: Number(expense.amount || 0),
+    amountCad: convertToCad(Number(expense.amount || 0), expense.currency || "CAD", cadRates),
+    currency: expense.currency || "CAD",
     dueDate: expense.due_date,
     id: expense.id,
     label: expense.label,
@@ -441,6 +456,8 @@ export default async function DemandPage({
   }));
   const wayflyerObligations: DemandCashObligation[] = (wayflyerPayments || []).map((payment) => ({
     amount: Number(payment.amount || 0),
+    amountCad: convertToCad(Number(payment.amount || 0), payment.currency || "CAD", cadRates),
+    currency: payment.currency || "CAD",
     dueDate: payment.due_date,
     id: payment.id,
     label: payment.label,

@@ -107,6 +107,8 @@ export async function PATCH(
   const amountToBePaid = cleanMoney(body.amount_to_be_paid);
   if (amountToBePaid !== undefined) updates.amount_to_be_paid = amountToBePaid;
 
+  if (body.amount_currency !== undefined) updates.amount_currency = "USD";
+
   const paymentDueAt = cleanDate(body.payment_due_at);
   if (paymentDueAt !== undefined) updates.payment_due_at = paymentDueAt;
 

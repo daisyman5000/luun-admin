@@ -18,6 +18,7 @@ export function MajorExpenseTable({
   const router = useRouter();
   const [label, setLabel] = useState("");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState("CAD");
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -31,6 +32,7 @@ export function MajorExpenseTable({
     const response = await fetch("/api/major-expenses", {
       body: JSON.stringify({
         amount,
+        currency,
         due_date: dueDate || null,
         label,
         notes
@@ -48,6 +50,7 @@ export function MajorExpenseTable({
 
     setLabel("");
     setAmount("");
+    setCurrency("CAD");
     setDueDate("");
     setNotes("");
     setSavingId(null);
@@ -73,7 +76,11 @@ export function MajorExpenseTable({
     router.refresh();
   }
 
-  const openTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const openTotals = expenses.reduce<Record<string, number>>((totals, expense) => {
+    const expenseCurrency = (expense.currency || "CAD").toUpperCase();
+    totals[expenseCurrency] = (totals[expenseCurrency] || 0) + Number(expense.amount || 0);
+    return totals;
+  }, {});
 
   return (
     <section className="rounded-[28px] border border-white bg-white/90 p-5 shadow-sm">
@@ -86,7 +93,11 @@ export function MajorExpenseTable({
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Open invoice total</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-950">{formatMoney(openTotal, "CAD")}</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-950">
+            {Object.keys(openTotals).length === 0
+              ? formatMoney(0, "CAD")
+              : Object.entries(openTotals).map(([totalCurrency, total]) => formatMoney(total, totalCurrency)).join(" / ")}
+          </p>
         </div>
       </div>
 
@@ -97,7 +108,7 @@ export function MajorExpenseTable({
       ) : null}
 
       {canEdit ? (
-        <form className="mb-5 grid gap-3 lg:grid-cols-[1.2fr_0.8fr_0.8fr_1.2fr_auto]" onSubmit={createExpense}>
+        <form className="mb-5 grid gap-3 lg:grid-cols-[1.2fr_0.7fr_0.55fr_0.8fr_1.2fr_auto]" onSubmit={createExpense}>
           <input
             className={inputClass}
             onChange={(event) => setLabel(event.target.value)}
@@ -115,6 +126,14 @@ export function MajorExpenseTable({
             type="number"
             value={amount}
           />
+          <select
+            className={inputClass}
+            onChange={(event) => setCurrency(event.target.value)}
+            value={currency}
+          >
+            <option value="CAD">CAD</option>
+            <option value="USD">USD</option>
+          </select>
           <input
             className={inputClass}
             onChange={(event) => setDueDate(event.target.value)}
@@ -147,6 +166,7 @@ export function MajorExpenseTable({
                 <tr>
                   <th className="px-4 py-3 text-left">Invoice</th>
                   <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3 text-left">Currency</th>
                   <th className="px-4 py-3 text-left">Due</th>
                   <th className="px-4 py-3 text-left">Notes</th>
                   {canEdit ? <th className="px-4 py-3 text-right">Action</th> : null}
@@ -157,8 +177,9 @@ export function MajorExpenseTable({
                   <tr className="border-t border-slate-100 align-top" key={expense.id}>
                     <td className="px-4 py-3 font-semibold text-slate-950">{expense.label}</td>
                     <td className="px-4 py-3 text-right font-semibold text-slate-950">
-                      {formatMoney(expense.amount, "CAD")}
+                      {formatMoney(expense.amount, expense.currency || "CAD")}
                     </td>
+                    <td className="px-4 py-3 text-slate-600">{expense.currency || "CAD"}</td>
                     <td className="px-4 py-3 text-slate-600">{formatDate(expense.due_date)}</td>
                     <td className="px-4 py-3 text-slate-600">{expense.notes || ""}</td>
                     {canEdit ? (
