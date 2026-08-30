@@ -208,7 +208,8 @@ function consumedModulesBeforeDate({
 
   for (const campaign of groupSaleCampaigns(plannedSales)) {
     const campaignStart = new Date(`${campaign[0].sale_date}T00:00:00`);
-    if (campaignStart >= beforeDate) continue;
+    const soldDaysBeforeDate = campaign.filter((sale) => new Date(`${sale.sale_date}T00:00:00`) < beforeDate).length;
+    if (soldDaysBeforeDate === 0) continue;
 
     const eligibleInventory = inventoryEligibleByDate({
       containerDemand,
@@ -216,10 +217,11 @@ function consumedModulesBeforeDate({
       vancouverOnHand
     });
     const availableForCampaign = Math.max(0, eligibleInventory - consumedModules);
-    consumedModules += availableForCampaign;
+    const dailyModules = availableForCampaign / campaign.length;
+    consumedModules += Math.min(availableForCampaign, dailyModules * soldDaysBeforeDate);
   }
 
-  return consumedModules;
+  return Math.ceil(consumedModules);
 }
 
 function availableModulesForDate({

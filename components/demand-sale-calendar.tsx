@@ -373,16 +373,16 @@ export function DemandSaleCalendar({
               {totalAdSpend === null ? "Unavailable" : money(totalAdSpend)}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              {dailyBudget === null ? "Select sale days" : `${money(dailyBudget)} per sale day`}
+              Required to sell this month&apos;s max orders.
             </p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Projected revenue</p>
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Max revenue</p>
             <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {projectedRevenue === null ? "Unavailable" : money(projectedRevenue)}
+              {possibleRevenue === null ? "Unavailable" : money(possibleRevenue)}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              {projectedOrdersPerSaleDay === null ? "Based on selected sale days" : `${projectedOrdersPerSaleDay.toFixed(1)} orders per sale day`}
+              Based on max orders and live average order value.
             </p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
