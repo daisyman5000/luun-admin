@@ -110,14 +110,6 @@ function totalContainerPieces(container: ContainerEntry) {
   return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 }
 
-function money(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "CAD",
-    maximumFractionDigits: 0,
-    style: "currency"
-  }).format(value);
-}
-
 function calculateCustomerAcquisitionCost({
   metaExpenses,
   orders
@@ -312,24 +304,6 @@ function MonthSelector({ options }: { options: MonthOption[] }) {
   );
 }
 
-function StatCard({
-  label,
-  note,
-  value
-}: {
-  label: string;
-  note?: string;
-  value: string | number;
-}) {
-  return (
-    <div className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
-      <p className="text-sm font-medium text-slate-500">{label}</p>
-      <p className="mt-3 text-3xl font-semibold tracking-normal text-slate-950">{value}</p>
-      {note ? <p className="mt-2 text-xs leading-5 text-slate-500">{note}</p> : null}
-    </div>
-  );
-}
-
 function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   return {
     cashObligations: plan.cashObligations,
@@ -515,15 +489,6 @@ export default async function DemandPage({
               Wayflyer payments are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
             </section>
           ) : null}
-
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <StatCard label="Maximum modules to sell" note="Vancouver on-hand plus containers inside the 20-day rule" value={plan.targetModulesToSell} />
-            <StatCard label="Maximum orders to sell" note="Maximum modules / live avg modules per order" value={plan.targetOrdersToSell ?? "Unavailable"} />
-            <StatCard label="Avg modules per order" note="From imported Shopify orders" value={plan.averageModulesPerOrder === null ? "Unavailable" : plan.averageModulesPerOrder.toFixed(1)} />
-            <StatCard label="CAC" note="Wise Meta spend / Shopify orders" value={plan.customerAcquisitionCost === null ? "Unavailable" : money(plan.customerAcquisitionCost)} />
-            <StatCard label="Required Meta budget" note="Maximum orders x live CAC" value={plan.targetMetaBudget === null ? "Unavailable" : money(plan.targetMetaBudget)} />
-            <StatCard label="Max revenue" note="Maximum orders x live average order value" value={plan.maxRevenue === null ? "Unavailable" : money(plan.maxRevenue)} />
-          </section>
 
           <DemandSaleCalendar canEdit={!plannedSalesError && canUpdateOrderLogistics(profile?.role)} plan={toCalendarPlan(plan)} />
         </div>

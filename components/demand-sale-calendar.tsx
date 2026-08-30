@@ -80,6 +80,12 @@ function dateFromKey(date: string) {
   return new Date(`${date}T00:00:00`);
 }
 
+function addDaysToKey(date: string, days: number) {
+  const nextDate = dateFromKey(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate.toISOString().slice(0, 10);
+}
+
 function recalculateEvent(event: DemandCalendarEvent): DemandCalendarEvent {
   const days = [...event.days].sort((left, right) => left.date.localeCompare(right.date));
 
@@ -117,6 +123,7 @@ export function DemandSaleCalendar({
   const [saleEvents, setSaleEvents] = useState<DemandCalendarEvent[]>(() =>
     plan.saleEvents.map(recalculateEvent)
   );
+  const [salesCashLeadDays, setSalesCashLeadDays] = useState(7);
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -179,6 +186,29 @@ export function DemandSaleCalendar({
   const totalAdSpend = plan.defaultSale.totalBudget;
   const dailyBudget = totalAdSpend !== null && activeSaleDays > 0 ? totalAdSpend / activeSaleDays : null;
   const saleDayDates = (activeSale?.days || []).map((day) => day.date).sort();
+  const averageOrderValue = plan.defaultSale.averageOrderValue;
+  const customerAcquisitionCost = plan.defaultSale.customerAcquisitionCost;
+  const projectedOrdersPerSaleDay = dailyBudget !== null && customerAcquisitionCost !== null && customerAcquisitionCost > 0
+    ? dailyBudget / customerAcquisitionCost
+    : null;
+  const projectedRevenuePerSaleDay = projectedOrdersPerSaleDay !== null && averageOrderValue !== null
+    ? projectedOrdersPerSaleDay * averageOrderValue
+    : null;
+  const projectedRevenue = projectedRevenuePerSaleDay === null
+    ? null
+    : projectedRevenuePerSaleDay * activeSaleDays;
+  const possibleRevenue = plan.defaultSale.orders !== null && averageOrderValue !== null
+    ? plan.defaultSale.orders * averageOrderValue
+    : null;
+  const projectedRevenueEvents = saleDayDates
+    .map((saleDate, index) => ({
+      amount: projectedRevenuePerSaleDay,
+      date: addDaysToKey(saleDate, salesCashLeadDays),
+      id: `${saleDate}-${index}`,
+      orders: projectedOrdersPerSaleDay,
+      saleDate
+    }))
+    .filter((event) => event.amount !== null);
   const hasUnconvertedObligations = plan.cashObligations.some((item) => item.amountCad === null);
   const containerPayables = plan.cashObligations
     .filter((item) => item.type === "container")
@@ -194,7 +224,9 @@ export function DemandSaleCalendar({
   const wayflyerPaybacksUnavailable = plan.cashObligations.some((item) => item.type === "wayflyer" && item.amountCad === null);
   const totalObligations = containerPayables + otherMajorInvoices + wayflyerPaybacks;
   const cashBeforeAds = plan.defaultSale.cashBalance - totalObligations;
-  const cashAfterAllAdSpend = totalAdSpend === null || hasUnconvertedObligations ? null : cashBeforeAds - totalAdSpend;
+  const cashAfterPlan = totalAdSpend === null || projectedRevenue === null || hasUnconvertedObligations
+    ? null
+    : cashBeforeAds - totalAdSpend + projectedRevenue;
 
   function obligationSpendThrough(date: string) {
     return plan.cashObligations.reduce((sum, item) => {
@@ -208,13 +240,24 @@ export function DemandSaleCalendar({
     return saleDayDates.filter((saleDate) => saleDate <= date).length * dailyBudget;
   }
 
+  function revenueThrough(date: string) {
+    return projectedRevenueEvents.reduce((sum, event) => {
+      if (event.date <= date) return sum + (event.amount || 0);
+      return sum;
+    }, 0);
+  }
+
   function cashAfterDate(date: string) {
     if (hasUnconvertedObligations) return null;
-    return plan.defaultSale.cashBalance - obligationSpendThrough(date) - adSpendThrough(date);
+    return plan.defaultSale.cashBalance - obligationSpendThrough(date) - adSpendThrough(date) + revenueThrough(date);
   }
 
   function obligationsDueOn(date: string) {
     return plan.cashObligations.filter((item) => item.dueDate === date);
+  }
+
+  function revenueDueOn(date: string) {
+    return projectedRevenueEvents.filter((event) => event.date === date);
   }
 
   const cells = [
@@ -241,54 +284,80 @@ export function DemandSaleCalendar({
         <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>
       ) : null}
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Wise cash</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{money(plan.defaultSale.cashBalance)}</p>
+      <div className="mt-4 rounded-3xl border border-line bg-slate-50 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">Demand plan</p>
+            <h3 className="mt-1 text-xl font-semibold text-slate-950">
+              {plan.defaultSale.orders ?? "Unavailable"} orders needed
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {plan.defaultSale.modules} modules available to sell. Possible revenue:{" "}
+              <span className="font-semibold text-slate-900">
+                {possibleRevenue === null ? "Unavailable" : money(possibleRevenue)}
+              </span>
+            </p>
+          </div>
+          <label className="w-full max-w-xs text-sm font-semibold text-slate-700">
+            Sales cash lead time
+            <div className="mt-2 flex items-center gap-2 rounded-2xl border border-line bg-white px-3 py-2">
+              <input
+                className="w-20 bg-transparent text-lg font-semibold text-slate-950 outline-none"
+                max={60}
+                min={0}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  setSalesCashLeadDays(Number.isFinite(value) ? Math.max(0, Math.min(60, value)) : 7);
+                }}
+                type="number"
+                value={salesCashLeadDays}
+              />
+              <span className="text-sm text-slate-500">days from ad spend to sales cash</span>
+            </div>
+          </label>
         </div>
-        <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Container remainder</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">
-            {containerPayablesUnavailable ? "FX unavailable" : money(containerPayables)}
-          </p>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-line bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">CAC</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {customerAcquisitionCost === null ? "Unavailable" : money(customerAcquisitionCost)}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-line bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Ad budget</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {totalAdSpend === null ? "Unavailable" : money(totalAdSpend)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {dailyBudget === null ? "Select sale days" : `${money(dailyBudget)} per sale day`}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-line bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Projected revenue</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {projectedRevenue === null ? "Unavailable" : money(projectedRevenue)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {projectedOrdersPerSaleDay === null ? "Based on selected sale days" : `${projectedOrdersPerSaleDay.toFixed(1)} orders per sale day`}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-line bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Cash after plan</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {cashAfterPlan === null ? "Unavailable" : money(cashAfterPlan)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Includes Wise cash, obligations, ads, and projected sales cash.
+            </p>
+          </div>
         </div>
-        <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Other major invoices</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">
-            {otherMajorInvoicesUnavailable ? "FX unavailable" : money(otherMajorInvoices)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Wayflyer paybacks</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">
-            {wayflyerPaybacksUnavailable ? "FX unavailable" : money(wayflyerPaybacks)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Sale days selected</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{activeSaleDays}</p>
-        </div>
-        <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Orders to sell</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{plan.defaultSale.orders ?? "Unavailable"}</p>
-        </div>
-        <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Total ad spend</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">
-            {totalAdSpend === null ? "Unavailable" : money(totalAdSpend)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">Budget per sale day</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">
-            {dailyBudget === null ? "Select sale days" : `${money(dailyBudget)} / day`}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Cash after obligations + ads</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">
-            {cashAfterAllAdSpend === null ? "Unavailable" : money(cashAfterAllAdSpend)}
-          </p>
+
+        <div className="mt-4 grid gap-2 text-sm text-slate-600 lg:grid-cols-4">
+          <div>Wise cash: <span className="font-semibold text-slate-950">{money(plan.defaultSale.cashBalance)}</span></div>
+          <div>Container payables: <span className="font-semibold text-slate-950">{containerPayablesUnavailable ? "FX unavailable" : money(containerPayables)}</span></div>
+          <div>Invoices: <span className="font-semibold text-slate-950">{otherMajorInvoicesUnavailable ? "FX unavailable" : money(otherMajorInvoices)}</span></div>
+          <div>Wayflyer: <span className="font-semibold text-slate-950">{wayflyerPaybacksUnavailable ? "FX unavailable" : money(wayflyerPaybacks)}</span></div>
         </div>
       </div>
 
@@ -304,7 +373,10 @@ export function DemandSaleCalendar({
           const saleDay = status?.day || null;
           const isStart = event?.date === cell.key;
           const dueObligations = cell.day ? obligationsDueOn(cell.key) : [];
-          const hasCashActivity = Boolean(event || dueObligations.length > 0);
+          const dueRevenue = cell.day ? revenueDueOn(cell.key) : [];
+          const revenueDue = dueRevenue.reduce((sum, item) => sum + (item.amount || 0), 0);
+          const ordersDue = dueRevenue.reduce((sum, item) => sum + (item.orders || 0), 0);
+          const hasCashActivity = Boolean(event || dueObligations.length > 0 || dueRevenue.length > 0);
           const cashAfterThisDay = cell.day && hasCashActivity ? cashAfterDate(cell.key) : null;
 
           return (
@@ -328,6 +400,9 @@ export function DemandSaleCalendar({
                       <div className="font-semibold text-slate-950">
                         {dailyBudget === null ? "Budget unavailable" : `${money(dailyBudget)} / day`}
                       </div>
+                      {projectedOrdersPerSaleDay !== null ? (
+                        <div className="text-slate-500">{projectedOrdersPerSaleDay.toFixed(1)} projected orders</div>
+                      ) : null}
                       <div className="text-slate-500">
                         Cash after: {cashAfterThisDay === null ? "Unavailable" : money(cashAfterThisDay)}
                       </div>
@@ -343,6 +418,16 @@ export function DemandSaleCalendar({
                           Remove day
                         </button>
                       ) : null}
+                    </div>
+                  ) : null}
+                  {dueRevenue.length > 0 ? (
+                    <div className="mt-2 rounded-lg bg-emerald-50 p-2 text-xs leading-5 text-emerald-950">
+                      <div className="font-semibold">Projected sales cash</div>
+                      <div>{money(revenueDue)}</div>
+                      <div>{ordersDue.toFixed(1)} orders from ads {salesCashLeadDays} days earlier</div>
+                      <div className="border-t border-emerald-200 pt-1 font-semibold">
+                        Cash after: {cashAfterThisDay === null ? "Unavailable" : money(cashAfterThisDay)}
+                      </div>
                     </div>
                   ) : null}
                   {dueObligations.length > 0 ? (
