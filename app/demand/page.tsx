@@ -108,15 +108,6 @@ function totalContainerPieces(container: ContainerEntry) {
   return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 }
 
-function formatDate(date: Date | null) {
-  if (!date) return "Unavailable";
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    year: "numeric"
-  }).format(date);
-}
-
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
     currency: "CAD",
@@ -334,46 +325,6 @@ function StatCard({
   );
 }
 
-function MonthlyInventoryList({ plan }: { plan: DemandPlan }) {
-  function saleRangeFor(label: string) {
-    const event = plan.saleEvents.find((saleEvent) => saleEvent.labels.includes(label));
-    if (!event) return "Not scheduled";
-    return `${formatDate(event.date)} to ${formatDate(event.endDate)}`;
-  }
-
-  return (
-    <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-950">Inventory available to sell this month</h2>
-      <div className="mt-5 divide-y divide-line text-sm">
-        {plan.vancouverOnHand > 0 ? (
-          <div className="flex items-center justify-between gap-4 py-3">
-            <span>
-              <span className="block font-medium text-slate-700">Vancouver on hand</span>
-              <span className="text-xs text-blue-700">{saleRangeFor("Vancouver on hand")}</span>
-            </span>
-            <span className="font-semibold text-slate-950">{plan.vancouverOnHand} modules</span>
-          </div>
-        ) : null}
-        {plan.containersEligibleThisMonth.length === 0 ? (
-          <div className="py-3 text-slate-500">No containers are inside the 20-day advertising window this month.</div>
-        ) : (
-          plan.containersEligibleThisMonth.map((item) => (
-            <div className="flex items-center justify-between gap-4 py-3" key={item.container.id}>
-              <span>
-                <span className="block font-medium text-slate-700">{item.container.container_number}</span>
-                <span className="text-xs text-blue-700">
-                  Sale {saleRangeFor(item.container.container_number)}. ETA {formatDate(item.eta)}
-                </span>
-              </span>
-              <span className="font-semibold text-slate-950">{item.pieces} modules</span>
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-  );
-}
-
 function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   return {
     defaultSale: {
@@ -502,7 +453,6 @@ export default async function DemandPage({
           </section>
 
           <DemandSaleCalendar canEdit={!plannedSalesError && canUpdateOrderLogistics(profile?.role)} plan={toCalendarPlan(plan)} />
-          <MonthlyInventoryList plan={plan} />
         </div>
       )}
     </main>
