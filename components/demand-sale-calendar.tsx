@@ -118,7 +118,6 @@ export function DemandSaleCalendar({
     plan.saleEvents.map(recalculateEvent)
   );
   const [salesCashLeadDays, setSalesCashLeadDays] = useState(7);
-  const [purchaseLeadDays, setPurchaseLeadDays] = useState(90);
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -222,6 +221,10 @@ export function DemandSaleCalendar({
   const cashAfterPlan = totalAdSpend === null || projectedRevenue === null || hasUnconvertedObligations
     ? null
     : cashBeforeAds - totalAdSpend + projectedRevenue;
+  const containerDepositPercent = 30;
+  const containerProductionDays = 30;
+  const containerShippingDays = 30;
+  const containerTotalLeadDays = containerProductionDays + containerShippingDays;
   const totalInventoryPipeline = plan.defaultSale.vancouverOnHand + plan.defaultSale.totalActiveInboundModules;
   const projectedCoverageDays = plan.defaultSale.averageDailyModules > 0
     ? Math.floor(totalInventoryPipeline / plan.defaultSale.averageDailyModules)
@@ -231,7 +234,13 @@ export function DemandSaleCalendar({
     : addDaysToKey(new Date().toISOString().slice(0, 10), projectedCoverageDays);
   const recommendedPurchaseDate = projectedSelloutDate === null
     ? null
-    : addDaysToKey(projectedSelloutDate, -purchaseLeadDays);
+    : addDaysToKey(projectedSelloutDate, -containerTotalLeadDays);
+  const recommendedFactoryReadyDate = recommendedPurchaseDate === null
+    ? null
+    : addDaysToKey(recommendedPurchaseDate, containerProductionDays);
+  const recommendedArrivalDate = recommendedPurchaseDate === null
+    ? null
+    : addDaysToKey(recommendedPurchaseDate, containerTotalLeadDays);
   const shouldBuyNow = recommendedPurchaseDate !== null && recommendedPurchaseDate <= new Date().toISOString().slice(0, 10);
 
   function obligationSpendThrough(date: string) {
@@ -362,27 +371,13 @@ export function DemandSaleCalendar({
             <p className="mt-2 text-xl font-semibold text-slate-950">
               {recommendedPurchaseDate === null ? "Unavailable" : shouldBuyNow ? "Buy now" : recommendedPurchaseDate}
             </p>
-            <label className="mt-2 block text-xs font-semibold text-slate-600">
-              Supplier lead time
-              <div className="mt-1 flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-2 py-1">
-                <input
-                  className="w-14 bg-transparent font-semibold text-slate-950 outline-none"
-                  max={365}
-                  min={1}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    setPurchaseLeadDays(Number.isFinite(value) ? Math.max(1, Math.min(365, value)) : 90);
-                  }}
-                  type="number"
-                  value={purchaseLeadDays}
-                />
-                <span className="text-slate-500">days</span>
-              </div>
-            </label>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs leading-5 text-slate-600">
+              Pay {containerDepositPercent}% deposit on PO date. Production is {containerProductionDays} days, shipping is {containerShippingDays} days, and 70% is due when it arrives in Canada.
+            </p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
               {projectedSelloutDate === null
                 ? "Needs Shopify sales velocity."
-                : `Projected inventory runs out ${projectedSelloutDate}.`}
+                : `Projected sellout ${projectedSelloutDate}. Factory ready ${recommendedFactoryReadyDate}. Canada arrival ${recommendedArrivalDate}.`}
             </p>
           </div>
         </div>
@@ -410,6 +405,8 @@ export function DemandSaleCalendar({
           const dueRevenue = cell.day ? revenueDueOn(cell.key) : [];
           const revenueDue = dueRevenue.reduce((sum, item) => sum + (item.amount || 0), 0);
           const hasCashActivity = Boolean(event || dueObligations.length > 0 || dueRevenue.length > 0);
+          const isPurchaseDay = cell.day && recommendedPurchaseDate === cell.key;
+          const isArrivalDay = cell.day && recommendedArrivalDate === cell.key;
           const cashAfterThisDay = cell.day ? cashAfterDate(cell.key) : null;
           const obligationDue = dueObligations.reduce((sum, item) => sum + (item.amountCad || 0), 0);
 
@@ -418,7 +415,7 @@ export function DemandSaleCalendar({
               className={[
                 "min-h-28 rounded-xl border p-2 text-left text-sm transition",
                 cell.day ? "border-line bg-slate-50 hover:border-blue-200 hover:bg-blue-50" : "border-transparent",
-                hasCashActivity ? "border-blue-200 bg-blue-50 shadow-sm" : "",
+                hasCashActivity || isPurchaseDay || isArrivalDay ? "border-blue-200 bg-blue-50 shadow-sm" : "",
                 !canEdit || !cell.day || event ? "cursor-default" : ""
               ].join(" ")}
               key={cell.key}
@@ -440,6 +437,12 @@ export function DemandSaleCalendar({
                       ) : null}
                       {dueObligations.length > 0 ? (
                         <div className="mt-1 font-semibold text-amber-700">Bills due: -{money(obligationDue)}</div>
+                      ) : null}
+                      {isPurchaseDay ? (
+                        <div className="mt-1 font-semibold text-violet-700">Place container PO: 30% deposit</div>
+                      ) : null}
+                      {isArrivalDay ? (
+                        <div className="mt-1 font-semibold text-violet-700">Container target arrival: 70% due</div>
                       ) : null}
                       {saleDay && canEdit ? (
                         <button

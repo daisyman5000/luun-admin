@@ -80,10 +80,9 @@ function getMonthOptions(selectedMonthValue?: string | string[]) {
   const firstPlanningMonth = dateKey(firstPlanningDate);
   const requestedMonth = rawMonth && /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : firstPlanningMonth;
   const selectedMonth = requestedMonth < firstPlanningMonth ? firstPlanningMonth : requestedMonth;
-  const { start: selectedStart } = monthBounds(selectedMonth);
 
-  return Array.from({ length: 2 }, (_, index) => {
-    const date = new Date(selectedStart.getFullYear(), selectedStart.getMonth() + index, 1);
+  return Array.from({ length: 8 }, (_, index) => {
+    const date = new Date(firstPlanningDate.getFullYear(), firstPlanningDate.getMonth() + index, 1);
     const month = dateKey(date);
     const { end, start } = monthBounds(month);
 
