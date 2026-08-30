@@ -86,6 +86,14 @@ function dateFromKey(date: string) {
   return new Date(`${date}T00:00:00`);
 }
 
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function obligationDate(obligation: Pick<DemandCashObligation, "dueDate">) {
+  return obligation.dueDate || todayKey();
+}
+
 function addDaysToKey(date: string, days: number) {
   const nextDate = dateFromKey(date);
   nextDate.setDate(nextDate.getDate() + days);
@@ -284,7 +292,7 @@ export function DemandSaleCalendar({
 
   function obligationSpendThrough(date: string) {
     return plan.cashObligations.reduce((sum, item) => {
-      if (!item.dueDate || item.dueDate <= date) return sum + (item.amountCad || 0);
+      if (obligationDate(item) <= date) return sum + (item.amountCad || 0);
       return sum;
     }, 0);
   }
@@ -307,7 +315,7 @@ export function DemandSaleCalendar({
   }
 
   function obligationsDueOn(date: string) {
-    return plan.cashObligations.filter((item) => item.dueDate === date);
+    return plan.cashObligations.filter((item) => obligationDate(item) === date);
   }
 
   function revenueDueOn(date: string) {

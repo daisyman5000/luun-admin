@@ -73,6 +73,14 @@ function dateInputValue(date: Date) {
   return `${dateKey(date)}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function todayKey() {
+  return dateInputValue(new Date());
+}
+
+function obligationDate(obligation: Pick<DemandCashObligation, "dueDate">) {
+  return obligation.dueDate || todayKey();
+}
+
 function monthBounds(month: string) {
   const [year, monthNumber] = month.split("-").map(Number);
   const start = new Date(year, monthNumber - 1, 1);
@@ -262,7 +270,7 @@ function projectedCashBeforeDate({
   let consumedModules = 0;
 
   for (const obligation of cashObligations) {
-    if (!obligation.dueDate || obligation.dueDate >= beforeDateKey) continue;
+    if (obligationDate(obligation) >= beforeDateKey) continue;
     projectedCash -= obligation.amountCad || 0;
   }
 
@@ -522,7 +530,7 @@ function MonthSelector({ options }: { options: MonthOption[] }) {
 
 function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   return {
-    cashObligations: plan.cashObligations.filter((obligation) => !obligation.dueDate || obligation.dueDate >= dateInputValue(plan.selectedMonth.start)),
+    cashObligations: plan.cashObligations.filter((obligation) => obligationDate(obligation) >= dateInputValue(plan.selectedMonth.start)),
     defaultSale: {
       averageDailyModules: plan.averageDailyModules,
       averageModulesPerOrder: plan.averageModulesPerOrder,
