@@ -54,6 +54,7 @@ type DemandPlan = {
   recommendedSaleStart: Date | null;
   saleEvents: SaleEvent[];
   shopifyOrderCount: number;
+  shopifyRevenueOrderCount: number;
   targetMetaBudget: number | null;
   targetModulesToSell: number;
   targetOrdersToSell: number | null;
@@ -65,6 +66,7 @@ type DemandPlan = {
 const saleLeadDays = 20;
 const salesCashLeadDays = 7;
 const getCachedWiseSummary = unstable_cache(getWiseSummary, ["wise-summary-demand"], { revalidate: 300 });
+const revenuePaymentStatuses = new Set(["PAID", "PARTIALLY_REFUNDED"]);
 
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -142,8 +144,8 @@ function calculateCustomerAcquisitionCost({
     .sort((left, right) => Date.parse(left.date) - Date.parse(right.date));
   const firstMetaDate = cadMetaExpenses[0]?.date ? new Date(cadMetaExpenses[0].date) : null;
   const ordersInWindow = firstMetaDate
-    ? orders.filter((order) => new Date(order.created_at) >= firstMetaDate)
-    : orders;
+    ? revenueOrders(orders).filter((order) => new Date(order.created_at) >= firstMetaDate)
+    : revenueOrders(orders);
   const totalMetaSpend = cadMetaExpenses.reduce((sum, expense) => sum + expense.amount, 0);
 
   return {
@@ -153,20 +155,44 @@ function calculateCustomerAcquisitionCost({
   };
 }
 
+function hasRevenuePaymentStatus(order: ShopifyOrder) {
+  if (!order.payment_status) return true;
+  return revenuePaymentStatuses.has(order.payment_status.toUpperCase());
+}
+
+function hasCadRevenueCurrency(order: ShopifyOrder) {
+  if (!order.currency) return true;
+  return order.currency.toUpperCase() === "CAD";
+}
+
+function revenueOrders(orders: ShopifyOrder[]) {
+  return orders.filter((order) =>
+    Number(order.total_price || 0) > 0 &&
+    hasCadRevenueCurrency(order) &&
+    hasRevenuePaymentStatus(order)
+  );
+}
+
+function moduleOrders(orders: ShopifyOrder[]) {
+  return revenueOrders(orders).filter((order) => Number(order.total_modules || 0) > 0);
+}
+
 function calculateAverageModulesPerOrder(orders: ShopifyOrder[]) {
-  const totalModules = orders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
-  return orders.length > 0 && totalModules > 0 ? totalModules / orders.length : null;
+  const usableOrders = moduleOrders(orders);
+  const totalModules = usableOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+  return usableOrders.length > 0 && totalModules > 0 ? totalModules / usableOrders.length : null;
 }
 
 function calculateAverageOrderValue(orders: ShopifyOrder[]) {
-  const revenue = orders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
-  return orders.length > 0 && revenue > 0 ? revenue / orders.length : null;
+  const usableOrders = revenueOrders(orders);
+  const revenue = usableOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+  return usableOrders.length > 0 && revenue > 0 ? revenue / usableOrders.length : null;
 }
 
 function calculateAverageDailyModules(orders: ShopifyOrder[]) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
-  const recentOrders = orders.filter((order) => {
+  const recentOrders = moduleOrders(orders).filter((order) => {
     const createdAt = new Date(order.created_at);
     return !Number.isNaN(createdAt.getTime()) && createdAt >= cutoff;
   });
@@ -514,6 +540,7 @@ function calculateDemandPlan({
     selectedMonth,
     saleEvents,
     shopifyOrderCount: orders.length,
+    shopifyRevenueOrderCount: revenueOrders(orders).length,
     targetMetaBudget: targetOrdersToSell !== null && customerAcquisitionCost !== null
       ? targetOrdersToSell * customerAcquisitionCost
       : null,
@@ -563,6 +590,7 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
       orders: plan.targetOrdersToSell,
       recommendedStartDate: plan.recommendedSaleStart ? dateInputValue(plan.recommendedSaleStart) : null,
       shopifyOrderCount: plan.shopifyOrderCount,
+      shopifyRevenueOrderCount: plan.shopifyRevenueOrderCount,
       totalActiveInboundModules: plan.totalActiveInboundModules,
       totalBudget: plan.targetMetaBudget,
       vancouverOnHand: plan.vancouverOnHand,
@@ -616,7 +644,7 @@ export default async function DemandPage({
       .returns<Pick<InventoryRow, "available_qty">[]>(),
     supabase
       .from("shopify_orders")
-      .select("created_at,total_modules,total_price")
+      .select("created_at,total_modules,total_price,payment_status,currency")
       .order("created_at", { ascending: false })
       .limit(1000)
       .returns<ShopifyOrder[]>(),

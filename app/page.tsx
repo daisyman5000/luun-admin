@@ -30,6 +30,7 @@ const historyOptions = [
   { days: 180, label: "6 months" },
   { days: 365, label: "12 months" }
 ];
+const revenuePaymentStatuses = new Set(["PAID", "PARTIALLY_REFUNDED"]);
 
 function getHistoryDays(value?: string | string[]) {
   const rawValue = Array.isArray(value) ? value[0] : value;
@@ -57,6 +58,28 @@ function getRecentOrders(orders: ShopifyOrder[], days: number) {
     const createdAt = new Date(order.created_at);
     return !Number.isNaN(createdAt.getTime()) && createdAt >= cutoff;
   });
+}
+
+function hasRevenuePaymentStatus(order: ShopifyOrder) {
+  if (!order.payment_status) return true;
+  return revenuePaymentStatuses.has(order.payment_status.toUpperCase());
+}
+
+function hasCadRevenueCurrency(order: ShopifyOrder) {
+  if (!order.currency) return true;
+  return order.currency.toUpperCase() === "CAD";
+}
+
+function revenueOrders(orders: ShopifyOrder[]) {
+  return orders.filter((order) =>
+    Number(order.total_price || 0) > 0 &&
+    hasCadRevenueCurrency(order) &&
+    hasRevenuePaymentStatus(order)
+  );
+}
+
+function moduleOrders(orders: ShopifyOrder[]) {
+  return revenueOrders(orders).filter((order) => Number(order.total_modules || 0) > 0);
 }
 
 function isInHistoryWindow(date: string, days: number) {
@@ -90,11 +113,14 @@ function calculateDashboardMetrics({
 }): DashboardMetrics {
   const activeContainers = containers.filter((container) => container.status !== "closed");
   const inboundPieces = activeContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
-  const recentOrders = getRecentOrders(orders, historicalDays);
-  const soldModules = recentOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
-  const revenue = recentOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
-  const allModules = orders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
-  const allRevenue = orders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+  const recentRevenueOrders = getRecentOrders(revenueOrders(orders), historicalDays);
+  const recentModuleOrders = getRecentOrders(moduleOrders(orders), historicalDays);
+  const soldModules = recentModuleOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+  const revenue = recentRevenueOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+  const allModuleOrders = moduleOrders(orders);
+  const allRevenueOrders = revenueOrders(orders);
+  const allModules = allModuleOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+  const allRevenue = allRevenueOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
   const averageDailyModules = soldModules / historicalDays;
   const averageModuleValue = soldModules > 0 ? revenue / soldModules : allModules > 0 ? allRevenue / allModules : 0;
   const totalPiecesToConvert = vancouverOnHand + inboundPieces;
@@ -115,13 +141,13 @@ function calculateDashboardMetrics({
     capitalVelocityTurns,
     cashBalance: wiseCash,
     cashConversionCycleDays,
-    customerAcquisitionCost: recentOrders.length > 0 && selectedMetaSpend > 0 ? selectedMetaSpend / recentOrders.length : null,
+    customerAcquisitionCost: recentRevenueOrders.length > 0 && selectedMetaSpend > 0 ? selectedMetaSpend / recentRevenueOrders.length : null,
     deployableCash: openContainerPayablesCad === null ? null : wiseCash - openContainerPayables,
     historicalDays,
     inboundPieces,
     inventoryValue: totalPiecesToConvert * averageModuleValue,
     openContainerPayables,
-    orderCount: recentOrders.length,
+    orderCount: recentRevenueOrders.length,
     revenue,
     selectedMetaSpend,
     soldModules,
@@ -226,7 +252,7 @@ export default async function HomePage({
     .returns<Pick<InventoryRow, "available_qty">[]>();
   const { data: orders } = await supabase
     .from("shopify_orders")
-    .select("created_at,total_modules,total_price")
+    .select("created_at,total_modules,total_price,payment_status,currency")
     .order("created_at", { ascending: false })
     .limit(1000)
     .returns<ShopifyOrder[]>();

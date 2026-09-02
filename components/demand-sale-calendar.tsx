@@ -42,6 +42,7 @@ export type DemandCalendarPlan = {
     orders: number | null;
     recommendedStartDate: string | null;
     shopifyOrderCount: number;
+    shopifyRevenueOrderCount: number;
     totalActiveInboundModules: number;
     totalBudget: number | null;
     vancouverOnHand: number;
@@ -379,8 +380,9 @@ export function DemandSaleCalendar({
               </div>
             </div>
             <p className="mt-3 text-xs text-slate-500">
-              Source: {plan.defaultSale.shopifyOrderCount} imported Shopify orders, Vancouver on-hand inventory,
-              eligible container ETAs, and prior planned sale days.
+              Source: {plan.defaultSale.shopifyRevenueOrderCount} paid Shopify orders with revenue
+              from {plan.defaultSale.shopifyOrderCount} imported orders, Vancouver inventory, eligible container ETAs,
+              and prior planned sale days.
             </p>
           </div>
           <label className="w-full max-w-xs text-sm font-semibold text-slate-700">
