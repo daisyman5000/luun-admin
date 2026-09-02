@@ -213,15 +213,23 @@ function containerModuleBreakdown(container: ContainerEntry) {
   }, emptyModuleBreakdown());
 }
 
-function inventoryModuleBreakdown(rows: Pick<InventoryRow, "available_qty" | "module_slug">[]) {
+function netAvailableInventory(row: Pick<InventoryRow, "available_qty" | "reserved_qty">) {
+  return Math.max(0, Number(row.available_qty || 0) - Number(row.reserved_qty || 0));
+}
+
+function inventoryModuleBreakdown(rows: Pick<InventoryRow, "available_qty" | "module_slug" | "reserved_qty">[]) {
   return rows.reduce<ModuleBreakdown>((sum, row) => {
     const moduleSlug = normalizeModuleSlug(row.module_slug);
     if (!moduleSlug) return sum;
     return {
       ...sum,
-      [moduleSlug]: sum[moduleSlug] + Number(row.available_qty || 0)
+      [moduleSlug]: sum[moduleSlug] + netAvailableInventory(row)
     };
   }, emptyModuleBreakdown());
+}
+
+function isInboundDemandContainer(container: ContainerEntry) {
+  return container.status === "production" || container.status === "in_transit";
 }
 
 function orderModuleBreakdown(order: ShopifyOrder) {
@@ -648,9 +656,10 @@ function calculateDemandPlan({
   const averageDailyModules = calculateAverageDailyModules(orders);
   const selectedVancouverOnHand = vancouverOnHand;
   const activeContainers = containers.filter((container) => container.status !== "closed");
+  const inboundDemandContainers = activeContainers.filter(isInboundDemandContainer);
   const openPayables = activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0);
-  const totalActiveInboundModules = activeContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
-  const containerDemand = activeContainers
+  const totalActiveInboundModules = inboundDemandContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
+  const containerDemand = inboundDemandContainers
     .map((container) => {
       const eta = getContainerEta(container);
       const breakdown = containerModuleBreakdown(container);
@@ -863,8 +872,8 @@ export default async function DemandPage({
   ] = await Promise.all([
     supabase
       .from("inventory")
-      .select("available_qty,module_slug")
-      .returns<Pick<InventoryRow, "available_qty" | "module_slug">[]>(),
+      .select("available_qty,module_slug,reserved_qty")
+      .returns<Pick<InventoryRow, "available_qty" | "module_slug" | "reserved_qty">[]>(),
     supabase
       .from("shopify_orders")
       .select("created_at,total_modules,total_price,payment_status,currency,corner_qty,armless_qty,ottoman_qty")
@@ -904,7 +913,7 @@ export default async function DemandPage({
   ];
   const cadRates = await getCadRates(obligationCurrencies);
 
-  const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
+  const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + netAvailableInventory(row), 0);
   const vancouverOnHandBreakdown = inventoryModuleBreakdown(inventoryRows || []);
   const containerObligations: DemandCashObligation[] = (containers || [])
     .filter((container) => container.status !== "closed" && Number(container.amount_to_be_paid || 0) > 0)

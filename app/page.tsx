@@ -82,6 +82,14 @@ function moduleOrders(orders: ShopifyOrder[]) {
   return revenueOrders(orders).filter((order) => Number(order.total_modules || 0) > 0);
 }
 
+function netAvailableInventory(row: Pick<InventoryRow, "available_qty" | "reserved_qty">) {
+  return Math.max(0, Number(row.available_qty || 0) - Number(row.reserved_qty || 0));
+}
+
+function isInboundDemandContainer(container: ContainerEntry) {
+  return container.status === "production" || container.status === "in_transit";
+}
+
 function isInHistoryWindow(date: string, days: number) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
@@ -112,7 +120,7 @@ function calculateDashboardMetrics({
   wiseCash: number;
 }): DashboardMetrics {
   const activeContainers = containers.filter((container) => container.status !== "closed");
-  const inboundPieces = activeContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
+  const inboundPieces = activeContainers.filter(isInboundDemandContainer).reduce((sum, container) => sum + totalContainerPieces(container), 0);
   const recentRevenueOrders = getRecentOrders(revenueOrders(orders), historicalDays);
   const recentModuleOrders = getRecentOrders(moduleOrders(orders), historicalDays);
   const soldModules = recentModuleOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
@@ -248,8 +256,8 @@ export default async function HomePage({
   const { supabase } = await requireUser();
   const { data: inventoryRows, error } = await supabase
     .from("inventory")
-    .select("available_qty")
-    .returns<Pick<InventoryRow, "available_qty">[]>();
+    .select("available_qty,reserved_qty")
+    .returns<Pick<InventoryRow, "available_qty" | "reserved_qty">[]>();
   const { data: orders } = await supabase
     .from("shopify_orders")
     .select("created_at,total_modules,total_price,payment_status,currency")
@@ -269,7 +277,7 @@ export default async function HomePage({
     ? null
     : convertedPayables.reduce<number>((sum, amount) => sum + (amount || 0), 0);
 
-  const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
+  const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + netAvailableInventory(row), 0);
   const cadCash = wiseSummary.balances
     .filter((balance) => balance.currency === "CAD")
     .reduce((sum, balance) => sum + balance.amount, 0);
