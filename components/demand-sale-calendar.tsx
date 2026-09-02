@@ -220,7 +220,6 @@ export function DemandSaleCalendar({
   const totalAdSpend = plan.defaultSale.totalBudget;
   const dailyBudget = totalAdSpend !== null && activeSaleDays > 0 ? totalAdSpend / activeSaleDays : null;
   const saleDayDates = (activeSale?.days || []).map((day) => day.date).sort();
-  const averageOrderValue = plan.defaultSale.averageOrderValue;
   const customerAcquisitionCost = plan.defaultSale.customerAcquisitionCost;
   const possibleRevenue = plan.defaultSale.maxRevenue;
   const projectedOrdersPerSaleDay = dailyBudget !== null && customerAcquisitionCost !== null && customerAcquisitionCost > 0

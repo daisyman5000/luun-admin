@@ -204,22 +204,22 @@ function totalContainerPieces(container: ContainerEntry) {
 
 function containerModuleBreakdown(container: ContainerEntry) {
   return (container.manifest_json || []).reduce<ModuleBreakdown>((sum, item) => {
-    const module = normalizeModuleSlug(item.module);
-    if (!module) return sum;
+    const moduleSlug = normalizeModuleSlug(item.module);
+    if (!moduleSlug) return sum;
     return {
       ...sum,
-      [module]: sum[module] + Number(item.quantity || 0)
+      [moduleSlug]: sum[moduleSlug] + Number(item.quantity || 0)
     };
   }, emptyModuleBreakdown());
 }
 
 function inventoryModuleBreakdown(rows: Pick<InventoryRow, "available_qty" | "module_slug">[]) {
   return rows.reduce<ModuleBreakdown>((sum, row) => {
-    const module = normalizeModuleSlug(row.module_slug);
-    if (!module) return sum;
+    const moduleSlug = normalizeModuleSlug(row.module_slug);
+    if (!moduleSlug) return sum;
     return {
       ...sum,
-      [module]: sum[module] + Number(row.available_qty || 0)
+      [moduleSlug]: sum[moduleSlug] + Number(row.available_qty || 0)
     };
   }, emptyModuleBreakdown());
 }
@@ -863,11 +863,11 @@ export default async function DemandPage({
   ] = await Promise.all([
     supabase
       .from("inventory")
-      .select("available_qty")
-      .returns<Pick<InventoryRow, "available_qty">[]>(),
+      .select("available_qty,module_slug")
+      .returns<Pick<InventoryRow, "available_qty" | "module_slug">[]>(),
     supabase
       .from("shopify_orders")
-      .select("created_at,total_modules,total_price,payment_status,currency")
+      .select("created_at,total_modules,total_price,payment_status,currency,corner_qty,armless_qty,ottoman_qty")
       .order("created_at", { ascending: false })
       .limit(1000)
       .returns<ShopifyOrder[]>(),
@@ -905,6 +905,7 @@ export default async function DemandPage({
   const cadRates = await getCadRates(obligationCurrencies);
 
   const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + Number(row.available_qty || 0), 0);
+  const vancouverOnHandBreakdown = inventoryModuleBreakdown(inventoryRows || []);
   const containerObligations: DemandCashObligation[] = (containers || [])
     .filter((container) => container.status !== "closed" && Number(container.amount_to_be_paid || 0) > 0)
     .map((container) => {
@@ -956,7 +957,8 @@ export default async function DemandPage({
     orders: orders || [],
     plannedSales: plannedSales || [],
     selectedMonth,
-    vancouverOnHand
+    vancouverOnHand,
+    vancouverOnHandBreakdown
   });
 
   return (
