@@ -70,6 +70,9 @@ type DemandPlan = {
   targetModulesToSell: number;
   targetOrdersToSell: number | null;
   totalActiveInboundModules: number;
+  eligibleInboundByType: ModuleBreakdown;
+  plannedSoldBeforeMonthByType: ModuleBreakdown;
+  vancouverOnHandByType: ModuleBreakdown;
   vancouverOnHand: number;
   wiseCashBalance: number;
 };
@@ -165,7 +168,7 @@ function monthBounds(month: string) {
 function getMonthOptions(selectedMonthValue?: string | string[]) {
   const rawMonth = Array.isArray(selectedMonthValue) ? selectedMonthValue[0] : selectedMonthValue;
   const today = new Date();
-  const firstPlanningDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const firstPlanningDate = new Date(today.getFullYear(), today.getMonth(), 1);
   const firstPlanningMonth = dateKey(firstPlanningDate);
   const requestedMonth = rawMonth && /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : firstPlanningMonth;
   const selectedMonth = requestedMonth < firstPlanningMonth ? firstPlanningMonth : requestedMonth;
@@ -378,21 +381,6 @@ function groupSaleCampaigns(plannedSales: DemandSale[]) {
   return campaigns;
 }
 
-function inventoryEligibleByDate({
-  containerDemand,
-  date,
-  vancouverOnHand
-}: {
-  containerDemand: ContainerDemand[];
-  date: Date;
-  vancouverOnHand: number;
-}) {
-  return vancouverOnHand + containerDemand.reduce((sum, item) => {
-    if (!item.demandOpenDate || item.demandOpenDate > date) return sum;
-    return sum + item.pieces;
-  }, 0);
-}
-
 function inventoryBreakdownEligibleByDate({
   containerDemand,
   date,
@@ -420,36 +408,6 @@ function campaignEligibilityDate(campaign: DemandSale[], beforeDate?: Date) {
   const lastSale = relevantSales.at(-1);
 
   return lastSale ? saleDateValue(lastSale) : new Date();
-}
-
-function consumedModulesBeforeDate({
-  beforeDate,
-  containerDemand,
-  plannedSales,
-  vancouverOnHand
-}: {
-  beforeDate: Date;
-  containerDemand: ContainerDemand[];
-  plannedSales: DemandSale[];
-  vancouverOnHand: number;
-}) {
-  let consumedModules = 0;
-
-  for (const campaign of groupSaleCampaigns(plannedSales)) {
-    const soldDaysBeforeDate = campaign.filter((sale) => saleDateValue(sale) < beforeDate).length;
-    if (soldDaysBeforeDate === 0) continue;
-
-    const eligibleInventory = inventoryEligibleByDate({
-      containerDemand,
-      date: campaignEligibilityDate(campaign, beforeDate),
-      vancouverOnHand
-    });
-    const availableForCampaign = Math.max(0, eligibleInventory - consumedModules);
-    const dailyModules = availableForCampaign / campaign.length;
-    consumedModules += Math.min(availableForCampaign, dailyModules * soldDaysBeforeDate);
-  }
-
-  return Math.ceil(consumedModules);
 }
 
 function consumedModuleBreakdownBeforeDate({
@@ -552,26 +510,26 @@ function projectedCashBeforeDate({
   return projectedCash;
 }
 
-function availableModulesForDate({
+function availableModuleBreakdownForDate({
   containerDemand,
   date,
   plannedSales,
-  vancouverOnHand
+  vancouverOnHandBreakdown
 }: {
   containerDemand: ContainerDemand[];
   date: Date;
   plannedSales: DemandSale[];
-  vancouverOnHand: number;
+  vancouverOnHandBreakdown: ModuleBreakdown;
 }) {
-  const eligibleInventory = inventoryEligibleByDate({ containerDemand, date, vancouverOnHand });
-  const consumedModules = consumedModulesBeforeDate({
+  const eligibleInventory = inventoryBreakdownEligibleByDate({ containerDemand, date, vancouverOnHandBreakdown });
+  const consumedModules = consumedModuleBreakdownBeforeDate({
     beforeDate: date,
     containerDemand,
     plannedSales,
-    vancouverOnHand
+    vancouverOnHandBreakdown
   });
 
-  return Math.max(0, eligibleInventory - consumedModules);
+  return subtractModuleBreakdown(eligibleInventory, consumedModules);
 }
 
 function maxRevenueFromModuleMix(modules: ModuleBreakdown, moduleRevenue: ModuleRevenue) {
@@ -654,7 +612,6 @@ function calculateDemandPlan({
   const averageModulesPerOrder = shopifyProjectionMetrics.averageModulesPerOrder;
   const averageOrderValue = shopifyProjectionMetrics.averageOrderValue;
   const averageDailyModules = calculateAverageDailyModules(orders);
-  const selectedVancouverOnHand = vancouverOnHand;
   const activeContainers = containers.filter((container) => container.status !== "closed");
   const inboundDemandContainers = activeContainers.filter(isInboundDemandContainer);
   const openPayables = activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0);
@@ -703,6 +660,7 @@ function calculateDemandPlan({
     date: selectedMonth.end,
     vancouverOnHandBreakdown
   });
+  const eligibleInboundByType = subtractModuleBreakdown(eligibleBreakdownAtMonthEnd, vancouverOnHandBreakdown);
   const targetModulesByType = subtractModuleBreakdown(eligibleBreakdownAtMonthEnd, consumedBreakdownBeforeMonth);
   const targetModulesToSell = Math.max(
     0,
@@ -724,17 +682,17 @@ function calculateDemandPlan({
     ? new Date(`${selectedMonthSales.at(-1)?.sale_date}T00:00:00`)
     : saleStartDate;
   const salesBeforeSelectedCampaign = plannedSales.filter((sale) => saleDateValue(sale) < saleStartDate);
-  const saleModules = availableModulesForDate({
+  const saleModulesByType = availableModuleBreakdownForDate({
     containerDemand,
     date: saleEndDate,
     plannedSales: salesBeforeSelectedCampaign,
-    vancouverOnHand: selectedVancouverOnHand
+    vancouverOnHandBreakdown
   });
   const saleEvents = buildSaleEvents({
     averageModulesPerOrder,
     containers: containerDemand,
     customerAcquisitionCost,
-    modules: saleModules,
+    modules: totalModuleBreakdown(saleModulesByType),
     plannedSales: selectedMonthSales
   });
   const targetOrdersToSell = averageModulesPerOrder
@@ -772,6 +730,9 @@ function calculateDemandPlan({
     targetModulesToSell,
     targetOrdersToSell,
     totalActiveInboundModules,
+    eligibleInboundByType,
+    plannedSoldBeforeMonthByType: consumedBreakdownBeforeMonth,
+    vancouverOnHandByType: vancouverOnHandBreakdown,
     vancouverOnHand,
     wiseCashBalance: cashBalance
   };
@@ -824,7 +785,10 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
       shopifyProjectionRevenueOrderCount: plan.shopifyProjectionRevenueOrderCount,
       shopifyRevenueOrderCount: plan.shopifyRevenueOrderCount,
       totalActiveInboundModules: plan.totalActiveInboundModules,
+      eligibleInboundByType: plan.eligibleInboundByType,
+      plannedSoldBeforeMonthByType: plan.plannedSoldBeforeMonthByType,
       totalBudget: plan.targetMetaBudget,
+      vancouverOnHandByType: plan.vancouverOnHandByType,
       vancouverOnHand: plan.vancouverOnHand,
       wiseCashBalance: plan.wiseCashBalance
     },

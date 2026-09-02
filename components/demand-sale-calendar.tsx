@@ -41,6 +41,7 @@ export type DemandCalendarPlan = {
     cacOrderCount: number;
     cashBalance: number;
     customerAcquisitionCost: number | null;
+    eligibleInboundByType: ModuleBreakdown;
     maxRevenue: number | null;
     moduleRevenue: ModuleRevenue;
     modules: number;
@@ -55,7 +56,9 @@ export type DemandCalendarPlan = {
     shopifyProjectionRevenueOrderCount: number;
     shopifyRevenueOrderCount: number;
     totalActiveInboundModules: number;
+    plannedSoldBeforeMonthByType: ModuleBreakdown;
     totalBudget: number | null;
+    vancouverOnHandByType: ModuleBreakdown;
     vancouverOnHand: number;
     wiseCashBalance: number;
   };
@@ -263,6 +266,13 @@ export function DemandSaleCalendar({
     `${Math.round(plan.defaultSale.modulesByType.armless)} armless`,
     `${Math.round(plan.defaultSale.modulesByType.ottoman)} ottoman`
   ].join(" / ");
+  function moduleBreakdownText(breakdown: ModuleBreakdown) {
+    return [
+      `${Math.round(breakdown.corner)} corner`,
+      `${Math.round(breakdown.armless)} armless`,
+      `${Math.round(breakdown.ottoman)} ottoman`
+    ].join(" / ");
+  }
   const moduleRevenueText = (["corner", "armless", "ottoman"] as ModuleSlug[])
     .map((module) => `${module}: ${plan.defaultSale.moduleRevenue[module] === null ? "Unavailable" : money(plan.defaultSale.moduleRevenue[module])}`)
     .join(" / ");
@@ -398,6 +408,24 @@ export function DemandSaleCalendar({
               {" "}source: {money(plan.defaultSale.shopifyProjectionRevenue)} revenue,
               {" "}{plan.defaultSale.shopifyProjectionModules} modules,
               {" "}{plan.defaultSale.shopifyProjectionRevenueOrderCount} paid Shopify orders.
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
+              <div className="rounded-2xl border border-line bg-white px-3 py-2">
+                <span className="block font-semibold text-slate-700">Vancouver net</span>
+                {moduleBreakdownText(plan.defaultSale.vancouverOnHandByType)}
+              </div>
+              <div className="rounded-2xl border border-line bg-white px-3 py-2">
+                <span className="block font-semibold text-slate-700">Eligible inbound</span>
+                {moduleBreakdownText(plan.defaultSale.eligibleInboundByType)}
+              </div>
+              <div className="rounded-2xl border border-line bg-white px-3 py-2">
+                <span className="block font-semibold text-slate-700">Already planned sold</span>
+                {moduleBreakdownText(plan.defaultSale.plannedSoldBeforeMonthByType)}
+              </div>
+              <div className="rounded-2xl border border-line bg-white px-3 py-2">
+                <span className="block font-semibold text-slate-700">Sellable result</span>
+                {modulesByTypeText}
+              </div>
             </div>
           </div>
           <label className="w-full max-w-xs text-sm font-semibold text-slate-700">
