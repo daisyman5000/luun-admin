@@ -27,6 +27,10 @@ export type DemandCashObligation = {
   type: "container" | "invoice" | "wayflyer";
 };
 
+type ModuleSlug = "corner" | "armless" | "ottoman";
+type ModuleBreakdown = Record<ModuleSlug, number>;
+type ModuleRevenue = Record<ModuleSlug, number | null>;
+
 export type DemandCalendarPlan = {
   defaultSale: {
     activeContainerCount: number;
@@ -37,11 +41,18 @@ export type DemandCalendarPlan = {
     cacOrderCount: number;
     cashBalance: number;
     customerAcquisitionCost: number | null;
+    maxRevenue: number | null;
+    moduleRevenue: ModuleRevenue;
     modules: number;
+    modulesByType: ModuleBreakdown;
     openPayables: number;
     orders: number | null;
     recommendedStartDate: string | null;
     shopifyOrderCount: number;
+    shopifyProjectionMonth: string;
+    shopifyProjectionModules: number;
+    shopifyProjectionRevenue: number;
+    shopifyProjectionRevenueOrderCount: number;
     shopifyRevenueOrderCount: number;
     totalActiveInboundModules: number;
     totalBudget: number | null;
@@ -211,18 +222,16 @@ export function DemandSaleCalendar({
   const saleDayDates = (activeSale?.days || []).map((day) => day.date).sort();
   const averageOrderValue = plan.defaultSale.averageOrderValue;
   const customerAcquisitionCost = plan.defaultSale.customerAcquisitionCost;
+  const possibleRevenue = plan.defaultSale.maxRevenue;
   const projectedOrdersPerSaleDay = dailyBudget !== null && customerAcquisitionCost !== null && customerAcquisitionCost > 0
     ? dailyBudget / customerAcquisitionCost
     : null;
-  const projectedRevenuePerSaleDay = projectedOrdersPerSaleDay !== null && averageOrderValue !== null
-    ? projectedOrdersPerSaleDay * averageOrderValue
+  const projectedRevenuePerSaleDay = possibleRevenue !== null && activeSaleDays > 0
+    ? possibleRevenue / activeSaleDays
     : null;
   const projectedRevenue = projectedRevenuePerSaleDay === null
     ? null
     : projectedRevenuePerSaleDay * activeSaleDays;
-  const possibleRevenue = plan.defaultSale.orders !== null && averageOrderValue !== null
-    ? plan.defaultSale.orders * averageOrderValue
-    : null;
   const projectedRevenueEvents = saleDayDates
     .map((saleDate, index) => ({
       amount: projectedRevenuePerSaleDay,
@@ -250,6 +259,14 @@ export function DemandSaleCalendar({
   const cashAfterPlan = totalAdSpend === null || projectedRevenue === null || hasUnconvertedObligations
     ? null
     : cashBeforeAds - totalAdSpend + projectedRevenue;
+  const modulesByTypeText = [
+    `${Math.round(plan.defaultSale.modulesByType.corner)} corner`,
+    `${Math.round(plan.defaultSale.modulesByType.armless)} armless`,
+    `${Math.round(plan.defaultSale.modulesByType.ottoman)} ottoman`
+  ].join(" / ");
+  const moduleRevenueText = (["corner", "armless", "ottoman"] as ModuleSlug[])
+    .map((module) => `${module}: ${plan.defaultSale.moduleRevenue[module] === null ? "Unavailable" : money(plan.defaultSale.moduleRevenue[module])}`)
+    .join(" / ");
   const containerDepositPercent = 30;
   const containerProductionDays = 30;
   const containerShippingDays = 30;
@@ -357,8 +374,8 @@ export function DemandSaleCalendar({
             </h3>
             <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2 xl:grid-cols-4">
               <div>
-                <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Sellable modules</span>
-                <span className="font-semibold text-slate-950">{plan.defaultSale.modules}</span>
+                <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Sellable mix</span>
+                <span className="font-semibold text-slate-950">{modulesByTypeText}</span>
               </div>
               <div>
                 <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Avg modules / order</span>
@@ -367,10 +384,8 @@ export function DemandSaleCalendar({
                 </span>
               </div>
               <div>
-                <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Avg order value</span>
-                <span className="font-semibold text-slate-950">
-                  {averageOrderValue === null ? "Unavailable" : money(averageOrderValue)}
-                </span>
+                <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Revenue / module</span>
+                <span className="font-semibold text-slate-950">{moduleRevenueText}</span>
               </div>
               <div>
                 <span className="block text-xs font-semibold uppercase tracking-normal text-slate-400">Max revenue</span>
@@ -379,11 +394,12 @@ export function DemandSaleCalendar({
                 </span>
               </div>
             </div>
-            <p className="mt-3 text-xs text-slate-500">
-              Source: {plan.defaultSale.shopifyRevenueOrderCount} paid Shopify orders with revenue
-              from {plan.defaultSale.shopifyOrderCount} imported orders, Vancouver inventory, eligible container ETAs,
-              and prior planned sale days.
-            </p>
+            <div className="mt-3 rounded-2xl border border-line bg-white/80 px-3 py-2 text-xs text-slate-500">
+              <span className="font-semibold text-slate-700">{plan.defaultSale.shopifyProjectionMonth}</span>
+              {" "}source: {money(plan.defaultSale.shopifyProjectionRevenue)} revenue,
+              {" "}{plan.defaultSale.shopifyProjectionModules} modules,
+              {" "}{plan.defaultSale.shopifyProjectionRevenueOrderCount} paid Shopify orders.
+            </div>
           </div>
           <label className="w-full max-w-xs text-sm font-semibold text-slate-700">
             Sales cash lead time
@@ -431,9 +447,7 @@ export function DemandSaleCalendar({
               {possibleRevenue === null ? "Unavailable" : money(possibleRevenue)}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              {plan.defaultSale.orders === null || averageOrderValue === null
-                ? "Needs imported Shopify order revenue."
-                : `${plan.defaultSale.orders} max orders x ${money(averageOrderValue)} avg order value.`}
+              Remaining corner, armless, and ottoman mix x paid Shopify module values.
             </p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">

@@ -19,11 +19,16 @@ type MonthOption = {
 };
 
 type ContainerDemand = {
+  breakdown: ModuleBreakdown;
   container: ContainerEntry;
   demandOpenDate: Date | null;
   eta: Date | null;
   pieces: number;
 };
+
+type ModuleSlug = "corner" | "armless" | "ottoman";
+type ModuleBreakdown = Record<ModuleSlug, number>;
+type ModuleRevenue = Record<ModuleSlug, number | null>;
 
 type SaleEvent = {
   dailyBudget: number | null;
@@ -49,12 +54,18 @@ type DemandPlan = {
   currentMonth: string;
   customerAcquisitionCost: number | null;
   maxRevenue: number | null;
+  moduleRevenue: ModuleRevenue;
   openPayables: number;
   selectedMonth: MonthOption;
   recommendedSaleStart: Date | null;
   saleEvents: SaleEvent[];
   shopifyOrderCount: number;
+  shopifyProjectionMonth: string | null;
+  shopifyProjectionModules: number;
+  shopifyProjectionRevenue: number;
+  shopifyProjectionRevenueOrderCount: number;
   shopifyRevenueOrderCount: number;
+  targetModulesByType: ModuleBreakdown;
   targetMetaBudget: number | null;
   targetModulesToSell: number;
   targetOrdersToSell: number | null;
@@ -68,8 +79,67 @@ const salesCashLeadDays = 7;
 const getCachedWiseSummary = unstable_cache(getWiseSummary, ["wise-summary-demand"], { revalidate: 300 });
 const revenuePaymentStatuses = new Set(["PAID", "PARTIALLY_REFUNDED"]);
 
+type ShopifyProjectionMetrics = {
+  averageModulesPerOrder: number | null;
+  averageOrderValue: number | null;
+  moduleOrderCount: number;
+  moduleRevenue: ModuleRevenue;
+  sourceMonth: string | null;
+  totalModules: number;
+  totalRevenue: number;
+  revenueOrderCount: number;
+};
+
+const emptyModuleBreakdown = (): ModuleBreakdown => ({
+  armless: 0,
+  corner: 0,
+  ottoman: 0
+});
+
+function addModuleBreakdown(left: ModuleBreakdown, right: ModuleBreakdown) {
+  return {
+    armless: left.armless + right.armless,
+    corner: left.corner + right.corner,
+    ottoman: left.ottoman + right.ottoman
+  };
+}
+
+function subtractModuleBreakdown(left: ModuleBreakdown, right: ModuleBreakdown) {
+  return {
+    armless: Math.max(0, left.armless - right.armless),
+    corner: Math.max(0, left.corner - right.corner),
+    ottoman: Math.max(0, left.ottoman - right.ottoman)
+  };
+}
+
+function scaleModuleBreakdown(breakdown: ModuleBreakdown, scale: number) {
+  return {
+    armless: breakdown.armless * scale,
+    corner: breakdown.corner * scale,
+    ottoman: breakdown.ottoman * scale
+  };
+}
+
+function totalModuleBreakdown(breakdown: ModuleBreakdown) {
+  return breakdown.armless + breakdown.corner + breakdown.ottoman;
+}
+
+function normalizeModuleSlug(value?: string | null): ModuleSlug | null {
+  const normalized = (value || "").toLowerCase().trim();
+  if (normalized.includes("corner") || normalized === "cor") return "corner";
+  if (normalized.includes("armless") || normalized.includes("side") || normalized === "side") return "armless";
+  if (normalized.includes("ottoman") || normalized === "ott") return "ottoman";
+  return null;
+}
+
 function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(month: string | null) {
+  if (!month) return "Imported orders";
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date(year, monthNumber - 1, 1));
 }
 
 function dateInputValue(date: Date) {
@@ -132,6 +202,36 @@ function totalContainerPieces(container: ContainerEntry) {
   return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 }
 
+function containerModuleBreakdown(container: ContainerEntry) {
+  return (container.manifest_json || []).reduce<ModuleBreakdown>((sum, item) => {
+    const module = normalizeModuleSlug(item.module);
+    if (!module) return sum;
+    return {
+      ...sum,
+      [module]: sum[module] + Number(item.quantity || 0)
+    };
+  }, emptyModuleBreakdown());
+}
+
+function inventoryModuleBreakdown(rows: Pick<InventoryRow, "available_qty" | "module_slug">[]) {
+  return rows.reduce<ModuleBreakdown>((sum, row) => {
+    const module = normalizeModuleSlug(row.module_slug);
+    if (!module) return sum;
+    return {
+      ...sum,
+      [module]: sum[module] + Number(row.available_qty || 0)
+    };
+  }, emptyModuleBreakdown());
+}
+
+function orderModuleBreakdown(order: ShopifyOrder) {
+  return {
+    armless: Number(order.armless_qty || 0),
+    corner: Number(order.corner_qty || 0),
+    ottoman: Number(order.ottoman_qty || 0)
+  };
+}
+
 function calculateCustomerAcquisitionCost({
   metaExpenses,
   orders
@@ -177,16 +277,61 @@ function moduleOrders(orders: ShopifyOrder[]) {
   return revenueOrders(orders).filter((order) => Number(order.total_modules || 0) > 0);
 }
 
-function calculateAverageModulesPerOrder(orders: ShopifyOrder[]) {
-  const usableOrders = moduleOrders(orders);
-  const totalModules = usableOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
-  return usableOrders.length > 0 && totalModules > 0 ? totalModules / usableOrders.length : null;
-}
+function calculateShopifyProjectionMetrics(orders: ShopifyOrder[]): ShopifyProjectionMetrics {
+  const paidRevenueOrders = revenueOrders(orders);
+  const currentMonthStart = new Date();
+  currentMonthStart.setDate(1);
+  currentMonthStart.setHours(0, 0, 0, 0);
+  const completedRevenueOrders = paidRevenueOrders.filter((order) => {
+    const createdAt = new Date(order.created_at);
+    return !Number.isNaN(createdAt.getTime()) && createdAt < currentMonthStart;
+  });
+  const monthlyOrderGroups = new Map<string, ShopifyOrder[]>();
 
-function calculateAverageOrderValue(orders: ShopifyOrder[]) {
-  const usableOrders = revenueOrders(orders);
-  const revenue = usableOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
-  return usableOrders.length > 0 && revenue > 0 ? revenue / usableOrders.length : null;
+  for (const order of completedRevenueOrders) {
+    const createdAt = new Date(order.created_at);
+    if (Number.isNaN(createdAt.getTime())) continue;
+    const month = dateKey(createdAt);
+    monthlyOrderGroups.set(month, [...(monthlyOrderGroups.get(month) || []), order]);
+  }
+
+  const latestCompletedMonth = [...monthlyOrderGroups.keys()].sort().at(-1) || null;
+  const sourceOrders = latestCompletedMonth ? monthlyOrderGroups.get(latestCompletedMonth) || [] : paidRevenueOrders;
+  const sourceModuleOrders = moduleOrders(sourceOrders);
+  const totalRevenue = sourceOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
+  const totalModules = sourceModuleOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
+  const moduleRevenueTotals = emptyModuleBreakdown();
+  const moduleQuantityTotals = emptyModuleBreakdown();
+
+  for (const order of sourceModuleOrders) {
+    const orderBreakdown = orderModuleBreakdown(order);
+    const orderModules = totalModuleBreakdown(orderBreakdown);
+    const orderRevenue = Number(order.total_price || 0);
+    if (orderModules <= 0 || orderRevenue <= 0) continue;
+
+    const revenuePerModule = orderRevenue / orderModules;
+    moduleRevenueTotals.armless += orderBreakdown.armless * revenuePerModule;
+    moduleRevenueTotals.corner += orderBreakdown.corner * revenuePerModule;
+    moduleRevenueTotals.ottoman += orderBreakdown.ottoman * revenuePerModule;
+    moduleQuantityTotals.armless += orderBreakdown.armless;
+    moduleQuantityTotals.corner += orderBreakdown.corner;
+    moduleQuantityTotals.ottoman += orderBreakdown.ottoman;
+  }
+
+  return {
+    averageModulesPerOrder: sourceModuleOrders.length > 0 && totalModules > 0 ? totalModules / sourceModuleOrders.length : null,
+    averageOrderValue: sourceOrders.length > 0 && totalRevenue > 0 ? totalRevenue / sourceOrders.length : null,
+    moduleOrderCount: sourceModuleOrders.length,
+    moduleRevenue: {
+      armless: moduleQuantityTotals.armless > 0 ? moduleRevenueTotals.armless / moduleQuantityTotals.armless : null,
+      corner: moduleQuantityTotals.corner > 0 ? moduleRevenueTotals.corner / moduleQuantityTotals.corner : null,
+      ottoman: moduleQuantityTotals.ottoman > 0 ? moduleRevenueTotals.ottoman / moduleQuantityTotals.ottoman : null
+    },
+    revenueOrderCount: sourceOrders.length,
+    sourceMonth: latestCompletedMonth,
+    totalModules,
+    totalRevenue
+  };
 }
 
 function calculateAverageDailyModules(orders: ShopifyOrder[]) {
@@ -240,6 +385,21 @@ function inventoryEligibleByDate({
   }, 0);
 }
 
+function inventoryBreakdownEligibleByDate({
+  containerDemand,
+  date,
+  vancouverOnHandBreakdown
+}: {
+  containerDemand: ContainerDemand[];
+  date: Date;
+  vancouverOnHandBreakdown: ModuleBreakdown;
+}) {
+  return containerDemand.reduce((sum, item) => {
+    if (!item.demandOpenDate || item.demandOpenDate > date) return sum;
+    return addModuleBreakdown(sum, item.breakdown);
+  }, vancouverOnHandBreakdown);
+}
+
 function saleDateValue(sale: DemandSale) {
   return new Date(`${sale.sale_date}T00:00:00`);
 }
@@ -284,50 +444,86 @@ function consumedModulesBeforeDate({
   return Math.ceil(consumedModules);
 }
 
+function consumedModuleBreakdownBeforeDate({
+  beforeDate,
+  containerDemand,
+  plannedSales,
+  vancouverOnHandBreakdown
+}: {
+  beforeDate: Date;
+  containerDemand: ContainerDemand[];
+  plannedSales: DemandSale[];
+  vancouverOnHandBreakdown: ModuleBreakdown;
+}) {
+  let consumedModules = emptyModuleBreakdown();
+
+  for (const campaign of groupSaleCampaigns(plannedSales)) {
+    const soldDaysBeforeDate = campaign.filter((sale) => saleDateValue(sale) < beforeDate).length;
+    if (soldDaysBeforeDate === 0) continue;
+
+    const eligibleInventory = inventoryBreakdownEligibleByDate({
+      containerDemand,
+      date: campaignEligibilityDate(campaign, beforeDate),
+      vancouverOnHandBreakdown
+    });
+    const availableForCampaign = subtractModuleBreakdown(eligibleInventory, consumedModules);
+    const consumeRatio = Math.min(1, soldDaysBeforeDate / campaign.length);
+    consumedModules = addModuleBreakdown(consumedModules, scaleModuleBreakdown(availableForCampaign, consumeRatio));
+  }
+
+  return {
+    armless: Math.ceil(consumedModules.armless),
+    corner: Math.ceil(consumedModules.corner),
+    ottoman: Math.ceil(consumedModules.ottoman)
+  };
+}
+
 function projectedCashBeforeDate({
   averageModulesPerOrder,
-  averageOrderValue,
   beforeDate,
   cashBalance,
   cashObligations,
   containerDemand,
   customerAcquisitionCost,
+  moduleRevenue,
   plannedSales,
-  vancouverOnHand
+  vancouverOnHandBreakdown
 }: {
   averageModulesPerOrder: number | null;
-  averageOrderValue: number | null;
   beforeDate: Date;
   cashBalance: number;
   cashObligations: DemandCashObligation[];
   containerDemand: ContainerDemand[];
   customerAcquisitionCost: number | null;
+  moduleRevenue: ModuleRevenue;
   plannedSales: DemandSale[];
-  vancouverOnHand: number;
+  vancouverOnHandBreakdown: ModuleBreakdown;
 }) {
   const beforeDateKey = dateInputValue(beforeDate);
   let projectedCash = cashBalance;
-  let consumedModules = 0;
+  let consumedModules = emptyModuleBreakdown();
 
   for (const obligation of cashObligations) {
     if (obligationDate(obligation) >= beforeDateKey) continue;
     projectedCash -= obligation.amountCad || 0;
   }
 
-  if (!averageModulesPerOrder || !averageOrderValue || !customerAcquisitionCost) {
+  if (!averageModulesPerOrder || !customerAcquisitionCost) {
     return projectedCash;
   }
 
   for (const campaign of groupSaleCampaigns(plannedSales)) {
-    const eligibleInventory = inventoryEligibleByDate({
+    const eligibleInventory = inventoryBreakdownEligibleByDate({
       containerDemand,
       date: campaignEligibilityDate(campaign),
-      vancouverOnHand
+      vancouverOnHandBreakdown
     });
-    const availableForCampaign = Math.max(0, eligibleInventory - consumedModules);
-    const campaignOrders = availableForCampaign > 0 ? Math.ceil(availableForCampaign / averageModulesPerOrder) : 0;
+    const availableForCampaign = subtractModuleBreakdown(eligibleInventory, consumedModules);
+    const availableModulesForCampaign = totalModuleBreakdown(availableForCampaign);
+    const campaignOrders = availableModulesForCampaign > 0 ? Math.ceil(availableModulesForCampaign / averageModulesPerOrder) : 0;
+    const campaignRevenue = maxRevenueFromModuleMix(availableForCampaign, moduleRevenue);
     const dailyAdSpend = campaign.length > 0 ? (campaignOrders * customerAcquisitionCost) / campaign.length : 0;
-    const dailyRevenue = campaign.length > 0 ? (campaignOrders * averageOrderValue) / campaign.length : 0;
+    const dailyRevenue = campaign.length > 0 ? (campaignRevenue || 0) / campaign.length : 0;
 
     for (const sale of campaign) {
       if (sale.sale_date < beforeDateKey) {
@@ -341,8 +537,8 @@ function projectedCashBeforeDate({
     }
 
     const soldDaysBeforeDate = campaign.filter((sale) => saleDateValue(sale) < beforeDate).length;
-    const dailyModules = campaign.length > 0 ? availableForCampaign / campaign.length : 0;
-    consumedModules += Math.min(availableForCampaign, dailyModules * soldDaysBeforeDate);
+    const consumeRatio = Math.min(1, soldDaysBeforeDate / campaign.length);
+    consumedModules = addModuleBreakdown(consumedModules, scaleModuleBreakdown(availableForCampaign, consumeRatio));
   }
 
   return projectedCash;
@@ -368,6 +564,15 @@ function availableModulesForDate({
   });
 
   return Math.max(0, eligibleInventory - consumedModules);
+}
+
+function maxRevenueFromModuleMix(modules: ModuleBreakdown, moduleRevenue: ModuleRevenue) {
+  const missingValue = (Object.keys(modules) as ModuleSlug[]).some((module) => modules[module] > 0 && moduleRevenue[module] === null);
+  if (missingValue) return null;
+
+  return (Object.keys(modules) as ModuleSlug[]).reduce((sum, module) => {
+    return sum + modules[module] * (moduleRevenue[module] || 0);
+  }, 0);
 }
 
 function buildSaleEvents({
@@ -420,7 +625,8 @@ function calculateDemandPlan({
   orders,
   plannedSales,
   selectedMonth,
-  vancouverOnHand
+  vancouverOnHand,
+  vancouverOnHandBreakdown
 }: {
   containers: ContainerEntry[];
   customerAcquisitionCost: number | null;
@@ -432,36 +638,41 @@ function calculateDemandPlan({
   plannedSales: DemandSale[];
   selectedMonth: MonthOption;
   vancouverOnHand: number;
+  vancouverOnHandBreakdown: ModuleBreakdown;
 }): DemandPlan {
   const today = new Date();
   const currentMonth = dateKey(today);
-  const averageModulesPerOrder = calculateAverageModulesPerOrder(orders);
-  const averageOrderValue = calculateAverageOrderValue(orders);
+  const shopifyProjectionMetrics = calculateShopifyProjectionMetrics(orders);
+  const averageModulesPerOrder = shopifyProjectionMetrics.averageModulesPerOrder;
+  const averageOrderValue = shopifyProjectionMetrics.averageOrderValue;
   const averageDailyModules = calculateAverageDailyModules(orders);
+  const selectedVancouverOnHand = vancouverOnHand;
   const activeContainers = containers.filter((container) => container.status !== "closed");
   const openPayables = activeContainers.reduce((sum, container) => sum + Number(container.amount_to_be_paid || 0), 0);
   const totalActiveInboundModules = activeContainers.reduce((sum, container) => sum + totalContainerPieces(container), 0);
   const containerDemand = activeContainers
     .map((container) => {
       const eta = getContainerEta(container);
+      const breakdown = containerModuleBreakdown(container);
       return {
+        breakdown,
         container,
         demandOpenDate: eta ? addDays(eta, -saleLeadDays) : null,
         eta,
-        pieces: totalContainerPieces(container)
+        pieces: totalModuleBreakdown(breakdown)
       };
     })
     .sort((left, right) => (left.demandOpenDate?.getTime() || Number.MAX_SAFE_INTEGER) - (right.demandOpenDate?.getTime() || Number.MAX_SAFE_INTEGER));
   const projectedStartingCash = projectedCashBeforeDate({
     averageModulesPerOrder,
-    averageOrderValue,
     beforeDate: selectedMonth.start,
     cashBalance,
     cashObligations,
     containerDemand,
     customerAcquisitionCost,
+    moduleRevenue: shopifyProjectionMetrics.moduleRevenue,
     plannedSales,
-    vancouverOnHand
+    vancouverOnHandBreakdown
   });
   const containersEligibleThisMonth = containerDemand.filter((item) =>
     Boolean(
@@ -471,21 +682,22 @@ function calculateDemandPlan({
         item.eta >= selectedMonth.start
     )
   );
-  const selectedVancouverOnHand = vancouverOnHand;
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const consumedBeforeMonth = consumedModulesBeforeDate({
+  const consumedBreakdownBeforeMonth = consumedModuleBreakdownBeforeDate({
     beforeDate: selectedMonth.start,
     containerDemand,
     plannedSales,
-    vancouverOnHand: selectedVancouverOnHand
+    vancouverOnHandBreakdown
   });
+  const eligibleBreakdownAtMonthEnd = inventoryBreakdownEligibleByDate({
+    containerDemand,
+    date: selectedMonth.end,
+    vancouverOnHandBreakdown
+  });
+  const targetModulesByType = subtractModuleBreakdown(eligibleBreakdownAtMonthEnd, consumedBreakdownBeforeMonth);
   const targetModulesToSell = Math.max(
     0,
-    inventoryEligibleByDate({
-      containerDemand,
-      date: selectedMonth.end,
-      vancouverOnHand: selectedVancouverOnHand
-    }) - consumedBeforeMonth
+    totalModuleBreakdown(targetModulesByType)
   );
   const firstPossibleSaleDate = targetModulesToSell > 0
     ? selectedMonth.month === currentMonth
@@ -532,15 +744,19 @@ function calculateDemandPlan({
     containersEligibleThisMonth,
     currentMonth,
     customerAcquisitionCost,
-    maxRevenue: targetOrdersToSell !== null && averageOrderValue !== null
-      ? targetOrdersToSell * averageOrderValue
-      : null,
+    maxRevenue: maxRevenueFromModuleMix(targetModulesByType, shopifyProjectionMetrics.moduleRevenue),
+    moduleRevenue: shopifyProjectionMetrics.moduleRevenue,
     openPayables,
     recommendedSaleStart: firstPossibleSaleDate,
     selectedMonth,
     saleEvents,
     shopifyOrderCount: orders.length,
+    shopifyProjectionMonth: shopifyProjectionMetrics.sourceMonth,
+    shopifyProjectionModules: shopifyProjectionMetrics.totalModules,
+    shopifyProjectionRevenue: shopifyProjectionMetrics.totalRevenue,
+    shopifyProjectionRevenueOrderCount: shopifyProjectionMetrics.revenueOrderCount,
     shopifyRevenueOrderCount: revenueOrders(orders).length,
+    targetModulesByType,
     targetMetaBudget: targetOrdersToSell !== null && customerAcquisitionCost !== null
       ? targetOrdersToSell * customerAcquisitionCost
       : null,
@@ -585,11 +801,18 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
       cacOrderCount: plan.cacOrderCount,
       cashBalance: plan.cashBalance,
       customerAcquisitionCost: plan.customerAcquisitionCost,
+      maxRevenue: plan.maxRevenue,
+      moduleRevenue: plan.moduleRevenue,
       modules: plan.targetModulesToSell,
+      modulesByType: plan.targetModulesByType,
       openPayables: plan.openPayables,
       orders: plan.targetOrdersToSell,
       recommendedStartDate: plan.recommendedSaleStart ? dateInputValue(plan.recommendedSaleStart) : null,
       shopifyOrderCount: plan.shopifyOrderCount,
+      shopifyProjectionMonth: monthLabel(plan.shopifyProjectionMonth),
+      shopifyProjectionModules: plan.shopifyProjectionModules,
+      shopifyProjectionRevenue: plan.shopifyProjectionRevenue,
+      shopifyProjectionRevenueOrderCount: plan.shopifyProjectionRevenueOrderCount,
       shopifyRevenueOrderCount: plan.shopifyRevenueOrderCount,
       totalActiveInboundModules: plan.totalActiveInboundModules,
       totalBudget: plan.targetMetaBudget,
