@@ -93,6 +93,30 @@ type ShopifyProjectionMetrics = {
   revenueOrderCount: number;
 };
 
+type ShopifyMoneySet = {
+  shopMoney?: {
+    amount?: string | null;
+    currencyCode?: string | null;
+  } | null;
+};
+
+type ShopifyRawLineItem = {
+  discountedTotalSet?: ShopifyMoneySet | null;
+  originalTotalSet?: ShopifyMoneySet | null;
+  quantity?: number | null;
+  sku?: string | null;
+  title?: string | null;
+  variantTitle?: string | null;
+};
+
+type ShopifyRawOrder = {
+  lineItems?: {
+    edges?: Array<{
+      node?: ShopifyRawLineItem | null;
+    } | null> | null;
+  } | null;
+};
+
 const emptyModuleBreakdown = (): ModuleBreakdown => ({
   armless: 0,
   corner: 0,
@@ -235,12 +259,30 @@ function isInboundDemandContainer(container: ContainerEntry) {
   return container.status === "production" || container.status === "in_transit";
 }
 
-function orderModuleBreakdown(order: ShopifyOrder) {
-  return {
-    armless: Number(order.armless_qty || 0),
-    corner: Number(order.corner_qty || 0),
-    ottoman: Number(order.ottoman_qty || 0)
-  };
+function lineItemModule(lineItem: ShopifyRawLineItem) {
+  return normalizeModuleSlug([lineItem.title, lineItem.variantTitle, lineItem.sku].filter(Boolean).join(" "));
+}
+
+function lineItemRevenue(lineItem: ShopifyRawLineItem) {
+  const money =
+    lineItem.discountedTotalSet?.shopMoney ||
+    lineItem.originalTotalSet?.shopMoney ||
+    null;
+  const amount = Number(money?.amount || 0);
+  const currency = money?.currencyCode || "CAD";
+
+  if (!Number.isFinite(amount) || amount <= 0 || currency.toUpperCase() !== "CAD") {
+    return null;
+  }
+
+  return amount;
+}
+
+function orderRawLineItems(order: ShopifyOrder) {
+  const rawOrder = order.raw_shopify_json as ShopifyRawOrder | null;
+  return (rawOrder?.lineItems?.edges || [])
+    .map((edge) => edge?.node || null)
+    .filter((node): node is ShopifyRawLineItem => Boolean(node));
 }
 
 function calculateCustomerAcquisitionCost({
@@ -315,18 +357,16 @@ function calculateShopifyProjectionMetrics(orders: ShopifyOrder[]): ShopifyProje
   const moduleQuantityTotals = emptyModuleBreakdown();
 
   for (const order of sourceModuleOrders) {
-    const orderBreakdown = orderModuleBreakdown(order);
-    const orderModules = totalModuleBreakdown(orderBreakdown);
-    const orderRevenue = Number(order.total_price || 0);
-    if (orderModules <= 0 || orderRevenue <= 0) continue;
+    for (const lineItem of orderRawLineItems(order)) {
+      const moduleSlug = lineItemModule(lineItem);
+      const quantity = Number(lineItem.quantity || 0);
+      const revenue = lineItemRevenue(lineItem);
 
-    const revenuePerModule = orderRevenue / orderModules;
-    moduleRevenueTotals.armless += orderBreakdown.armless * revenuePerModule;
-    moduleRevenueTotals.corner += orderBreakdown.corner * revenuePerModule;
-    moduleRevenueTotals.ottoman += orderBreakdown.ottoman * revenuePerModule;
-    moduleQuantityTotals.armless += orderBreakdown.armless;
-    moduleQuantityTotals.corner += orderBreakdown.corner;
-    moduleQuantityTotals.ottoman += orderBreakdown.ottoman;
+      if (!moduleSlug || !Number.isFinite(quantity) || quantity <= 0 || revenue === null) continue;
+
+      moduleRevenueTotals[moduleSlug] += revenue;
+      moduleQuantityTotals[moduleSlug] += quantity;
+    }
   }
 
   return {
@@ -840,7 +880,7 @@ export default async function DemandPage({
       .returns<Pick<InventoryRow, "available_qty" | "module_slug" | "reserved_qty">[]>(),
     supabase
       .from("shopify_orders")
-      .select("created_at,total_modules,total_price,payment_status,currency,corner_qty,armless_qty,ottoman_qty")
+      .select("created_at,total_modules,total_price,payment_status,currency,corner_qty,armless_qty,ottoman_qty,raw_shopify_json")
       .order("created_at", { ascending: false })
       .limit(1000)
       .returns<ShopifyOrder[]>(),

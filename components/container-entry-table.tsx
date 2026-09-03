@@ -3,10 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { ContainerEntry, ContainerManifestItem } from "@/lib/types";
+import type { ContainerEntry, ContainerEntryStatus, ContainerManifestItem } from "@/lib/types";
 
 const manifestColors = ["White", "Dark grey", "Peach", "Aqua", "Jade", "Slipcover design"] as const;
 const manifestModules = ["corner", "armless", "ottoman"] as const;
+const containerStatuses: { label: string; value: ContainerEntryStatus }[] = [
+  { label: "Planning", value: "planning" },
+  { label: "Production", value: "production" },
+  { label: "In transit", value: "in_transit" },
+  { label: "Arrived", value: "arrived" },
+  { label: "Closed", value: "closed" }
+];
 
 type ManifestColor = (typeof manifestColors)[number];
 type ManifestModule = (typeof manifestModules)[number];
@@ -20,9 +27,10 @@ type DraftContainer = {
   manifest: ManifestDraft;
   notes: string;
   payment_due_at: string;
+  status: ContainerEntryStatus;
 };
 
-type DraftTextField = Exclude<keyof DraftContainer, "manifest">;
+type DraftTextField = Exclude<keyof DraftContainer, "manifest" | "status">;
 
 function emptyManifest(): ManifestDraft {
   return Object.fromEntries(
@@ -41,7 +49,8 @@ function emptyDraft(): DraftContainer {
     eta: "",
     manifest: emptyManifest(),
     notes: "",
-    payment_due_at: ""
+    payment_due_at: "",
+    status: "production"
   };
 }
 
@@ -122,7 +131,8 @@ function toDraft(container: ContainerEntry): DraftContainer {
     eta: toInputDate(container.eta),
     manifest: manifestToDraft(container.manifest_json, container.skus_on_board),
     notes: container.notes || "",
-    payment_due_at: toInputDate(container.payment_due_at)
+    payment_due_at: toInputDate(container.payment_due_at),
+    status: container.status || "planning"
   };
 }
 
@@ -139,7 +149,7 @@ function payloadFromDraft(draft: DraftContainer) {
     notes: draft.notes,
     payment_due_at: draft.payment_due_at || null,
     skus_on_board: manifestText(manifest),
-    status: "planning"
+    status: draft.status
   };
 }
 
@@ -237,6 +247,16 @@ export function ContainerEntryTable({
       [id]: {
         ...current[id],
         [field]: value
+      }
+    }));
+  }
+
+  function updateDraftStatus(id: string, status: ContainerEntryStatus) {
+    setDrafts((current) => ({
+      ...current,
+      [id]: {
+        ...current[id],
+        status
       }
     }));
   }
@@ -351,6 +371,19 @@ export function ContainerEntryTable({
                 value={createDraft.eta}
               />
             </Field>
+            <Field label="Status">
+              <select
+                className={inputClass}
+                onChange={(event) => setCreateDraft((draft) => ({ ...draft, status: event.target.value as ContainerEntryStatus }))}
+                value={createDraft.status}
+              >
+                {containerStatuses.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Amount paid (USD)">
               <input
                 className={inputClass}
@@ -381,7 +414,7 @@ export function ContainerEntryTable({
                 value={createDraft.payment_due_at}
               />
             </Field>
-            <div className="flex items-end lg:col-span-2">
+            <div className="flex items-end">
               <button
                 className="h-12 w-full rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 disabled={savingId === "new"}
@@ -429,6 +462,7 @@ export function ContainerEntryTable({
                   <th className="px-4 py-3 text-right">To be paid USD</th>
                   <th className="px-4 py-3 text-left">Payment due</th>
                   <th className="px-4 py-3 text-left">ETA</th>
+                  <th className="px-4 py-3 text-left">Status</th>
                   {canEdit ? <th className="px-4 py-3 text-right">Action</th> : null}
                 </tr>
               </thead>
@@ -509,6 +543,23 @@ export function ContainerEntryTable({
                           />
                         ) : (
                           formatDate(container.eta)
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {canEdit ? (
+                          <select
+                            className={inputClass}
+                            onChange={(event) => updateDraftStatus(container.id, event.target.value as ContainerEntryStatus)}
+                            value={draft.status}
+                          >
+                            {containerStatuses.map((status) => (
+                              <option key={status.value} value={status.value}>
+                                {status.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          containerStatuses.find((status) => status.value === container.status)?.label || container.status || "Planning"
                         )}
                       </td>
                       {canEdit ? (

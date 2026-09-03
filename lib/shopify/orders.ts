@@ -37,6 +37,18 @@ type ShopifyOrderNode = {
   lineItems?: {
     edges: Array<{
       node: {
+        discountedTotalSet?: {
+          shopMoney?: {
+            amount?: string | null;
+            currencyCode?: string | null;
+          } | null;
+        } | null;
+        originalTotalSet?: {
+          shopMoney?: {
+            amount?: string | null;
+            currencyCode?: string | null;
+          } | null;
+        } | null;
         title?: string | null;
         quantity?: number | null;
         sku?: string | null;
@@ -109,6 +121,18 @@ const ORDER_FIELDS = /* GraphQL */ `
   lineItems(first: 100) {
     edges {
       node {
+        discountedTotalSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+        originalTotalSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
         title
         quantity
         sku
