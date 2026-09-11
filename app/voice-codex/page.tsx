@@ -13,7 +13,7 @@ export default async function VoiceCodexPage() {
         <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Voice workflow</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950">Voice Codex</h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-          Talk through a change in GPT-Realtime, call Codex only when the repo matters, then approve the exact plan before execution.
+          Talk through a change in GPT-Live-1, call Codex only when the repo matters, then approve the exact plan before execution.
         </p>
       </div>
       <VoiceCodexWorkspace canExecute={canUpdateOrderLogistics(profile?.role)} />

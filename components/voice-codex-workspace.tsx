@@ -22,6 +22,18 @@ type DelegateResponse = {
 const voiceOptions = [
   { label: "Marin", value: "marin" },
   { label: "Cedar", value: "cedar" },
+  { label: "Quartz", value: "quartz" },
+  { label: "Ripple", value: "ripple" },
+  { label: "Vesper", value: "vesper" },
+  { label: "Willow", value: "willow" },
+  { label: "Stone", value: "stone" },
+  { label: "Gleam", value: "gleam" },
+  { label: "Meridian", value: "meridian" },
+  { label: "Bossa", value: "bossa" },
+  { label: "Tempo", value: "tempo" },
+  { label: "Beacon", value: "beacon" },
+  { label: "Delta", value: "delta" },
+  { label: "Cinder", value: "cinder" },
   { label: "Verse", value: "verse" },
   { label: "Alloy", value: "alloy" },
   { label: "Ash", value: "ash" },
@@ -44,14 +56,6 @@ function statusLabel(status: WorkflowStatus) {
   };
 
   return labels[status];
-}
-
-function extractClientSecret(payload: unknown) {
-  if (!payload || typeof payload !== "object") return "";
-  const value = (payload as { value?: unknown }).value;
-  if (typeof value === "string") return value;
-  const nested = (payload as { client_secret?: { value?: unknown } }).client_secret?.value;
-  return typeof nested === "string" ? nested : "";
 }
 
 export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
@@ -88,41 +92,39 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
     setTranscript((current) => [line, ...current].slice(0, 20));
   }
 
-  async function handleFunctionCall(event: { call_id?: string; name?: string; arguments?: string }) {
-    if (event.name !== "delegate_to_codex") return;
-
-    let args: { action?: CodexAction; accumulatedContext?: string; approvalSummary?: string; userMessage?: string } = {};
-
-    try {
-      args = JSON.parse(event.arguments || "{}");
-    } catch {
-      args = {};
-    }
-
-    const result = await delegateToCodex(args.action || "inspect", {
-      accumulatedContext: args.accumulatedContext || spec,
-      approvalSummary: args.approvalSummary || approvalSummary,
-      userMessage: args.userMessage || latestIntent
+  async function handleDelegation(event: { delegation?: { id?: string }; delegation_id?: string; id?: string }) {
+    const delegationId = event.delegation?.id || event.delegation_id || event.id || null;
+    const result = await delegateToCodex("inspect", {
+      accumulatedContext: spec,
+      approvalSummary,
+      userMessage: latestIntent || "Inspect the current Voice Codex conversation and ask the next useful clarification."
     });
 
     const dataChannel = dataChannelRef.current;
-    if (!dataChannel || dataChannel.readyState !== "open" || !event.call_id) return;
+    if (!dataChannel || dataChannel.readyState !== "open") return;
 
     dataChannel.send(
       JSON.stringify({
-        type: "conversation.item.create",
-        item: {
-          type: "function_call_output",
-          call_id: event.call_id,
-          output: result.response || result.error || "Codex did not return a response."
-        }
+        type: "session.commentary.append",
+        delegation_id: delegationId,
+        content: result.response || result.error || "Codex did not return a response."
       })
     );
-    dataChannel.send(JSON.stringify({ type: "response.create" }));
   }
 
   function handleLiveEvent(rawEvent: MessageEvent<string>) {
-    let event: { arguments?: string; call_id?: string; delta?: string; name?: string; text?: string; transcript?: string; type?: string } = {};
+    let event: {
+      arguments?: string;
+      call_id?: string;
+      delegation?: { id?: string };
+      delegation_id?: string;
+      delta?: string;
+      id?: string;
+      name?: string;
+      text?: string;
+      transcript?: string;
+      type?: string;
+    } = {};
 
     try {
       event = JSON.parse(rawEvent.data);
@@ -130,17 +132,27 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
       return;
     }
 
-    if (event.type === "conversation.item.input_audio_transcription.completed" && event.transcript) {
+    if (
+      (event.type === "conversation.item.input_audio_transcription.completed" ||
+        event.type === "conversation.input_audio_transcription.completed" ||
+        event.type === "input_audio_transcription.completed") &&
+      event.transcript
+    ) {
       addTranscript(`You: ${event.transcript}`);
       setLatestIntent(event.transcript);
     }
 
-    if (event.type === "response.audio_transcript.done" && event.transcript) {
+    if (
+      (event.type === "response.audio_transcript.done" ||
+        event.type === "response.output_audio_transcript.done" ||
+        event.type === "output_audio_transcript.done") &&
+      event.transcript
+    ) {
       addTranscript(`Voice Codex: ${event.transcript}`);
     }
 
-    if (event.type === "response.function_call_arguments.done") {
-      void handleFunctionCall(event);
+    if (event.type === "session.delegation.created") {
+      void handleDelegation(event);
     }
   }
 
@@ -149,23 +161,6 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
     setMessage("");
 
     try {
-      const sessionResponse = await fetch("/api/voice-codex/live-session", {
-        body: JSON.stringify({
-          instructions: voiceInstructions,
-          voice: selectedVoice
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST"
-      });
-      const sessionPayload = await sessionResponse.json();
-
-      if (!sessionResponse.ok) {
-        throw new Error(sessionPayload.error || "Unable to start GPT Live");
-      }
-
-      const clientSecret = extractClientSecret(sessionPayload);
-      if (!clientSecret) throw new Error("No GPT Live client secret returned.");
-
       const peerConnection = new RTCPeerConnection();
       peerConnectionRef.current = peerConnection;
 
@@ -196,31 +191,26 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
 
-      const formData = new FormData();
-      formData.set("sdp", offer.sdp || "");
-      formData.set(
-        "session",
-        JSON.stringify({
-          type: "realtime",
-          model: "gpt-realtime",
+      const sessionResponse = await fetch("/api/voice-codex/live-session", {
+        body: JSON.stringify({
+          instructions: voiceInstructions,
+          sdp: offer.sdp || "",
           voice: selectedVoice
-        })
-      );
-
-      const realtimeResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
-        body: formData,
-        headers: {
-          Authorization: `Bearer ${clientSecret}`
-        },
+        }),
+        headers: { "Content-Type": "application/json" },
         method: "POST"
       });
+      const sessionPayload = (await sessionResponse.json()) as { error?: string; transport?: { sdp?: string; type?: string } };
 
-      if (!realtimeResponse.ok) {
-        throw new Error(await realtimeResponse.text());
+      if (!sessionResponse.ok) {
+        throw new Error(sessionPayload.error || "Unable to start GPT-Live-1");
       }
 
+      const answerSdp = sessionPayload.transport?.sdp;
+      if (!answerSdp) throw new Error("No GPT-Live-1 SDP answer returned.");
+
       await peerConnection.setRemoteDescription({
-        sdp: await realtimeResponse.text(),
+        sdp: answerSdp,
         type: "answer"
       });
     } catch (error) {
@@ -330,7 +320,7 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
         <div className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">GPT-Realtime</p>
+              <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">GPT-Live-1</p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">Voice Codex</h2>
               <p className="mt-2 text-sm text-slate-500">Voice: {voiceOptions.find((voice) => voice.value === selectedVoice)?.label}</p>
             </div>

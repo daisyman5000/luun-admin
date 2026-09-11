@@ -4,7 +4,30 @@ import { voiceCodexLiveInstructions } from "@/lib/voice-codex/prompts";
 
 export const runtime = "nodejs";
 
-const voices = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar"] as const;
+const voices = [
+  "alloy",
+  "ash",
+  "ballad",
+  "beacon",
+  "bossa",
+  "cedar",
+  "cinder",
+  "coral",
+  "delta",
+  "echo",
+  "gleam",
+  "marin",
+  "meridian",
+  "quartz",
+  "ripple",
+  "sage",
+  "shimmer",
+  "stone",
+  "tempo",
+  "verse",
+  "vesper",
+  "willow"
+] as const;
 
 function cleanVoice(value: unknown) {
   return typeof value === "string" && voices.includes(value as (typeof voices)[number]) ? value : "marin";
@@ -29,61 +52,34 @@ export async function POST(request: Request) {
   const requestBody = await request.json().catch(() => ({}));
   const voice = cleanVoice((requestBody as { voice?: unknown }).voice);
   const customInstructions = cleanInstructions((requestBody as { instructions?: unknown }).instructions);
+  const sdp = typeof (requestBody as { sdp?: unknown }).sdp === "string" ? (requestBody as { sdp: string }).sdp : "";
+
+  if (!sdp) {
+    return NextResponse.json({ error: "WebRTC SDP offer is required" }, { status: 400 });
+  }
+
   const instructions = customInstructions
     ? `${voiceCodexLiveInstructions}\n\nVoice personalization:\n${customInstructions}`
     : voiceCodexLiveInstructions;
 
-  const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+  const response = await fetch("https://api.openai.com/v1/live/sessions", {
     body: JSON.stringify({
-      expires_after: {
-        anchor: "created_at",
-        seconds: 600
-      },
       session: {
-        type: "realtime",
-        model: "gpt-realtime",
+        model: "gpt-live-1",
         instructions,
         audio: {
-          input: {
-            transcription: {
-              model: "gpt-4o-transcribe"
-            }
-          },
           output: {
             voice
           }
         },
-        tools: [
-          {
-            type: "function",
-            name: "delegate_to_codex",
-            description:
-              "Call the persistent Codex worker only for repo inspection, code-dependent clarification, planning, or explicitly approved execution.",
-            parameters: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                action: {
-                  type: "string",
-                  enum: ["inspect", "clarify", "plan", "execute"]
-                },
-                accumulatedContext: {
-                  type: "string",
-                  description: "The user's accumulated verbal answers and the current canonical spec."
-                },
-                approvalSummary: {
-                  type: "string",
-                  description: "Only include when the user explicitly approved execution."
-                },
-                userMessage: {
-                  type: "string",
-                  description: "The latest user intent that requires Codex."
-                }
-              },
-              required: ["action", "accumulatedContext", "userMessage"]
-            }
-          }
-        ]
+        delegation: {
+          type: "client"
+        },
+        store: true
+      },
+      transport: {
+        type: "webrtc",
+        sdp
       }
     }),
     headers: {
@@ -97,7 +93,7 @@ export async function POST(request: Request) {
 
   if (!response.ok) {
     return NextResponse.json(
-      { error: "Unable to create GPT Live session", details: responseBody },
+      { error: "Unable to create GPT-Live-1 session", details: responseBody },
       { status: response.status }
     );
   }
