@@ -11,6 +11,7 @@ const primaryLinks = [
   { href: "/demand", label: "Demand Plan", short: "D" },
   { href: "/cac", label: "CAC", short: "CAC" },
   { href: "/jobs", label: "Jobs", short: "J" },
+  { href: "/voice-codex", label: "Voice Codex", short: "VC" },
   { href: "/forecasting/containers", label: "Invoices", short: "In" }
 ];
 
