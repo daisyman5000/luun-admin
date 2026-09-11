@@ -23,7 +23,7 @@ export async function POST() {
       },
       session: {
         type: "realtime",
-        model: "gpt-live-1",
+        model: "gpt-realtime",
         instructions: voiceCodexLiveInstructions,
         audio: {
           input: {

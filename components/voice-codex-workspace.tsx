@@ -177,7 +177,7 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
         "session",
         JSON.stringify({
           type: "realtime",
-          model: "gpt-live-1"
+          model: "gpt-realtime"
         })
       );
 
@@ -278,7 +278,7 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
         <div className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">GPT-Live-1</p>
+              <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">GPT-Realtime</p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">Voice Codex</h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
