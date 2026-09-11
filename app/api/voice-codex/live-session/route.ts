@@ -4,7 +4,18 @@ import { voiceCodexLiveInstructions } from "@/lib/voice-codex/prompts";
 
 export const runtime = "nodejs";
 
-export async function POST() {
+const voices = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar"] as const;
+
+function cleanVoice(value: unknown) {
+  return typeof value === "string" && voices.includes(value as (typeof voices)[number]) ? value : "marin";
+}
+
+function cleanInstructions(value: unknown) {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, 1200);
+}
+
+export async function POST(request: Request) {
   const { user } = await getUserContext();
 
   if (!user) {
@@ -15,6 +26,13 @@ export async function POST() {
     return NextResponse.json({ error: "OPENAI_API_KEY is not configured" }, { status: 500 });
   }
 
+  const requestBody = await request.json().catch(() => ({}));
+  const voice = cleanVoice((requestBody as { voice?: unknown }).voice);
+  const customInstructions = cleanInstructions((requestBody as { instructions?: unknown }).instructions);
+  const instructions = customInstructions
+    ? `${voiceCodexLiveInstructions}\n\nVoice personalization:\n${customInstructions}`
+    : voiceCodexLiveInstructions;
+
   const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
     body: JSON.stringify({
       expires_after: {
@@ -24,7 +42,7 @@ export async function POST() {
       session: {
         type: "realtime",
         model: "gpt-realtime",
-        instructions: voiceCodexLiveInstructions,
+        instructions,
         audio: {
           input: {
             transcription: {
@@ -32,7 +50,7 @@ export async function POST() {
             }
           },
           output: {
-            voice: "verse"
+            voice
           }
         },
         tools: [
@@ -75,14 +93,14 @@ export async function POST() {
     method: "POST"
   });
 
-  const body = await response.json().catch(async () => ({ error: await response.text() }));
+  const responseBody = await response.json().catch(async () => ({ error: await response.text() }));
 
   if (!response.ok) {
     return NextResponse.json(
-      { error: "Unable to create GPT Live session", details: body },
+      { error: "Unable to create GPT Live session", details: responseBody },
       { status: response.status }
     );
   }
 
-  return NextResponse.json(body);
+  return NextResponse.json(responseBody);
 }

@@ -19,6 +19,19 @@ type DelegateResponse = {
   threadId?: string;
 };
 
+const voiceOptions = [
+  { label: "Marin", value: "marin" },
+  { label: "Cedar", value: "cedar" },
+  { label: "Verse", value: "verse" },
+  { label: "Alloy", value: "alloy" },
+  { label: "Ash", value: "ash" },
+  { label: "Ballad", value: "ballad" },
+  { label: "Coral", value: "coral" },
+  { label: "Echo", value: "echo" },
+  { label: "Sage", value: "sage" },
+  { label: "Shimmer", value: "shimmer" }
+] as const;
+
 function statusLabel(status: WorkflowStatus) {
   const labels: Record<WorkflowStatus, string> = {
     clarifying: "Clarifying",
@@ -48,9 +61,14 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
   const [latestIntent, setLatestIntent] = useState("");
   const [spec, setSpec] = useState("");
   const [approvalSummary, setApprovalSummary] = useState("");
+  const [selectedVoice, setSelectedVoice] = useState("marin");
+  const [voiceInstructions, setVoiceInstructions] = useState(
+    "Speak calmly, directly, and briefly. Ask one concrete question at a time when the request is ambiguous."
+  );
   const [transcript, setTranscript] = useState<string[]>([]);
   const [events, setEvents] = useState<CodexEvent[]>([]);
   const [message, setMessage] = useState("");
+  const [summarizing, setSummarizing] = useState(false);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -131,7 +149,14 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
     setMessage("");
 
     try {
-      const sessionResponse = await fetch("/api/voice-codex/live-session", { method: "POST" });
+      const sessionResponse = await fetch("/api/voice-codex/live-session", {
+        body: JSON.stringify({
+          instructions: voiceInstructions,
+          voice: selectedVoice
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      });
       const sessionPayload = await sessionResponse.json();
 
       if (!sessionResponse.ok) {
@@ -177,7 +202,8 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
         "session",
         JSON.stringify({
           type: "realtime",
-          model: "gpt-realtime"
+          model: "gpt-realtime",
+          voice: selectedVoice
         })
       );
 
@@ -251,6 +277,32 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
     return body;
   }
 
+  async function buildCodexPrompt() {
+    setSummarizing(true);
+    setMessage("");
+
+    const response = await fetch("/api/voice-codex/summarize", {
+      body: JSON.stringify({
+        latestIntent,
+        notes: spec,
+        transcript: [...transcript].reverse()
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    const body = (await response.json()) as { error?: string; spec?: string };
+
+    setSummarizing(false);
+
+    if (!response.ok || !body.spec) {
+      setMessage(body.error || "Unable to build Codex prompt");
+      return;
+    }
+
+    setSpec(body.spec);
+    setMessage("Codex prompt built from the current voice context.");
+  }
+
   async function approvePlan() {
     setMessage("");
 
@@ -280,6 +332,7 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
             <div>
               <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">GPT-Realtime</p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">Voice Codex</h2>
+              <p className="mt-2 text-sm text-slate-500">Voice: {voiceOptions.find((voice) => voice.value === selectedVoice)?.label}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">
@@ -289,6 +342,33 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
                 {statusLabel(workflowStatus)}
               </span>
             </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)]">
+            <label className="text-sm font-semibold text-slate-700">
+              Voice
+              <select
+                className="mt-2 w-full rounded-lg px-4 py-3"
+                disabled={connectionStatus === "connected" || connectionStatus === "connecting"}
+                onChange={(event) => setSelectedVoice(event.target.value)}
+                value={selectedVoice}
+              >
+                {voiceOptions.map((voice) => (
+                  <option key={voice.value} value={voice.value}>
+                    {voice.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-semibold text-slate-700">
+              Speaking style
+              <input
+                className="mt-2 w-full rounded-lg px-4 py-3"
+                disabled={connectionStatus === "connected" || connectionStatus === "connecting"}
+                onChange={(event) => setVoiceInstructions(event.target.value)}
+                value={voiceInstructions}
+              />
+            </label>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
@@ -332,6 +412,14 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
             />
           </label>
           <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+              disabled={summarizing}
+              onClick={buildCodexPrompt}
+              type="button"
+            >
+              {summarizing ? "Building..." : "Build Codex prompt"}
+            </button>
             <button className="rounded-lg border border-line bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={() => void delegateToCodex("clarify")} type="button">
               Send answers
             </button>
