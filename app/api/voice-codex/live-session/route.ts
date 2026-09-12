@@ -74,8 +74,7 @@ export async function POST(request: Request) {
         },
         delegation: {
           type: "client"
-        },
-        store: true
+        }
       },
       transport: {
         type: "webrtc",
