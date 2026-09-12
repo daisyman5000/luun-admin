@@ -200,10 +200,14 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const sessionPayload = (await sessionResponse.json()) as { error?: string; transport?: { sdp?: string; type?: string } };
+      const sessionPayload = (await sessionResponse.json()) as {
+        detailMessage?: string;
+        error?: string;
+        transport?: { sdp?: string; type?: string };
+      };
 
       if (!sessionResponse.ok) {
-        throw new Error(sessionPayload.error || "Unable to start GPT-Live-1");
+        throw new Error(sessionPayload.detailMessage || sessionPayload.error || "Unable to start GPT-Live-1");
       }
 
       const answerSdp = sessionPayload.transport?.sdp;

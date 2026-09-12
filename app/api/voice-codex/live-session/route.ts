@@ -66,6 +66,7 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       session: {
         model: "gpt-live-1",
+        type: "live",
         instructions,
         audio: {
           output: {
@@ -92,8 +93,15 @@ export async function POST(request: Request) {
   const responseBody = await response.json().catch(async () => ({ error: await response.text() }));
 
   if (!response.ok) {
+    const detailMessage =
+      typeof (responseBody as { error?: { message?: unknown } }).error?.message === "string"
+        ? (responseBody as { error: { message: string } }).error.message
+        : typeof (responseBody as { error?: unknown }).error === "string"
+          ? (responseBody as { error: string }).error
+          : "OpenAI did not return a readable error message.";
+
     return NextResponse.json(
-      { error: "Unable to create GPT-Live-1 session", details: responseBody },
+      { error: "Unable to create GPT-Live-1 session", detailMessage, details: responseBody },
       { status: response.status }
     );
   }
