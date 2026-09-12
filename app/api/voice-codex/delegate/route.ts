@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { randomUUID } from "crypto";
 import { canUpdateOrderLogistics, getUserContext } from "@/lib/auth";
 import { buildVoiceCodexAppDataSnapshot } from "@/lib/voice-codex/app-data";
 import { buildCodexPrompt, codexWorkerSystemPrompt } from "@/lib/voice-codex/prompts";
@@ -17,6 +18,12 @@ type DelegateBody = {
 
 function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function errorMessage(error: unknown) {
+  if (!error || typeof error !== "object") return null;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" ? message : null;
 }
 
 function isAction(value: unknown): value is DelegationAction {
@@ -125,6 +132,8 @@ export async function POST(request: NextRequest) {
 
   const requestedThreadId = cleanString(body.threadId);
   let threadId = requestedThreadId;
+  let persistenceAvailable = Boolean(requestedThreadId);
+  let persistenceWarning: string | null = null;
 
   if (!threadId) {
     const { data, error } = await supabase
@@ -139,27 +148,46 @@ export async function POST(request: NextRequest) {
       .single<{ id: string }>();
 
     if (error || !data) {
-      return NextResponse.json({ error: "Unable to create Voice Codex thread" }, { status: 500 });
+      threadId = `ephemeral-${randomUUID()}`;
+      persistenceAvailable = false;
+      persistenceWarning =
+        errorMessage(error) ||
+        "Voice Codex persistence is unavailable. The app data lookup will continue without saving a durable thread.";
+    } else {
+      threadId = data.id;
+      persistenceAvailable = true;
     }
-
-    threadId = data.id;
   } else {
-    await supabase
+    const { error } = await supabase
       .from("voice_codex_threads")
       .update({
         accumulated_context: accumulatedContext,
         updated_at: new Date().toISOString()
       })
       .eq("id", threadId);
+
+    persistenceAvailable = !error;
+    persistenceWarning = errorMessage(error);
   }
 
-  const { data: thread } = await supabase
-    .from("voice_codex_threads")
-    .select("approved_at,status")
-    .eq("id", threadId)
-    .single<{ approved_at: string | null; status: string }>();
+  const { data: thread } = persistenceAvailable
+    ? await supabase
+        .from("voice_codex_threads")
+        .select("approved_at,status")
+        .eq("id", threadId)
+        .single<{ approved_at: string | null; status: string }>()
+    : { data: null };
 
   if (action === "approve") {
+    if (!persistenceAvailable) {
+      return NextResponse.json({
+        persistenceWarning,
+        response: "Approval recorded for this browser session. Durable Voice Codex storage is not available yet.",
+        status: "ready_to_execute",
+        threadId
+      });
+    }
+
     const { error } = await supabase
       .from("voice_codex_threads")
       .update({
@@ -171,7 +199,7 @@ export async function POST(request: NextRequest) {
       .eq("id", threadId);
 
     if (error) {
-      return NextResponse.json({ error: "Unable to record approval" }, { status: 500 });
+      return NextResponse.json({ error: "Unable to record approval", detailMessage: errorMessage(error) }, { status: 500 });
     }
 
     await supabase.from("voice_codex_events").insert({
@@ -189,11 +217,22 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  if (action === "execute" && !thread?.approved_at) {
+  if (action === "execute" && persistenceAvailable && !thread?.approved_at) {
     return NextResponse.json(
       {
         error: "Execution requires explicit approval first",
         response: "I need explicit approval for the current plan before I can execute."
+      },
+      { status: 409 }
+    );
+  }
+
+  if (action === "execute" && !persistenceAvailable && !approvalSummary) {
+    return NextResponse.json(
+      {
+        error: "Execution requires explicit approval first",
+        persistenceWarning,
+        response: "I need the approved plan in the approval box before I can execute without durable Voice Codex storage."
       },
       { status: 409 }
     );
@@ -208,13 +247,15 @@ export async function POST(request: NextRequest) {
           ? "clarifying"
           : "inspecting";
 
-  await supabase
-    .from("voice_codex_threads")
-    .update({
-      status: nextStatus,
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", threadId);
+  if (persistenceAvailable) {
+    await supabase
+      .from("voice_codex_threads")
+      .update({
+        status: nextStatus,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", threadId);
+  }
 
   const result = await callCodexWorker({
     action,
@@ -225,26 +266,29 @@ export async function POST(request: NextRequest) {
     userMessage
   });
 
-  await supabase.from("voice_codex_events").insert({
-    action,
-    codex_response: result.response,
-    created_by: user.id,
-    openai_response_id: result.openaiResponseId || null,
-    thread_id: threadId,
-    user_message: userMessage
-  });
+  if (persistenceAvailable) {
+    await supabase.from("voice_codex_events").insert({
+      action,
+      codex_response: result.response,
+      created_by: user.id,
+      openai_response_id: result.openaiResponseId || null,
+      thread_id: threadId,
+      user_message: userMessage
+    });
 
-  await supabase
-    .from("voice_codex_threads")
-    .update({
-      last_codex_response: result.response,
-      status: action === "execute" ? "verifying" : nextStatus,
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", threadId);
+    await supabase
+      .from("voice_codex_threads")
+      .update({
+        last_codex_response: result.response,
+        status: action === "execute" ? "verifying" : nextStatus,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", threadId);
+  }
 
   return NextResponse.json({
     ...result,
+    persistenceWarning,
     status: action === "execute" ? "verifying" : nextStatus,
     threadId
   });

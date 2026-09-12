@@ -14,6 +14,7 @@ type CodexEvent = {
 
 type DelegateResponse = {
   error?: string;
+  persistenceWarning?: string | null;
   response?: string;
   status?: WorkflowStatus;
   threadId?: string;
@@ -260,6 +261,7 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
 
     if (body.threadId) setThreadId(body.threadId);
     if (body.status) setWorkflowStatus(body.status);
+    if (body.persistenceWarning) setMessage(body.persistenceWarning);
 
     if (!response.ok) {
       setMessage(body.response || body.error || "Codex delegation failed");
@@ -315,7 +317,7 @@ export function VoiceCodexWorkspace({ canExecute }: { canExecute: boolean }) {
 
     if (body.threadId) setThreadId(body.threadId);
     if (body.status) setWorkflowStatus(body.status);
-    setMessage(body.response || body.error || "Approval recorded.");
+    setMessage(body.persistenceWarning || body.response || body.error || "Approval recorded.");
   }
 
   return (
