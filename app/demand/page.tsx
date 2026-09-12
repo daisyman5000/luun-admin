@@ -30,7 +30,9 @@ type ModuleRevenue = Record<ModuleSlug, number | null>;
 type DemandPlan = {
   averageRevenuePerModule: number | null;
   averageModulesPerOrder: number | null;
+  baseVancouverOnHandByType: ModuleBreakdown;
   customerAcquisitionCost: number | null;
+  firstPlanningMonth: string;
   incomingContainers: {
     breakdown: ModuleBreakdown;
     eta: string | null;
@@ -555,7 +557,9 @@ function calculateDemandPlan({
   return {
     averageRevenuePerModule: shopifyProjectionMetrics.averageRevenuePerModule,
     averageModulesPerOrder,
+    baseVancouverOnHandByType: vancouverOnHandBreakdown,
     customerAcquisitionCost,
+    firstPlanningMonth,
     incomingContainers: containerDemand.map((container) => ({
       breakdown: container.breakdown,
       eta: container.eta ? dateInputValue(container.eta) : null,
@@ -609,9 +613,11 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
     defaultSale: {
       averageRevenuePerModule: plan.averageRevenuePerModule,
       averageModulesPerOrder: plan.averageModulesPerOrder,
+      baseVancouverOnHandByType: plan.baseVancouverOnHandByType,
       customerAcquisitionCost: plan.customerAcquisitionCost,
       defaultDailyAdBudget,
       incomingContainers: plan.incomingContainers,
+      firstPlanningMonth: plan.firstPlanningMonth,
       maxRevenue: plan.maxRevenue,
       moduleRevenue: plan.moduleRevenue,
       modules: plan.targetModulesToSell,

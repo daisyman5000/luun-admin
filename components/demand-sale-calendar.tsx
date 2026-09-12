@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export type DemandCalendarEvent = {
   dailyBudget: number | null;
@@ -40,13 +40,22 @@ type AutoSaleWindow = {
   startDate: string;
 };
 
+type DemandMonthSettings = {
+  maxDailyAdSpend: number;
+  maxDaysApart: number;
+  saleDurationDays: number;
+  saleStartDay: number;
+};
+
 export type DemandCalendarPlan = {
   defaultSale: {
     averageRevenuePerModule: number | null;
     averageModulesPerOrder: number | null;
+    baseVancouverOnHandByType: ModuleBreakdown;
     customerAcquisitionCost: number | null;
     defaultDailyAdBudget: number;
     eligibleInboundByType: ModuleBreakdown;
+    firstPlanningMonth: string;
     incomingContainers: IncomingContainer[];
     maxRevenue: number | null;
     moduleRevenue: ModuleRevenue;
@@ -74,6 +83,56 @@ const emptyModules = (): ModuleBreakdown => ({
   corner: 0,
   ottoman: 0
 });
+const monthSettingsStorageKey = "luun-demand-month-settings";
+
+function defaultMonthSettings(defaultDailyAdBudget: number): DemandMonthSettings {
+  return {
+    maxDailyAdSpend: defaultDailyAdBudget,
+    maxDaysApart: 3,
+    saleDurationDays: 10,
+    saleStartDay: 1
+  };
+}
+
+function clampMonthSettings(settings: DemandMonthSettings, endDay: number): DemandMonthSettings {
+  return {
+    maxDailyAdSpend: Math.min(5000, Math.max(0, settings.maxDailyAdSpend)),
+    maxDaysApart: Math.min(14, Math.max(1, settings.maxDaysApart)),
+    saleDurationDays: Math.min(21, Math.max(1, settings.saleDurationDays)),
+    saleStartDay: Math.min(endDay, Math.max(1, settings.saleStartDay))
+  };
+}
+
+function readMonthSettings() {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const storedSettings = window.localStorage.getItem(monthSettingsStorageKey);
+    return storedSettings ? JSON.parse(storedSettings) as Record<string, Partial<DemandMonthSettings>> : {};
+  } catch {
+    return {};
+  }
+}
+
+function settingsForMonth({
+  defaultDailyAdBudget,
+  endDay,
+  month,
+  override,
+  settingsByMonth
+}: {
+  defaultDailyAdBudget: number;
+  endDay: number;
+  month: string;
+  override?: DemandMonthSettings;
+  settingsByMonth: Record<string, Partial<DemandMonthSettings>>;
+}) {
+  return clampMonthSettings({
+    ...defaultMonthSettings(defaultDailyAdBudget),
+    ...settingsByMonth[month],
+    ...override
+  }, endDay);
+}
 
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -97,6 +156,29 @@ function dateFromKey(date: string) {
 
 function displayDate(date: string) {
   return new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" }).format(dateFromKey(date));
+}
+
+function monthEndDay(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Date(year, monthNumber, 0).getDate();
+}
+
+function addMonthsToKey(month: string, months: number) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(year, monthNumber - 1 + months, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthKeysBetween(firstMonth: string, lastMonth: string) {
+  const months: string[] = [];
+  let month = firstMonth;
+
+  while (month <= lastMonth) {
+    months.push(month);
+    month = addMonthsToKey(month, 1);
+  }
+
+  return months;
 }
 
 function addModuleBreakdown(left: ModuleBreakdown, right: ModuleBreakdown) {
@@ -288,6 +370,85 @@ function simulateAutoSales({
   };
 }
 
+function incomingForMonth(containers: IncomingContainer[], month: string) {
+  return containers.reduce<ModuleBreakdown>((sum, container) => {
+    if (!container.eta || !container.eta.startsWith(`${month}-`)) return sum;
+    return addModuleBreakdown(sum, container.breakdown);
+  }, emptyModules());
+}
+
+function projectSelectedMonth({
+  currentSettings,
+  plan,
+  settingsByMonth
+}: {
+  currentSettings: DemandMonthSettings;
+  plan: DemandCalendarPlan;
+  settingsByMonth: Record<string, Partial<DemandMonthSettings>>;
+}) {
+  let startingInventoryByType = plan.defaultSale.baseVancouverOnHandByType;
+  let selectedStartingInventoryByType = startingInventoryByType;
+  let selectedIncomingByType = emptyModules();
+  let selectedSimulation: ReturnType<typeof simulateAutoSales> | null = null;
+  let selectedMonthInventoryByType = emptyModules();
+
+  for (const month of monthKeysBetween(plan.defaultSale.firstPlanningMonth, plan.selectedMonth.month)) {
+    const endDay = monthEndDay(month);
+    const incomingByType = incomingForMonth(plan.defaultSale.incomingContainers, month);
+    const monthInventoryByType = addModuleBreakdown(startingInventoryByType, incomingByType);
+    const monthSettings = settingsForMonth({
+      defaultDailyAdBudget: plan.defaultSale.defaultDailyAdBudget,
+      endDay,
+      month,
+      override: month === plan.selectedMonth.month ? currentSettings : undefined,
+      settingsByMonth
+    });
+    const windows = autoSaleWindows(
+      month,
+      endDay,
+      monthSettings.saleStartDay,
+      monthSettings.saleDurationDays,
+      monthSettings.maxDaysApart
+    );
+    const simulation = simulateAutoSales({
+      averageModulesPerOrder: plan.defaultSale.averageModulesPerOrder,
+      customerAcquisitionCost: plan.defaultSale.customerAcquisitionCost,
+      demandMix: monthInventoryByType,
+      fallbackRevenuePerModule: plan.defaultSale.averageRevenuePerModule,
+      maxDailyAdSpend: monthSettings.maxDailyAdSpend,
+      moduleRevenue: plan.defaultSale.moduleRevenue,
+      windows
+    });
+
+    if (month === plan.selectedMonth.month) {
+      selectedStartingInventoryByType = startingInventoryByType;
+      selectedIncomingByType = incomingByType;
+      selectedMonthInventoryByType = monthInventoryByType;
+      selectedSimulation = simulation;
+    }
+
+    startingInventoryByType = subtractModuleBreakdown(monthInventoryByType, simulation.soldByType);
+  }
+
+  const simulation = selectedSimulation || simulateAutoSales({
+    averageModulesPerOrder: plan.defaultSale.averageModulesPerOrder,
+    customerAcquisitionCost: plan.defaultSale.customerAcquisitionCost,
+    demandMix: selectedMonthInventoryByType,
+    fallbackRevenuePerModule: plan.defaultSale.averageRevenuePerModule,
+    maxDailyAdSpend: currentSettings.maxDailyAdSpend,
+    moduleRevenue: plan.defaultSale.moduleRevenue,
+    windows: []
+  });
+
+  return {
+    endingInventoryByType: subtractModuleBreakdown(selectedMonthInventoryByType, simulation.soldByType),
+    incomingByType: selectedIncomingByType,
+    monthInventoryByType: selectedMonthInventoryByType,
+    simulation,
+    startingInventoryByType: selectedStartingInventoryByType
+  };
+}
+
 function Stat({
   label,
   tone = "plain",
@@ -308,23 +469,65 @@ function Stat({
 }
 
 export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCalendarPlan }) {
-  const [maxDailyAdSpend, setMaxDailyAdSpend] = useState(plan.defaultSale.defaultDailyAdBudget);
-  const [maxDaysApart, setMaxDaysApart] = useState(3);
-  const [saleDurationDays, setSaleDurationDays] = useState(10);
-  const [saleStartDay, setSaleStartDay] = useState(1);
+  const defaultSettings = defaultMonthSettings(plan.defaultSale.defaultDailyAdBudget);
+  const [maxDailyAdSpend, setMaxDailyAdSpend] = useState(defaultSettings.maxDailyAdSpend);
+  const [maxDaysApart, setMaxDaysApart] = useState(defaultSettings.maxDaysApart);
+  const [saleDurationDays, setSaleDurationDays] = useState(defaultSettings.saleDurationDays);
+  const [saleStartDay, setSaleStartDay] = useState(defaultSettings.saleStartDay);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsByMonth, setSettingsByMonth] = useState<Record<string, Partial<DemandMonthSettings>>>({});
 
-  const windows = autoSaleWindows(plan.selectedMonth.month, plan.selectedMonth.endDay, saleStartDay, saleDurationDays, maxDaysApart);
-  const monthInventoryByType = addModuleBreakdown(plan.defaultSale.vancouverOnHandByType, plan.defaultSale.eligibleInboundByType);
-  const simulation = simulateAutoSales({
-    averageModulesPerOrder: plan.defaultSale.averageModulesPerOrder,
-    customerAcquisitionCost: plan.defaultSale.customerAcquisitionCost,
-    demandMix: monthInventoryByType,
-    fallbackRevenuePerModule: plan.defaultSale.averageRevenuePerModule,
+  useEffect(() => {
+    setSettingsLoaded(false);
+    const nextSettingsByMonth = readMonthSettings();
+    const savedSettings = nextSettingsByMonth[plan.selectedMonth.month];
+    const nextSettings = clampMonthSettings({
+      ...defaultMonthSettings(plan.defaultSale.defaultDailyAdBudget),
+      ...savedSettings
+    }, plan.selectedMonth.endDay);
+
+    setSettingsByMonth(nextSettingsByMonth);
+    setMaxDailyAdSpend(nextSettings.maxDailyAdSpend);
+    setMaxDaysApart(nextSettings.maxDaysApart);
+    setSaleDurationDays(nextSettings.saleDurationDays);
+    setSaleStartDay(nextSettings.saleStartDay);
+    setSettingsLoaded(true);
+  }, [plan.defaultSale.defaultDailyAdBudget, plan.selectedMonth.endDay, plan.selectedMonth.month]);
+
+  useEffect(() => {
+    if (!settingsLoaded || typeof window === "undefined") return;
+
+    const nextSettingsByMonth = readMonthSettings();
+    nextSettingsByMonth[plan.selectedMonth.month] = clampMonthSettings({
+      maxDailyAdSpend,
+      maxDaysApart,
+      saleDurationDays,
+      saleStartDay
+    }, plan.selectedMonth.endDay);
+    window.localStorage.setItem(monthSettingsStorageKey, JSON.stringify(nextSettingsByMonth));
+    setSettingsByMonth(nextSettingsByMonth);
+  }, [
     maxDailyAdSpend,
-    moduleRevenue: plan.defaultSale.moduleRevenue,
-    windows
+    maxDaysApart,
+    plan.selectedMonth.endDay,
+    plan.selectedMonth.month,
+    saleDurationDays,
+    saleStartDay,
+    settingsLoaded
+  ]);
+
+  const currentSettings = clampMonthSettings({
+    maxDailyAdSpend,
+    maxDaysApart,
+    saleDurationDays,
+    saleStartDay
+  }, plan.selectedMonth.endDay);
+  const projection = projectSelectedMonth({
+    currentSettings,
+    plan,
+    settingsByMonth
   });
-  const endingInventoryByType = subtractModuleBreakdown(monthInventoryByType, simulation.soldByType);
+  const { endingInventoryByType, incomingByType, simulation, startingInventoryByType } = projection;
   const saleDaysByDate = new Map(simulation.saleDays.map((day) => [day.date, day]));
   const cells = [
     ...Array.from({ length: plan.selectedMonth.firstDay }, (_, index) => ({ day: null, key: `blank-${index}` })),
@@ -348,9 +551,9 @@ export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCal
       <div className="mt-5 rounded-3xl border border-line bg-slate-50 p-4">
         <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">Inventory equation</p>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] lg:items-stretch">
-          <Stat label="Starting inventory" value={wholeNumber(plan.defaultSale.vancouverOnHand)} />
+          <Stat label="Starting inventory" value={wholeNumber(totalBreakdown(startingInventoryByType))} />
           <div className="hidden items-center text-2xl font-semibold text-slate-400 lg:flex">+</div>
-          <Stat label="Incoming containers" value={wholeNumber(plan.defaultSale.totalActiveInboundModules)} />
+          <Stat label="Incoming containers" value={wholeNumber(totalBreakdown(incomingByType))} />
           <div className="hidden items-center text-2xl font-semibold text-slate-400 lg:flex">-</div>
           <Stat label="Auto planned to sell" value={wholeNumber(totalBreakdown(simulation.soldByType))} />
           <div className="hidden items-center text-2xl font-semibold text-slate-400 lg:flex">=</div>
@@ -408,11 +611,11 @@ export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCal
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-line bg-white p-4">
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Starting mix</p>
-            <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(plan.defaultSale.vancouverOnHandByType)}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(startingInventoryByType)}</p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Incoming mix</p>
-            <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(plan.defaultSale.eligibleInboundByType)}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(incomingByType)}</p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Auto planned to sell</p>
