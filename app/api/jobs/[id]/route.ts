@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { canManageUsers, canUpdateOrderLogistics, getUserContext } from "@/lib/auth";
+import { canManageUsers, canUpdateOrderLogistics, getJobsApiContext, getUserContext } from "@/lib/auth";
 import type { JobTicket, JobTicketCategory, JobTicketPriority, JobTicketStatus } from "@/lib/types";
 
 const categories = [
@@ -56,13 +56,13 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { profile, supabase, user } = await getUserContext();
+  const auth = await getJobsApiContext(request.headers.get("authorization"));
 
-  if (!user) {
+  if (auth.kind === "unauthenticated") {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
-  if (!canUpdateOrderLogistics(profile?.role)) {
+  if (auth.kind === "user" && !canUpdateOrderLogistics(auth.profile?.role)) {
     return NextResponse.json({ error: "Not authorized to update jobs" }, { status: 403 });
   }
 
@@ -116,7 +116,7 @@ export async function PATCH(
     return NextResponse.json({ error: "No valid job fields provided" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await auth.supabase
     .from("job_tickets")
     .update(updates)
     .eq("id", id)
