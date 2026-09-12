@@ -56,7 +56,6 @@ type DemandPlan = {
 const defaultDailyAdBudget = 400;
 const defaultSaleDurationDays = 10;
 const defaultMaxDaysApart = 3;
-const defaultSellBeforeEtaDays = 0;
 const getCachedWiseSummary = unstable_cache(getWiseSummary, ["wise-summary-demand"], { revalidate: 300 });
 const revenuePaymentStatuses = new Set(["PAID", "PARTIALLY_REFUNDED"]);
 
@@ -107,9 +106,9 @@ function addModuleBreakdown(left: ModuleBreakdown, right: ModuleBreakdown) {
 
 function subtractModuleBreakdown(left: ModuleBreakdown, right: ModuleBreakdown) {
   return {
-    armless: Math.max(0, left.armless - right.armless),
-    corner: Math.max(0, left.corner - right.corner),
-    ottoman: Math.max(0, left.ottoman - right.ottoman)
+    armless: left.armless - right.armless,
+    corner: left.corner - right.corner,
+    ottoman: left.ottoman - right.ottoman
   };
 }
 
@@ -175,12 +174,6 @@ function getContainerEta(container: ContainerEntry) {
   if (!container.eta) return null;
   const eta = new Date(`${container.eta}T00:00:00`);
   return Number.isNaN(eta.getTime()) ? null : eta;
-}
-
-function addDays(date: Date, days: number) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
 }
 
 function containerModuleBreakdown(container: ContainerEntry) {
@@ -350,23 +343,35 @@ function maxRevenueFromModuleMix(
   }, 0);
 }
 
-function proportionalModuleBreakdown(modules: ModuleBreakdown, requestedModules: number) {
-  const availableModules = totalModuleBreakdown(modules);
-  if (availableModules <= 0 || requestedModules <= 0) return emptyModuleBreakdown();
+function positiveModuleTotal(modules: ModuleBreakdown) {
+  return Math.max(0, modules.corner) + Math.max(0, modules.armless) + Math.max(0, modules.ottoman);
+}
 
-  const scale = Math.min(1, requestedModules / availableModules);
-  const targetModules = Math.min(availableModules, Math.floor(requestedModules));
+function demandModuleBreakdown(modules: ModuleBreakdown, requestedModules: number) {
+  const basisModules = positiveModuleTotal(modules);
+  const targetModules = Math.max(0, Math.floor(requestedModules));
+  if (targetModules <= 0) return emptyModuleBreakdown();
+
+  if (basisModules <= 0) {
+    const baseEach = Math.floor(targetModules / 3);
+    const remainder = targetModules - baseEach * 3;
+    return {
+      armless: baseEach + (remainder > 1 ? 1 : 0),
+      corner: baseEach + (remainder > 0 ? 1 : 0),
+      ottoman: baseEach
+    };
+  }
+
   const base = {
-    armless: Math.min(modules.armless, Math.floor(modules.armless * scale)),
-    corner: Math.min(modules.corner, Math.floor(modules.corner * scale)),
-    ottoman: Math.min(modules.ottoman, Math.floor(modules.ottoman * scale))
+    armless: Math.floor((Math.max(0, modules.armless) / basisModules) * targetModules),
+    corner: Math.floor((Math.max(0, modules.corner) / basisModules) * targetModules),
+    ottoman: Math.floor((Math.max(0, modules.ottoman) / basisModules) * targetModules)
   };
   let remaining = targetModules - totalModuleBreakdown(base);
   const order: ModuleSlug[] = ["corner", "armless", "ottoman"];
 
   while (remaining > 0) {
-    const nextModule = order.find((module) => base[module] < modules[module]);
-    if (!nextModule) break;
+    const nextModule = order.find((module) => Math.max(0, modules[module]) > 0) || order[0];
     base[nextModule] += 1;
     remaining -= 1;
   }
@@ -433,31 +438,18 @@ function autoSaleWindows(month: MonthOption, saleDurationDays: number, maxDaysBe
   return windows;
 }
 
-function containerEligibleBySaleDate(containerDemand: ContainerDemand[], month: MonthOption, saleDate: Date, sellBeforeEtaDays: number) {
-  const lastEligibleEta = addDays(saleDate, sellBeforeEtaDays);
-
-  return containerDemand.reduce<ModuleBreakdown>((sum, item) => {
-    if (!item.eta || item.eta < month.start || item.eta > month.end || item.eta > lastEligibleEta) return sum;
-    return addModuleBreakdown(sum, item.breakdown);
-  }, emptyModuleBreakdown());
-}
-
 function plannedSoldForAutoSales({
   averageModulesPerOrder,
-  containerDemand,
   customerAcquisitionCost,
+  demandMix,
   maxDailyAdSpend,
-  month,
-  sellBeforeEtaDays,
-  startingInventory
+  month
 }: {
   averageModulesPerOrder: number | null;
-  containerDemand: ContainerDemand[];
   customerAcquisitionCost: number | null;
+  demandMix: ModuleBreakdown;
   maxDailyAdSpend: number;
   month: MonthOption;
-  sellBeforeEtaDays: number;
-  startingInventory: ModuleBreakdown;
 }) {
   let soldByType = emptyModuleBreakdown();
   let plannedAdSpend = 0;
@@ -478,12 +470,10 @@ function plannedSoldForAutoSales({
   }
 
   for (const window of autoSaleWindows(month, defaultSaleDurationDays, defaultMaxDaysApart)) {
-    for (const saleDate of window) {
-      const eligibleIncoming = containerEligibleBySaleDate(containerDemand, month, saleDate, sellBeforeEtaDays);
-      const availableByType = subtractModuleBreakdown(addModuleBreakdown(startingInventory, eligibleIncoming), soldByType);
+    for (let dayIndex = 0; dayIndex < window.length; dayIndex += 1) {
       const maxOrdersBySpend = Math.floor(maxDailyAdSpend / customerAcquisitionCost);
       const requestedModules = maxOrdersBySpend * averageModulesPerOrder;
-      const modules = proportionalModuleBreakdown(availableByType, requestedModules);
+      const modules = demandModuleBreakdown(demandMix, requestedModules);
       const modulesSold = totalModuleBreakdown(modules);
 
       if (modulesSold <= 0) continue;
@@ -544,20 +534,19 @@ function calculateDemandPlan({
   for (const month of monthRange(firstPlanningMonth, selectedMonth.month)) {
     startingInventoryByType = endingInventoryByType;
     incomingModulesByType = containerIncomingForMonth(containerDemand, month);
+    const monthInventoryByType = addModuleBreakdown(startingInventoryByType, incomingModulesByType);
     const plannedSale = plannedSoldForAutoSales({
       averageModulesPerOrder,
-      containerDemand,
       customerAcquisitionCost,
+      demandMix: monthInventoryByType,
       maxDailyAdSpend: defaultDailyAdBudget,
-      month,
-      sellBeforeEtaDays: defaultSellBeforeEtaDays,
-      startingInventory: startingInventoryByType
+      month
     });
 
     plannedAdSpend = plannedSale.adSpend;
     plannedOrders = plannedSale.orders;
     plannedSoldByType = plannedSale.modules;
-    endingInventoryByType = subtractModuleBreakdown(addModuleBreakdown(startingInventoryByType, incomingModulesByType), plannedSoldByType);
+    endingInventoryByType = subtractModuleBreakdown(monthInventoryByType, plannedSoldByType);
   }
 
   const targetModulesByType = endingInventoryByType;
