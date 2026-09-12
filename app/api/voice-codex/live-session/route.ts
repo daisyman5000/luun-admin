@@ -66,7 +66,6 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       session: {
         model: "gpt-live-1",
-        type: "live",
         instructions,
         audio: {
           output: {
