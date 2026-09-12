@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
+import { hasValidGrokBotBearer } from "@/lib/grok-bot-auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
+
+export { hasValidGrokBotBearer } from "@/lib/grok-bot-auth";
 
 export async function getUserContext() {
   const supabase = await createClient();
@@ -19,6 +23,29 @@ export async function getUserContext() {
     .single<Profile>();
 
   return { supabase, user, profile };
+}
+
+export async function getJobsApiContext(authorizationHeader: string | null | undefined) {
+  try {
+    const context = await getUserContext();
+
+    if (context.user) {
+      return { kind: "user" as const, ...context, user: context.user };
+    }
+  } catch {
+    // Missing session configuration is treated as no cookie user.
+  }
+
+  if (hasValidGrokBotBearer(authorizationHeader)) {
+    return {
+      kind: "bot" as const,
+      profile: null,
+      supabase: createAdminClient(),
+      user: null
+    };
+  }
+
+  return { kind: "unauthenticated" as const };
 }
 
 export async function requireUser() {

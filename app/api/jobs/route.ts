@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { canUpdateOrderLogistics, getUserContext } from "@/lib/auth";
+import { canUpdateOrderLogistics, getJobsApiContext } from "@/lib/auth";
 import type { JobTicket, JobTicketCategory, JobTicketPriority, JobTicketStatus } from "@/lib/types";
+
+const activeStatuses = ["open", "in_progress", "blocked"] as const;
 
 const categories = [
   "customer_inquiry",
@@ -45,14 +47,35 @@ function cleanPriority(value: unknown): JobTicketPriority | undefined {
     : undefined;
 }
 
-export async function POST(request: NextRequest) {
-  const { profile, supabase, user } = await getUserContext();
+export async function GET(request: NextRequest) {
+  const auth = await getJobsApiContext(request.headers.get("authorization"));
 
-  if (!user) {
+  if (auth.kind === "unauthenticated") {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
-  if (!canUpdateOrderLogistics(profile?.role)) {
+  const { data, error } = await auth.supabase
+    .from("job_tickets")
+    .select("*")
+    .in("status", activeStatuses)
+    .order("created_at", { ascending: false })
+    .returns<JobTicket[]>();
+
+  if (error) {
+    return NextResponse.json({ error: "Unable to list jobs" }, { status: 500 });
+  }
+
+  return NextResponse.json(data);
+}
+
+export async function POST(request: NextRequest) {
+  const auth = await getJobsApiContext(request.headers.get("authorization"));
+
+  if (auth.kind === "unauthenticated") {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
+  if (auth.kind === "user" && !canUpdateOrderLogistics(auth.profile?.role)) {
     return NextResponse.json({ error: "Not authorized to create jobs" }, { status: 403 });
   }
 
@@ -71,11 +94,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Job category, status, priority, or due date is invalid" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await auth.supabase
     .from("job_tickets")
     .insert({
       category,
-      created_by: user.id,
+      created_by: auth.user?.id ?? null,
       customer_email: cleanText(body.customer_email),
       customer_name: cleanText(body.customer_name),
       details: cleanText(body.details),
