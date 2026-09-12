@@ -226,7 +226,7 @@ export function DemandSaleCalendar({
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Demand plan</h2>
           <p className="text-sm text-slate-500">
-            Vancouver inventory plus container invoice inventory by ETA, minus inventory planned to sell.
+            Starting inventory plus containers arriving this month, minus inventory planned to sell.
           </p>
         </div>
         {pendingDate ? <span className="text-xs font-semibold text-blue-700">Saving...</span> : null}
@@ -239,7 +239,7 @@ export function DemandSaleCalendar({
       <div className="mt-5 rounded-3xl border border-line bg-slate-50 p-4">
         <p className="text-xs font-semibold uppercase tracking-normal text-blue-700">Inventory equation</p>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] lg:items-stretch">
-          <Stat label="Vancouver now" value={wholeNumber(plan.defaultSale.vancouverOnHand)} />
+          <Stat label="Starting inventory" value={wholeNumber(plan.defaultSale.vancouverOnHand)} />
           <div className="hidden items-center text-2xl font-semibold text-slate-400 lg:flex">+</div>
           <Stat label="Incoming containers" value={wholeNumber(plan.defaultSale.totalActiveInboundModules)} />
           <div className="hidden items-center text-2xl font-semibold text-slate-400 lg:flex">-</div>
@@ -250,7 +250,7 @@ export function DemandSaleCalendar({
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-line bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Vancouver mix</p>
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Starting mix</p>
             <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(plan.defaultSale.vancouverOnHandByType)}</p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
