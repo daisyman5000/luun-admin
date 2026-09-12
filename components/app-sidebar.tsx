@@ -5,14 +5,11 @@ import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/logout-button";
 
 const primaryLinks = [
-  { href: "/", label: "Home", short: "H" },
-  { href: "/data", label: "Orders", short: "O" },
+  { href: "/", label: "Timeline", short: "T" },
+  { href: "/forecasting/containers", label: "Invoices", short: "In" },
   { href: "/inventory", label: "Inventory", short: "I" },
   { href: "/demand", label: "Demand Plan", short: "D" },
-  { href: "/cac", label: "CAC", short: "CAC" },
-  { href: "/jobs", label: "Jobs", short: "J" },
-  { href: "/voice-codex", label: "Voice Codex", short: "VC" },
-  { href: "/forecasting/containers", label: "Invoices", short: "In" }
+  { href: "/voice-codex", label: "Voice Codex", short: "VC" }
 ];
 
 const adminLinks = [{ href: "/settings/users", label: "Users", short: "U" }];

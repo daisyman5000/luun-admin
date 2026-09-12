@@ -1,305 +1,123 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
-import { convertToCad, getCadRates } from "@/lib/currency";
-import { getWiseSummary } from "@/lib/wise/client";
-import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
 
-type DashboardMetrics = {
-  averageDailyModules: number;
-  averageModuleValue: number;
-  capitalVelocityTurns: number | null;
-  cashBalance: number;
-  cashConversionCycleDays: number | null;
-  customerAcquisitionCost: number | null;
-  deployableCash: number | null;
-  historicalDays: number;
-  inboundPieces: number;
-  inventoryValue: number;
-  openContainerPayables: number;
-  orderCount: number;
-  revenue: number;
-  selectedMetaSpend: number;
-  soldModules: number;
-  totalPiecesToConvert: number;
-  vancouverOnHand: number;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type AgentPost = {
+  actionHref?: string;
+  actionLabel?: string;
+  body: string;
+  label: string;
+  meta: string;
+  status: "active" | "ready" | "offline";
+  title: string;
 };
 
-const historyOptions = [
-  { days: 30, label: "30 days" },
-  { days: 90, label: "3 months" },
-  { days: 180, label: "6 months" },
-  { days: 365, label: "12 months" }
-];
-const revenuePaymentStatuses = new Set(["PAID", "PARTIALLY_REFUNDED"]);
-
-function getHistoryDays(value?: string | string[]) {
-  const rawValue = Array.isArray(value) ? value[0] : value;
-  const days = Number(rawValue || 90);
-  return historyOptions.some((option) => option.days === days) ? days : 90;
+function hasEnv(...names: string[]) {
+  return names.some((name) => Boolean(process.env[name]));
 }
 
-function money(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "CAD",
-    maximumFractionDigits: 0,
-    style: "currency"
-  }).format(value);
+function statusClasses(status: AgentPost["status"]) {
+  if (status === "active") return "border-green-200 bg-green-50 text-green-700";
+  if (status === "ready") return "border-blue-200 bg-blue-50 text-blue-700";
+  return "border-line bg-slate-50 text-slate-500";
 }
 
-function nullableMoney(value: number | null) {
-  return value === null ? "Unavailable" : money(value);
-}
-
-function getRecentOrders(orders: ShopifyOrder[], days: number) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-
-  return orders.filter((order) => {
-    const createdAt = new Date(order.created_at);
-    return !Number.isNaN(createdAt.getTime()) && createdAt >= cutoff;
-  });
-}
-
-function hasRevenuePaymentStatus(order: ShopifyOrder) {
-  if (!order.payment_status) return true;
-  return revenuePaymentStatuses.has(order.payment_status.toUpperCase());
-}
-
-function hasCadRevenueCurrency(order: ShopifyOrder) {
-  if (!order.currency) return true;
-  return order.currency.toUpperCase() === "CAD";
-}
-
-function revenueOrders(orders: ShopifyOrder[]) {
-  return orders.filter((order) =>
-    Number(order.total_price || 0) > 0 &&
-    hasCadRevenueCurrency(order) &&
-    hasRevenuePaymentStatus(order)
-  );
-}
-
-function moduleOrders(orders: ShopifyOrder[]) {
-  return revenueOrders(orders).filter((order) => Number(order.total_modules || 0) > 0);
-}
-
-function netAvailableInventory(row: Pick<InventoryRow, "available_qty" | "reserved_qty">) {
-  return Math.max(0, Number(row.available_qty || 0) - Number(row.reserved_qty || 0));
-}
-
-function isInboundDemandContainer(container: ContainerEntry) {
-  return container.status === "production" || container.status === "in_transit";
-}
-
-function isInHistoryWindow(date: string, days: number) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const parsedDate = new Date(date);
-
-  return !Number.isNaN(parsedDate.getTime()) && parsedDate >= cutoff;
-}
-
-function totalContainerPieces(container: ContainerEntry) {
-  return (container.manifest_json || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-}
-
-function calculateDashboardMetrics({
-  containers,
-  historicalDays,
-  metaExpenses,
-  openContainerPayablesCad,
-  orders,
-  vancouverOnHand,
-  wiseCash
-}: {
-  containers: ContainerEntry[];
-  historicalDays: number;
-  metaExpenses: { amount: number; currency: string; date: string }[];
-  openContainerPayablesCad: number | null;
-  orders: ShopifyOrder[];
-  vancouverOnHand: number;
-  wiseCash: number;
-}): DashboardMetrics {
-  const activeContainers = containers.filter((container) => container.status !== "closed");
-  const inboundPieces = activeContainers.filter(isInboundDemandContainer).reduce((sum, container) => sum + totalContainerPieces(container), 0);
-  const recentRevenueOrders = getRecentOrders(revenueOrders(orders), historicalDays);
-  const recentModuleOrders = getRecentOrders(moduleOrders(orders), historicalDays);
-  const soldModules = recentModuleOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
-  const revenue = recentRevenueOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
-  const allModuleOrders = moduleOrders(orders);
-  const allRevenueOrders = revenueOrders(orders);
-  const allModules = allModuleOrders.reduce((sum, order) => sum + Number(order.total_modules || 0), 0);
-  const allRevenue = allRevenueOrders.reduce((sum, order) => sum + Number(order.total_price || 0), 0);
-  const averageDailyModules = soldModules / historicalDays;
-  const averageModuleValue = soldModules > 0 ? revenue / soldModules : allModules > 0 ? allRevenue / allModules : 0;
-  const totalPiecesToConvert = vancouverOnHand + inboundPieces;
-  const openContainerPayables = openContainerPayablesCad || 0;
-  const selectedMetaSpend = metaExpenses
-    .filter((expense) => expense.currency === "CAD" && isInHistoryWindow(expense.date, historicalDays))
-    .reduce((sum, expense) => sum + expense.amount, 0);
-  const cashConversionCycleDays = totalPiecesToConvert > 0 && averageDailyModules > 0
-    ? totalPiecesToConvert / averageDailyModules
-    : null;
-  const capitalVelocityTurns = cashConversionCycleDays && cashConversionCycleDays > 0
-    ? 365 / cashConversionCycleDays
-    : null;
-
-  return {
-    averageDailyModules,
-    averageModuleValue,
-    capitalVelocityTurns,
-    cashBalance: wiseCash,
-    cashConversionCycleDays,
-    customerAcquisitionCost: recentRevenueOrders.length > 0 && selectedMetaSpend > 0 ? selectedMetaSpend / recentRevenueOrders.length : null,
-    deployableCash: openContainerPayablesCad === null ? null : wiseCash - openContainerPayables,
-    historicalDays,
-    inboundPieces,
-    inventoryValue: totalPiecesToConvert * averageModuleValue,
-    openContainerPayables,
-    orderCount: recentRevenueOrders.length,
-    revenue,
-    selectedMetaSpend,
-    soldModules,
-    totalPiecesToConvert,
-    vancouverOnHand
-  };
-}
-
-function StatCard({
-  label,
-  note,
-  value
-}: {
-  label: string;
-  note?: string;
-  value: string | number;
-}) {
+function AgentPostCard({ post }: { post: AgentPost }) {
   return (
-    <div className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
-      <p className="text-sm font-medium text-slate-500">{label}</p>
-      <p className="mt-3 text-4xl font-semibold tracking-normal text-slate-950">{value}</p>
-      {note ? <p className="mt-2 text-xs leading-5 text-slate-500">{note}</p> : null}
-    </div>
-  );
-}
-
-function HistorySelector({ activeDays }: { activeDays: number }) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {historyOptions.map((option) => {
-        const isActive = option.days === activeDays;
-
-        return (
-          <Link
-            className={[
-              "rounded-full border px-4 py-2 text-sm font-semibold transition",
-              isActive
-                ? "border-blue-600 bg-blue-600 text-white shadow-sm"
-                : "border-blue-100 bg-white/80 text-blue-700 hover:bg-blue-50"
-            ].join(" ")}
-            href={`/?history=${option.days}`}
-            key={option.days}
-          >
-            {option.label}
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
-
-function turnsLabel(value: number | null) {
-  return value === null ? "Unavailable" : `${value.toFixed(1)}x`;
-}
-
-function DashboardPanel({ metrics }: { metrics: DashboardMetrics }) {
-  return (
-    <section className="rounded-[32px] border border-blue-100 bg-blue-50 p-6 shadow-sm lg:p-8">
-      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Cash dashboard</p>
+    <article className="border-b border-line bg-white px-5 py-5 transition hover:bg-slate-50 sm:px-6">
+      <div className="flex gap-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-ink text-sm font-bold text-white">
+          {post.label}
         </div>
-        <HistorySelector activeDays={metrics.historicalDays} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold text-slate-950">{post.title}</h2>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(post.status)}`}>
+              {post.meta}
+            </span>
+          </div>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{post.body}</p>
+          {post.actionHref && post.actionLabel ? (
+            <Link
+              className="mt-4 inline-flex rounded-lg border border-line bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              href={post.actionHref}
+            >
+              {post.actionLabel}
+            </Link>
+          ) : null}
+        </div>
       </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Vancouver on hand" note="Current sellable pieces" value={metrics.vancouverOnHand} />
-        <StatCard label="Inbound containers" note="Active container manifest pieces" value={metrics.inboundPieces} />
-        <StatCard label="Sales velocity" note="Modules per day" value={metrics.averageDailyModules.toFixed(1)} />
-        <StatCard
-          label="Deployable cash"
-          note="Wise CAD cash minus container payables converted to CAD"
-          value={nullableMoney(metrics.deployableCash)}
-        />
-        <StatCard
-          label="Capital Velocity"
-          note="365 divided by CCC"
-          value={turnsLabel(metrics.capitalVelocityTurns)}
-        />
-        <StatCard
-          label="Cost to acquire customer"
-          note={`${money(metrics.selectedMetaSpend)} Meta spend / ${metrics.orderCount} Shopify orders`}
-          value={metrics.customerAcquisitionCost === null ? "Unavailable" : money(metrics.customerAcquisitionCost)}
-        />
-        <StatCard label="Inventory value" note={`${metrics.totalPiecesToConvert} total pieces x average module value`} value={money(metrics.inventoryValue)} />
-      </div>
-    </section>
+    </article>
   );
 }
 
-export default async function HomePage({
-  searchParams
-}: {
-  searchParams?: Promise<{ history?: string | string[] }>;
-}) {
-  const resolvedSearchParams = await searchParams;
-  const historicalDays = getHistoryDays(resolvedSearchParams?.history);
-  const { supabase } = await requireUser();
-  const { data: inventoryRows, error } = await supabase
-    .from("inventory")
-    .select("available_qty,reserved_qty")
-    .returns<Pick<InventoryRow, "available_qty" | "reserved_qty">[]>();
-  const { data: orders } = await supabase
-    .from("shopify_orders")
-    .select("created_at,total_modules,total_price,payment_status,currency")
-    .order("created_at", { ascending: false })
-    .limit(1000)
-    .returns<ShopifyOrder[]>();
-  const { data: containers } = await supabase
-    .from("container_entries")
-    .select("amount_to_be_paid,amount_currency,manifest_json,status")
-    .returns<ContainerEntry[]>();
-  const wiseSummary = await getWiseSummary();
-  const cadRates = await getCadRates((containers || []).map((container) => container.amount_currency || "USD"));
-  const convertedPayables = (containers || [])
-    .filter((container) => container.status !== "closed")
-    .map((container) => convertToCad(Number(container.amount_to_be_paid || 0), container.amount_currency || "USD", cadRates));
-  const openContainerPayablesCad = convertedPayables.some((amount) => amount === null)
-    ? null
-    : convertedPayables.reduce<number>((sum, amount) => sum + (amount || 0), 0);
+export default async function TimelinePage() {
+  await requireUser();
 
-  const vancouverOnHand = (inventoryRows || []).reduce((sum, row) => sum + netAvailableInventory(row), 0);
-  const cadCash = wiseSummary.balances
-    .filter((balance) => balance.currency === "CAD")
-    .reduce((sum, balance) => sum + balance.amount, 0);
-  const metrics = calculateDashboardMetrics({
-    containers: containers || [],
-    historicalDays,
-    metaExpenses: wiseSummary.metaSpend.expenses,
-    openContainerPayablesCad,
-    orders: orders || [],
-    vancouverOnHand,
-    wiseCash: cadCash
-  });
+  const grokbotReady = hasEnv("grokbot", "GROKBOT", "GROKBOT_API_KEY", "GROKBOT_TOKEN", "GROKBOT_URL", "GROK_API_KEY", "XAI_API_KEY");
+  const posts: AgentPost[] = [
+    {
+      actionHref: "/voice-codex",
+      actionLabel: "Open Voice Codex",
+      body: "Voice Codex is the live voice agent for talking through repo changes before Codex plans or edits code.",
+      label: "VC",
+      meta: "Ready",
+      status: "ready",
+      title: "Voice Codex"
+    },
+    {
+      body: grokbotReady
+        ? "Grokbot has a server-side environment variable configured. Its secret stays on the backend."
+        : "Grokbot is listed, but this deployment has not exposed a recognized server-side env var to the app yet.",
+      label: "G",
+      meta: grokbotReady ? "Connected" : "Env missing",
+      status: grokbotReady ? "active" : "offline",
+      title: "Grokbot"
+    },
+    {
+      actionHref: "/demand",
+      actionLabel: "Open Demand",
+      body: "Demand planning is using inventory, container ETAs, sale windows, ad spend, and month-to-month carry-forward.",
+      label: "D",
+      meta: "Working",
+      status: "active",
+      title: "Demand Agent"
+    },
+    {
+      actionHref: "/forecasting/containers",
+      actionLabel: "Open Invoices",
+      body: "Invoice and container entries feed the inventory and demand timeline through each container manifest and ETA.",
+      label: "IN",
+      meta: "Working",
+      status: "active",
+      title: "Invoice Agent"
+    },
+    {
+      actionHref: "/inventory",
+      actionLabel: "Open Inventory",
+      body: "Inventory is the Vancouver stock source. Demand starts from this before adding monthly incoming containers.",
+      label: "I",
+      meta: "Working",
+      status: "active",
+      title: "Inventory Agent"
+    }
+  ];
 
   return (
-    <main className="px-5 py-8 sm:px-8 lg:px-10">
-      {error ? (
-        <section className="rounded-[28px] border border-red-200 bg-red-50 p-5 text-sm text-red-800">
-          Unable to load the cash conversion cycle.
-        </section>
-      ) : (
-        <DashboardPanel metrics={metrics} />
-      )}
+    <main className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
+      <section className="overflow-hidden rounded-[28px] border border-line bg-white shadow-sm">
+        <div className="border-b border-line px-5 py-5 sm:px-6">
+          <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Timeline</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950">Agents</h1>
+        </div>
+        <div>
+          {posts.map((post) => (
+            <AgentPostCard key={post.title} post={post} />
+          ))}
+        </div>
+      </section>
     </main>
   );
 }

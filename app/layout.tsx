@@ -44,14 +44,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   </div>
                   <nav className="flex gap-2 overflow-x-auto px-4 pb-3 text-sm">
                     {[
-                      { href: "/", label: "Home" },
-                      { href: "/data", label: "Orders" },
+                      { href: "/", label: "Timeline" },
+                      { href: "/forecasting/containers", label: "Invoices" },
                       { href: "/inventory", label: "Inventory" },
                       { href: "/demand", label: "Demand Plan" },
-                      { href: "/cac", label: "CAC" },
-                      { href: "/jobs", label: "Jobs" },
                       { href: "/voice-codex", label: "Voice Codex" },
-                      { href: "/forecasting/containers", label: "Invoices" },
                       { href: "/settings/users", label: "Users" }
                     ].map((link) => (
                       <Link
