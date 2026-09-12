@@ -39,7 +39,14 @@ type SaleEvent = {
 };
 
 type DemandPlan = {
+  averageRevenuePerModule: number | null;
   averageModulesPerOrder: number | null;
+  customerAcquisitionCost: number | null;
+  incomingContainers: {
+    breakdown: ModuleBreakdown;
+    eta: string | null;
+    pieces: number;
+  }[];
   incomingModulesByType: ModuleBreakdown;
   maxRevenue: number | null;
   moduleRevenue: ModuleRevenue;
@@ -535,7 +542,14 @@ function calculateDemandPlan({
   });
 
   return {
+    averageRevenuePerModule: shopifyProjectionMetrics.averageRevenuePerModule,
     averageModulesPerOrder,
+    customerAcquisitionCost,
+    incomingContainers: containerDemand.map((container) => ({
+      breakdown: container.breakdown,
+      eta: container.eta ? dateInputValue(container.eta) : null,
+      pieces: container.pieces
+    })),
     incomingModulesByType,
     maxRevenue: maxRevenueFromModuleMix(
       selectedMonthSales.length > 0 ? plannedSoldByType : targetModulesByType,
@@ -587,7 +601,11 @@ function MonthSelector({ options }: { options: MonthOption[] }) {
 function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   return {
     defaultSale: {
+      averageRevenuePerModule: plan.averageRevenuePerModule,
       averageModulesPerOrder: plan.averageModulesPerOrder,
+      customerAcquisitionCost: plan.customerAcquisitionCost,
+      defaultDailyAdBudget,
+      incomingContainers: plan.incomingContainers,
       maxRevenue: plan.maxRevenue,
       moduleRevenue: plan.moduleRevenue,
       modules: plan.targetModulesToSell,

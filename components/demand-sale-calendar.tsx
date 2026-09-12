@@ -23,8 +23,16 @@ type ModuleRevenue = Record<ModuleSlug, number | null>;
 
 export type DemandCalendarPlan = {
   defaultSale: {
+    averageRevenuePerModule: number | null;
     averageModulesPerOrder: number | null;
+    customerAcquisitionCost: number | null;
+    defaultDailyAdBudget: number;
     eligibleInboundByType: ModuleBreakdown;
+    incomingContainers: {
+      breakdown: ModuleBreakdown;
+      eta: string | null;
+      pieces: number;
+    }[];
     maxRevenue: number | null;
     moduleRevenue: ModuleRevenue;
     modules: number;
@@ -66,6 +74,28 @@ function dateFromKey(date: string) {
   return new Date(`${date}T00:00:00`);
 }
 
+function addDaysToKey(date: string, days: number) {
+  const nextDate = dateFromKey(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate.toISOString().slice(0, 10);
+}
+
+function addModuleBreakdown(left: ModuleBreakdown, right: ModuleBreakdown) {
+  return {
+    armless: left.armless + right.armless,
+    corner: left.corner + right.corner,
+    ottoman: left.ottoman + right.ottoman
+  };
+}
+
+function subtractModuleBreakdown(left: ModuleBreakdown, right: ModuleBreakdown) {
+  return {
+    armless: Math.max(0, left.armless - right.armless),
+    corner: Math.max(0, left.corner - right.corner),
+    ottoman: Math.max(0, left.ottoman - right.ottoman)
+  };
+}
+
 function recalculateEvent(event: DemandCalendarEvent): DemandCalendarEvent {
   const days = [...event.days].sort((left, right) => left.date.localeCompare(right.date));
 
@@ -99,6 +129,39 @@ function getSaleDay(date: string, events: DemandCalendarEvent[]) {
 
 function totalBreakdown(breakdown: ModuleBreakdown) {
   return breakdown.corner + breakdown.armless + breakdown.ottoman;
+}
+
+function proportionalModuleBreakdown(modules: ModuleBreakdown, requestedModules: number) {
+  const availableModules = totalBreakdown(modules);
+  if (availableModules <= 0 || requestedModules <= 0) {
+    return {
+      armless: 0,
+      corner: 0,
+      ottoman: 0
+    };
+  }
+
+  const scale = Math.min(1, requestedModules / availableModules);
+  return {
+    armless: Math.ceil(modules.armless * scale),
+    corner: Math.ceil(modules.corner * scale),
+    ottoman: Math.ceil(modules.ottoman * scale)
+  };
+}
+
+function maxRevenueFromModuleMix(
+  modules: ModuleBreakdown,
+  moduleRevenue: ModuleRevenue,
+  fallbackRevenuePerModule: number | null
+) {
+  const missingValue = (Object.keys(modules) as ModuleSlug[]).some((module) =>
+    modules[module] > 0 && moduleRevenue[module] === null && fallbackRevenuePerModule === null
+  );
+  if (missingValue) return null;
+
+  return (Object.keys(modules) as ModuleSlug[]).reduce((sum, module) => {
+    return sum + modules[module] * (moduleRevenue[module] ?? fallbackRevenuePerModule ?? 0);
+  }, 0);
 }
 
 function moduleBreakdownText(breakdown: ModuleBreakdown) {
@@ -145,6 +208,8 @@ export function DemandSaleCalendar({
   const [saleEvents, setSaleEvents] = useState<DemandCalendarEvent[]>(() =>
     plan.saleEvents.map(recalculateEvent)
   );
+  const [adSpendPerDay, setAdSpendPerDay] = useState(plan.defaultSale.defaultDailyAdBudget);
+  const [preSaleLeadDays, setPreSaleLeadDays] = useState(0);
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -209,9 +274,38 @@ export function DemandSaleCalendar({
 
   const activeSale = saleEvents[0] || null;
   const activeSaleDays = activeSale?.days.length || 0;
-  const dailyBudget = plan.defaultSale.totalBudget !== null && activeSaleDays > 0
-    ? plan.defaultSale.totalBudget / activeSaleDays
+  const selectedMonthStart = `${plan.selectedMonth.month}-01`;
+  const saleWindowEnd = activeSale?.endDate || dayKey(plan.selectedMonth.month, plan.selectedMonth.endDay);
+  const eligibleSaleDate = addDaysToKey(saleWindowEnd, preSaleLeadDays);
+  const saleEligibleIncomingByType = plan.defaultSale.incomingContainers.reduce<ModuleBreakdown>((sum, container) => {
+    if (!container.eta || container.eta < selectedMonthStart || container.eta > eligibleSaleDate) return sum;
+    return addModuleBreakdown(sum, container.breakdown);
+  }, {
+    armless: 0,
+    corner: 0,
+    ottoman: 0
+  });
+  const incomingThisMonthByType = plan.defaultSale.eligibleInboundByType;
+  const availableForSaleByType = addModuleBreakdown(plan.defaultSale.vancouverOnHandByType, saleEligibleIncomingByType);
+  const monthInventoryByType = addModuleBreakdown(plan.defaultSale.vancouverOnHandByType, incomingThisMonthByType);
+  const projectedAdBudget = activeSaleDays * adSpendPerDay;
+  const projectedOrders = plan.defaultSale.customerAcquisitionCost && plan.defaultSale.customerAcquisitionCost > 0
+    ? Math.floor(projectedAdBudget / plan.defaultSale.customerAcquisitionCost)
     : null;
+  const requestedModules = projectedOrders !== null && plan.defaultSale.averageModulesPerOrder !== null
+    ? projectedOrders * plan.defaultSale.averageModulesPerOrder
+    : 0;
+  const projectedSoldByType = proportionalModuleBreakdown(availableForSaleByType, requestedModules);
+  const projectedEndingByType = subtractModuleBreakdown(monthInventoryByType, projectedSoldByType);
+  const projectedRevenue = maxRevenueFromModuleMix(
+    activeSaleDays > 0 ? projectedSoldByType : projectedEndingByType,
+    plan.defaultSale.moduleRevenue,
+    plan.defaultSale.averageRevenuePerModule
+  );
+  const saleEligibleIncoming = totalBreakdown(saleEligibleIncomingByType);
+  const projectedSold = totalBreakdown(projectedSoldByType);
+  const projectedEnding = totalBreakdown(projectedEndingByType);
+  const dailyBudget = activeSaleDays > 0 ? adSpendPerDay : null;
   const cells = [
     ...Array.from({ length: plan.selectedMonth.firstDay }, (_, index) => ({ day: null, key: `blank-${index}` })),
     ...Array.from({ length: plan.selectedMonth.endDay }, (_, index) => {
@@ -243,9 +337,42 @@ export function DemandSaleCalendar({
           <div className="hidden items-center text-2xl font-semibold text-slate-400 lg:flex">+</div>
           <Stat label="Incoming containers" value={wholeNumber(plan.defaultSale.totalActiveInboundModules)} />
           <div className="hidden items-center text-2xl font-semibold text-slate-400 lg:flex">-</div>
-          <Stat label="Planned to sell" value={wholeNumber(totalBreakdown(plan.defaultSale.plannedSoldBeforeMonthByType))} />
+          <Stat label="Planned to sell" value={wholeNumber(projectedSold)} />
           <div className="hidden items-center text-2xl font-semibold text-slate-400 lg:flex">=</div>
-          <Stat label="Sellable inventory" tone="strong" value={wholeNumber(plan.defaultSale.modules)} />
+          <Stat label="Ending inventory" tone="strong" value={wholeNumber(projectedEnding)} />
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <label className="rounded-2xl border border-line bg-white p-4">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs font-semibold uppercase tracking-normal text-slate-500">Ad spend / sale day</span>
+              <span className="text-lg font-semibold text-slate-950">{money(adSpendPerDay)}</span>
+            </div>
+            <input
+              className="mt-3 w-full accent-blue-600"
+              max={2000}
+              min={0}
+              onChange={(event) => setAdSpendPerDay(Number(event.target.value))}
+              step={50}
+              type="range"
+              value={adSpendPerDay}
+            />
+          </label>
+          <label className="rounded-2xl border border-line bg-white p-4">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs font-semibold uppercase tracking-normal text-slate-500">Sell before ETA</span>
+              <span className="text-lg font-semibold text-slate-950">{preSaleLeadDays} days</span>
+            </div>
+            <input
+              className="mt-3 w-full accent-blue-600"
+              max={45}
+              min={0}
+              onChange={(event) => setPreSaleLeadDays(Number(event.target.value))}
+              step={1}
+              type="range"
+              value={preSaleLeadDays}
+            />
+          </label>
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -259,26 +386,32 @@ export function DemandSaleCalendar({
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
             <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Planned to sell</p>
-            <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(plan.defaultSale.plannedSoldBeforeMonthByType)}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(projectedSoldByType)}</p>
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Sellable mix</p>
-            <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(plan.defaultSale.modulesByType)}</p>
+            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">Ending mix</p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">{moduleBreakdownText(projectedEndingByType)}</p>
           </div>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Orders" value={plan.defaultSale.orders === null ? "Unavailable" : wholeNumber(plan.defaultSale.orders)} />
-        <Stat label="Revenue" tone="strong" value={plan.defaultSale.maxRevenue === null ? "Unavailable" : money(plan.defaultSale.maxRevenue)} />
-        <Stat label="Ad budget" value={plan.defaultSale.totalBudget === null ? "Unavailable" : money(plan.defaultSale.totalBudget)} />
-        <Stat label="Source month" value={plan.defaultSale.shopifyProjectionMonth} />
+        <Stat label="Orders" value={projectedOrders === null ? "Unavailable" : wholeNumber(projectedOrders)} />
+        <Stat label="Revenue" tone="strong" value={projectedRevenue === null ? "Unavailable" : money(projectedRevenue)} />
+        <Stat label="Ad budget" value={money(projectedAdBudget)} />
+        <Stat label="Sale-eligible incoming" value={wholeNumber(saleEligibleIncoming)} />
       </div>
 
       <div className="mt-4 rounded-2xl border border-line bg-white px-4 py-3 text-sm text-slate-600">
         <span className="font-semibold text-slate-950">
           Average modules/order: {plan.defaultSale.averageModulesPerOrder === null ? "Unavailable" : plan.defaultSale.averageModulesPerOrder.toFixed(1)}
         </span>
+        <span className="mx-2 text-slate-300">|</span>
+        <span>
+          CAC: {plan.defaultSale.customerAcquisitionCost === null ? "Unavailable" : money(plan.defaultSale.customerAcquisitionCost)}
+        </span>
+        <span className="mx-2 text-slate-300">|</span>
+        <span>Source month: {plan.defaultSale.shopifyProjectionMonth}</span>
         <span className="mx-2 text-slate-300">|</span>
         <span>Module revenue: {revenueBreakdownText(plan.defaultSale.moduleRevenue)}</span>
       </div>
