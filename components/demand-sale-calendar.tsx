@@ -83,7 +83,6 @@ const emptyModules = (): ModuleBreakdown => ({
   corner: 0,
   ottoman: 0
 });
-const monthSettingsStorageKey = "luun-demand-month-settings";
 
 function defaultMonthSettings(defaultDailyAdBudget: number): DemandMonthSettings {
   return {
@@ -101,17 +100,6 @@ function clampMonthSettings(settings: DemandMonthSettings, endDay: number): Dema
     saleDurationDays: Math.min(21, Math.max(1, settings.saleDurationDays)),
     saleStartDay: Math.min(endDay, Math.max(1, settings.saleStartDay))
   };
-}
-
-function readMonthSettings() {
-  if (typeof window === "undefined") return {};
-
-  try {
-    const storedSettings = window.localStorage.getItem(monthSettingsStorageKey);
-    return storedSettings ? JSON.parse(storedSettings) as Record<string, Partial<DemandMonthSettings>> : {};
-  } catch {
-    return {};
-  }
 }
 
 function settingsForMonth({
@@ -468,18 +456,27 @@ function Stat({
   );
 }
 
-export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCalendarPlan }) {
+export function DemandSaleCalendar({
+  canEdit,
+  initialSettingsByMonth,
+  plan
+}: {
+  canEdit: boolean;
+  initialSettingsByMonth: Record<string, Partial<DemandMonthSettings>>;
+  plan: DemandCalendarPlan;
+}) {
   const defaultSettings = defaultMonthSettings(plan.defaultSale.defaultDailyAdBudget);
   const [maxDailyAdSpend, setMaxDailyAdSpend] = useState(defaultSettings.maxDailyAdSpend);
   const [maxDaysApart, setMaxDaysApart] = useState(defaultSettings.maxDaysApart);
   const [saleDurationDays, setSaleDurationDays] = useState(defaultSettings.saleDurationDays);
   const [saleStartDay, setSaleStartDay] = useState(defaultSettings.saleStartDay);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [settingsByMonth, setSettingsByMonth] = useState<Record<string, Partial<DemandMonthSettings>>>({});
+  const [loadedMonth, setLoadedMonth] = useState("");
+  const [settingsByMonth, setSettingsByMonth] = useState<Record<string, Partial<DemandMonthSettings>>>(initialSettingsByMonth);
+  const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
-    setSettingsLoaded(false);
-    const nextSettingsByMonth = readMonthSettings();
+    setLoadedMonth("");
+    const nextSettingsByMonth = initialSettingsByMonth;
     const savedSettings = nextSettingsByMonth[plan.selectedMonth.month];
     const nextSettings = clampMonthSettings({
       ...defaultMonthSettings(plan.defaultSale.defaultDailyAdBudget),
@@ -491,29 +488,85 @@ export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCal
     setMaxDaysApart(nextSettings.maxDaysApart);
     setSaleDurationDays(nextSettings.saleDurationDays);
     setSaleStartDay(nextSettings.saleStartDay);
-    setSettingsLoaded(true);
-  }, [plan.defaultSale.defaultDailyAdBudget, plan.selectedMonth.endDay, plan.selectedMonth.month]);
+    setLoadedMonth(plan.selectedMonth.month);
+  }, [initialSettingsByMonth, plan.defaultSale.defaultDailyAdBudget, plan.selectedMonth.endDay, plan.selectedMonth.month]);
 
   useEffect(() => {
-    if (!settingsLoaded || typeof window === "undefined") return;
+    if (loadedMonth !== plan.selectedMonth.month || !canEdit) return;
 
-    const nextSettingsByMonth = readMonthSettings();
-    nextSettingsByMonth[plan.selectedMonth.month] = clampMonthSettings({
+    const controller = new AbortController();
+    const settings = clampMonthSettings({
       maxDailyAdSpend,
       maxDaysApart,
       saleDurationDays,
       saleStartDay
     }, plan.selectedMonth.endDay);
-    window.localStorage.setItem(monthSettingsStorageKey, JSON.stringify(nextSettingsByMonth));
-    setSettingsByMonth(nextSettingsByMonth);
+    const timeout = window.setTimeout(() => {
+      void fetch("/api/demand-settings", {
+        body: JSON.stringify({
+          max_daily_ad_spend: settings.maxDailyAdSpend,
+          max_days_apart: settings.maxDaysApart,
+          month: plan.selectedMonth.month,
+          sale_duration_days: settings.saleDurationDays,
+          sale_start_day: settings.saleStartDay
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+        signal: controller.signal
+      }).then(async (response) => {
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          setSaveMessage(body?.error || "Unable to save demand settings.");
+          return;
+        }
+        setSaveMessage("Settings saved.");
+      }).catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setSaveMessage("Unable to save demand settings.");
+      });
+    }, 500);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
   }, [
+    canEdit,
+    loadedMonth,
     maxDailyAdSpend,
     maxDaysApart,
     plan.selectedMonth.endDay,
     plan.selectedMonth.month,
     saleDurationDays,
     saleStartDay,
-    settingsLoaded
+  ]);
+
+  useEffect(() => {
+    if (!saveMessage || saveMessage !== "Settings saved.") return;
+    const timeout = window.setTimeout(() => setSaveMessage(""), 1500);
+    return () => window.clearTimeout(timeout);
+  }, [saveMessage]);
+
+  useEffect(() => {
+    if (loadedMonth !== plan.selectedMonth.month) return;
+    setSettingsByMonth((currentSettings) => {
+      const nextSettingsByMonth = { ...currentSettings };
+      nextSettingsByMonth[plan.selectedMonth.month] = clampMonthSettings({
+        maxDailyAdSpend,
+        maxDaysApart,
+        saleDurationDays,
+        saleStartDay
+      }, plan.selectedMonth.endDay);
+      return nextSettingsByMonth;
+    });
+  }, [
+    maxDailyAdSpend,
+    maxDaysApart,
+    loadedMonth,
+    plan.selectedMonth.endDay,
+    plan.selectedMonth.month,
+    saleDurationDays,
+    saleStartDay
   ]);
 
   const currentSettings = clampMonthSettings({
@@ -546,6 +599,16 @@ export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCal
             Starting inventory plus containers arriving this month, minus auto-placed sale windows.
           </p>
         </div>
+        {saveMessage ? (
+          <span className={[
+            "rounded-full border px-3 py-2 text-xs font-semibold",
+            saveMessage === "Settings saved."
+              ? "border-green-200 bg-green-50 text-green-700"
+              : "border-red-200 bg-red-50 text-red-700"
+          ].join(" ")}>
+            {saveMessage}
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-5 rounded-3xl border border-line bg-slate-50 p-4">
@@ -570,6 +633,7 @@ export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCal
               className="mt-3 w-full accent-blue-600"
               max={5000}
               min={0}
+              disabled={!canEdit}
               onChange={(event) => setMaxDailyAdSpend(Number(event.target.value))}
               step={50}
               type="range"
@@ -585,6 +649,7 @@ export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCal
               className="mt-3 w-full accent-blue-600"
               max={14}
               min={1}
+              disabled={!canEdit}
               onChange={(event) => setMaxDaysApart(Number(event.target.value))}
               step={1}
               type="range"
@@ -600,6 +665,7 @@ export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCal
               className="mt-3 w-full accent-blue-600"
               max={21}
               min={1}
+              disabled={!canEdit}
               onChange={(event) => setSaleDurationDays(Number(event.target.value))}
               step={1}
               type="range"
@@ -696,7 +762,9 @@ export function DemandSaleCalendar({ plan }: { canEdit: boolean; plan: DemandCal
                 isSaleStart ? "ring-2 ring-blue-500 ring-offset-1" : ""
               ].join(" ")}
               key={cell.key}
-              onClick={() => setSaleStartDay(cell.day || 1)}
+              onClick={() => {
+                if (canEdit) setSaleStartDay(cell.day || 1);
+              }}
               type="button"
             >
                 <>

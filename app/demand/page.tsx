@@ -3,7 +3,7 @@ import { unstable_cache } from "next/cache";
 import { DemandSaleCalendar, type DemandCalendarPlan } from "@/components/demand-sale-calendar";
 import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
-import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
+import type { ContainerEntry, DemandMonthSetting, InventoryRow, ShopifyOrder } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -26,6 +26,12 @@ type ContainerDemand = {
 type ModuleSlug = "corner" | "armless" | "ottoman";
 type ModuleBreakdown = Record<ModuleSlug, number>;
 type ModuleRevenue = Record<ModuleSlug, number | null>;
+type DemandMonthSettingsByMonth = Record<string, {
+  maxDailyAdSpend: number;
+  maxDaysApart: number;
+  saleDurationDays: number;
+  saleStartDay: number;
+}>;
 
 type DemandPlan = {
   averageRevenuePerModule: number | null;
@@ -641,6 +647,18 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
   };
 }
 
+function toDemandMonthSettingsByMonth(settings: DemandMonthSetting[]): DemandMonthSettingsByMonth {
+  return settings.reduce<DemandMonthSettingsByMonth>((sum, setting) => {
+    sum[setting.month] = {
+      maxDailyAdSpend: Number(setting.max_daily_ad_spend || defaultDailyAdBudget),
+      maxDaysApart: Number(setting.max_days_apart || defaultMaxDaysApart),
+      saleDurationDays: Number(setting.sale_duration_days || defaultSaleDurationDays),
+      saleStartDay: Number(setting.sale_start_day || 1)
+    };
+    return sum;
+  }, {});
+}
+
 export default async function DemandPage({
   searchParams
 }: {
@@ -654,6 +672,7 @@ export default async function DemandPage({
     { data: inventoryRows, error: inventoryError },
     { data: orders },
     { data: containers },
+    { data: demandSettings },
     wiseSummary
   ] = await Promise.all([
     supabase
@@ -671,6 +690,11 @@ export default async function DemandPage({
       .select("*")
       .order("eta", { ascending: true, nullsFirst: false })
       .returns<ContainerEntry[]>(),
+    supabase
+      .from("demand_month_settings")
+      .select("*")
+      .order("month", { ascending: true })
+      .returns<DemandMonthSetting[]>(),
     getCachedWiseSummary()
   ]);
 
@@ -703,7 +727,11 @@ export default async function DemandPage({
         </section>
       ) : (
         <div className="space-y-5">
-          <DemandSaleCalendar canEdit={canUpdateOrderLogistics(profile?.role)} plan={toCalendarPlan(plan)} />
+          <DemandSaleCalendar
+            canEdit={canUpdateOrderLogistics(profile?.role)}
+            initialSettingsByMonth={toDemandMonthSettingsByMonth(demandSettings || [])}
+            plan={toCalendarPlan(plan)}
+          />
         </div>
       )}
     </main>

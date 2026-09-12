@@ -115,6 +115,18 @@ export type DemandSale = {
   created_at: string;
 };
 
+export type DemandMonthSetting = {
+  id: string;
+  month: string;
+  max_daily_ad_spend: number | null;
+  max_days_apart: number | null;
+  sale_duration_days: number | null;
+  sale_start_day: number | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type MajorExpenseStatus = "open" | "paid" | "cancelled";
 
 export type MajorExpense = {
