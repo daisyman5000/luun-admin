@@ -26,6 +26,13 @@ function errorMessage(error: unknown) {
   return typeof message === "string" ? message : null;
 }
 
+const persistenceUnavailableMessage =
+  "Voice Codex is using a temporary thread. App data lookup still works, but saved thread history needs the production database migration.";
+
+function isTemporaryThreadId(threadId: string) {
+  return threadId.startsWith("ephemeral-");
+}
+
 function isAction(value: unknown): value is DelegationAction {
   return value === "inspect" || value === "clarify" || value === "plan" || value === "approve" || value === "execute";
 }
@@ -132,7 +139,7 @@ export async function POST(request: NextRequest) {
 
   const requestedThreadId = cleanString(body.threadId);
   let threadId = requestedThreadId;
-  let persistenceAvailable = Boolean(requestedThreadId);
+  let persistenceAvailable = Boolean(requestedThreadId) && !isTemporaryThreadId(requestedThreadId);
   let persistenceWarning: string | null = null;
 
   if (!threadId) {
@@ -150,14 +157,12 @@ export async function POST(request: NextRequest) {
     if (error || !data) {
       threadId = `ephemeral-${randomUUID()}`;
       persistenceAvailable = false;
-      persistenceWarning =
-        errorMessage(error) ||
-        "Voice Codex persistence is unavailable. The app data lookup will continue without saving a durable thread.";
+      persistenceWarning = persistenceUnavailableMessage;
     } else {
       threadId = data.id;
       persistenceAvailable = true;
     }
-  } else {
+  } else if (persistenceAvailable) {
     const { error } = await supabase
       .from("voice_codex_threads")
       .update({
@@ -167,7 +172,9 @@ export async function POST(request: NextRequest) {
       .eq("id", threadId);
 
     persistenceAvailable = !error;
-    persistenceWarning = errorMessage(error);
+    persistenceWarning = error ? persistenceUnavailableMessage : null;
+  } else {
+    persistenceWarning = persistenceUnavailableMessage;
   }
 
   const { data: thread } = persistenceAvailable
