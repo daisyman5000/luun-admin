@@ -36,11 +36,13 @@ export function buildCodexPrompt({
   action,
   accumulatedContext,
   approvalSummary,
+  appDataSnapshot,
   userMessage
 }: {
   action: string;
   accumulatedContext: string;
   approvalSummary?: string | null;
+  appDataSnapshot?: string | null;
   userMessage: string;
 }) {
   const mode =
@@ -64,6 +66,9 @@ ${accumulatedContext || "No accumulated context yet."}
 
 Approval summary:
 ${approvalSummary || "No execution approval has been granted."}
+
+Current Luun Admin app data:
+${appDataSnapshot || "No app data snapshot was attached."}
 
 Return a short response suitable for GPT Live to say aloud, plus any concise visible notes for the Voice Codex page.
 `.trim();

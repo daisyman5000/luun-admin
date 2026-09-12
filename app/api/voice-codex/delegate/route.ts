@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { canUpdateOrderLogistics, getUserContext } from "@/lib/auth";
+import { buildVoiceCodexAppDataSnapshot } from "@/lib/voice-codex/app-data";
 import { buildCodexPrompt, codexWorkerSystemPrompt } from "@/lib/voice-codex/prompts";
 
 export const runtime = "nodejs";
@@ -42,12 +43,14 @@ function extractTextFromResponse(body: unknown) {
 async function callCodexWorker({
   action,
   accumulatedContext,
+  appDataSnapshot,
   approvalSummary,
   threadId,
   userMessage
 }: {
   action: DelegationAction;
   accumulatedContext: string;
+  appDataSnapshot: string;
   approvalSummary: string;
   threadId: string;
   userMessage: string;
@@ -59,7 +62,7 @@ async function callCodexWorker({
     };
   }
 
-  const prompt = buildCodexPrompt({ action, accumulatedContext, approvalSummary, userMessage });
+  const prompt = buildCodexPrompt({ action, accumulatedContext, appDataSnapshot, approvalSummary, userMessage });
   const model = process.env.OPENAI_CODEX_MODEL || "gpt-5.2";
 
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -216,6 +219,7 @@ export async function POST(request: NextRequest) {
   const result = await callCodexWorker({
     action,
     accumulatedContext,
+    appDataSnapshot: await buildVoiceCodexAppDataSnapshot(supabase, profile?.role),
     approvalSummary: approvalSummary || "",
     threadId,
     userMessage
