@@ -54,6 +54,7 @@ type DemandPlan = {
 };
 
 const defaultDailyAdBudget = 400;
+const defaultSaleDurationDays = 10;
 const defaultMaxDaysApart = 3;
 const defaultSellBeforeEtaDays = 0;
 const getCachedWiseSummary = unstable_cache(getWiseSummary, ["wise-summary-demand"], { revalidate: 300 });
@@ -413,15 +414,23 @@ function containerIncomingForMonth(containerDemand: ContainerDemand[], month: Mo
   }, emptyModuleBreakdown());
 }
 
-function autoSaleDates(month: MonthOption, maxDaysApart: number) {
-  const safeGap = Math.max(1, maxDaysApart);
-  const dates: Date[] = [];
+function autoSaleWindows(month: MonthOption, saleDurationDays: number, maxDaysBetweenSales: number) {
+  const safeDuration = Math.max(1, saleDurationDays);
+  const safeGap = Math.max(0, maxDaysBetweenSales);
+  const windows: Date[][] = [];
 
-  for (let day = 1; day <= month.end.getDate(); day += safeGap) {
-    dates.push(new Date(month.start.getFullYear(), month.start.getMonth(), day));
+  for (let startDay = 1; startDay <= month.end.getDate(); startDay += safeDuration + safeGap) {
+    const endDay = Math.min(month.end.getDate(), startDay + safeDuration - 1);
+    const dates: Date[] = [];
+
+    for (let day = startDay; day <= endDay; day += 1) {
+      dates.push(new Date(month.start.getFullYear(), month.start.getMonth(), day));
+    }
+
+    windows.push(dates);
   }
 
-  return dates;
+  return windows;
 }
 
 function containerEligibleBySaleDate(containerDemand: ContainerDemand[], month: MonthOption, saleDate: Date, sellBeforeEtaDays: number) {
@@ -468,22 +477,24 @@ function plannedSoldForAutoSales({
     };
   }
 
-  for (const saleDate of autoSaleDates(month, defaultMaxDaysApart)) {
-    const eligibleIncoming = containerEligibleBySaleDate(containerDemand, month, saleDate, sellBeforeEtaDays);
-    const availableByType = subtractModuleBreakdown(addModuleBreakdown(startingInventory, eligibleIncoming), soldByType);
-    const maxOrdersBySpend = Math.floor(maxDailyAdSpend / customerAcquisitionCost);
-    const requestedModules = maxOrdersBySpend * averageModulesPerOrder;
-    const modules = proportionalModuleBreakdown(availableByType, requestedModules);
-    const modulesSold = totalModuleBreakdown(modules);
+  for (const window of autoSaleWindows(month, defaultSaleDurationDays, defaultMaxDaysApart)) {
+    for (const saleDate of window) {
+      const eligibleIncoming = containerEligibleBySaleDate(containerDemand, month, saleDate, sellBeforeEtaDays);
+      const availableByType = subtractModuleBreakdown(addModuleBreakdown(startingInventory, eligibleIncoming), soldByType);
+      const maxOrdersBySpend = Math.floor(maxDailyAdSpend / customerAcquisitionCost);
+      const requestedModules = maxOrdersBySpend * averageModulesPerOrder;
+      const modules = proportionalModuleBreakdown(availableByType, requestedModules);
+      const modulesSold = totalModuleBreakdown(modules);
 
-    if (modulesSold <= 0) continue;
+      if (modulesSold <= 0) continue;
 
-    const orders = Math.ceil(modulesSold / averageModulesPerOrder);
-    const spend = Math.min(maxDailyAdSpend, orders * customerAcquisitionCost);
+      const orders = Math.ceil(modulesSold / averageModulesPerOrder);
+      const spend = Math.min(maxDailyAdSpend, orders * customerAcquisitionCost);
 
-    plannedAdSpend += spend;
-    plannedOrders += orders;
-    soldByType = addModuleBreakdown(soldByType, modules);
+      plannedAdSpend += spend;
+      plannedOrders += orders;
+      soldByType = addModuleBreakdown(soldByType, modules);
+    }
   }
 
   return {
