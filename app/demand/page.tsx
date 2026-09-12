@@ -3,7 +3,7 @@ import { unstable_cache } from "next/cache";
 import { DemandSaleCalendar, type DemandCalendarPlan } from "@/components/demand-sale-calendar";
 import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
-import type { ContainerEntry, DemandSale, InventoryRow, ShopifyOrder } from "@/lib/types";
+import type { ContainerEntry, InventoryRow, ShopifyOrder } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,17 +27,6 @@ type ModuleSlug = "corner" | "armless" | "ottoman";
 type ModuleBreakdown = Record<ModuleSlug, number>;
 type ModuleRevenue = Record<ModuleSlug, number | null>;
 
-type SaleEvent = {
-  dailyBudget: number | null;
-  date: Date;
-  days: DemandSale[];
-  endDate: Date;
-  labels: string[];
-  modules: number;
-  orders: number | null;
-  totalBudget: number | null;
-};
-
 type DemandPlan = {
   averageRevenuePerModule: number | null;
   averageModulesPerOrder: number | null;
@@ -52,7 +41,6 @@ type DemandPlan = {
   moduleRevenue: ModuleRevenue;
   plannedSoldByType: ModuleBreakdown;
   selectedMonth: MonthOption;
-  saleEvents: SaleEvent[];
   shopifyProjectionMonth: string | null;
   targetModulesByType: ModuleBreakdown;
   targetMetaBudget: number | null;
@@ -66,6 +54,8 @@ type DemandPlan = {
 };
 
 const defaultDailyAdBudget = 400;
+const defaultMaxDaysApart = 3;
+const defaultSellBeforeEtaDays = 0;
 const getCachedWiseSummary = unstable_cache(getWiseSummary, ["wise-summary-demand"], { revalidate: 300 });
 const revenuePaymentStatuses = new Set(["PAID", "PARTIALLY_REFUNDED"]);
 
@@ -344,10 +334,6 @@ function calculateShopifyProjectionMetrics(orders: ShopifyOrder[]): ShopifyProje
   };
 }
 
-function saleDateValue(sale: DemandSale) {
-  return new Date(`${sale.sale_date}T00:00:00`);
-}
-
 function maxRevenueFromModuleMix(
   modules: ModuleBreakdown,
   moduleRevenue: ModuleRevenue,
@@ -368,11 +354,23 @@ function proportionalModuleBreakdown(modules: ModuleBreakdown, requestedModules:
   if (availableModules <= 0 || requestedModules <= 0) return emptyModuleBreakdown();
 
   const scale = Math.min(1, requestedModules / availableModules);
-  return {
-    armless: Math.ceil(modules.armless * scale),
-    corner: Math.ceil(modules.corner * scale),
-    ottoman: Math.ceil(modules.ottoman * scale)
+  const targetModules = Math.min(availableModules, Math.floor(requestedModules));
+  const base = {
+    armless: Math.min(modules.armless, Math.floor(modules.armless * scale)),
+    corner: Math.min(modules.corner, Math.floor(modules.corner * scale)),
+    ottoman: Math.min(modules.ottoman, Math.floor(modules.ottoman * scale))
   };
+  let remaining = targetModules - totalModuleBreakdown(base);
+  const order: ModuleSlug[] = ["corner", "armless", "ottoman"];
+
+  while (remaining > 0) {
+    const nextModule = order.find((module) => base[module] < modules[module]);
+    if (!nextModule) break;
+    base[nextModule] += 1;
+    remaining -= 1;
+  }
+
+  return base;
 }
 
 function monthOptionFromDate(date: Date): MonthOption {
@@ -415,77 +413,96 @@ function containerIncomingForMonth(containerDemand: ContainerDemand[], month: Mo
   }, emptyModuleBreakdown());
 }
 
-function salesForMonth(plannedSales: DemandSale[], month: MonthOption) {
-  return plannedSales.filter((sale) => {
-    const date = saleDateValue(sale);
-    return date >= month.start && date <= month.end;
-  });
+function autoSaleDates(month: MonthOption, maxDaysApart: number) {
+  const safeGap = Math.max(1, maxDaysApart);
+  const dates: Date[] = [];
+
+  for (let day = 1; day <= month.end.getDate(); day += safeGap) {
+    dates.push(new Date(month.start.getFullYear(), month.start.getMonth(), day));
+  }
+
+  return dates;
 }
 
-function plannedSoldForSales({
+function containerEligibleBySaleDate(containerDemand: ContainerDemand[], month: MonthOption, saleDate: Date, sellBeforeEtaDays: number) {
+  const lastEligibleEta = addDays(saleDate, sellBeforeEtaDays);
+
+  return containerDemand.reduce<ModuleBreakdown>((sum, item) => {
+    if (!item.eta || item.eta < month.start || item.eta > month.end || item.eta > lastEligibleEta) return sum;
+    return addModuleBreakdown(sum, item.breakdown);
+  }, emptyModuleBreakdown());
+}
+
+function plannedSoldForAutoSales({
   averageModulesPerOrder,
-  availableModules,
+  containerDemand,
   customerAcquisitionCost,
-  sales
+  maxDailyAdSpend,
+  month,
+  sellBeforeEtaDays,
+  startingInventory
 }: {
   averageModulesPerOrder: number | null;
-  availableModules: ModuleBreakdown;
+  containerDemand: ContainerDemand[];
   customerAcquisitionCost: number | null;
-  sales: DemandSale[];
+  maxDailyAdSpend: number;
+  month: MonthOption;
+  sellBeforeEtaDays: number;
+  startingInventory: ModuleBreakdown;
 }) {
-  const plannedAdSpend = sales.length * defaultDailyAdBudget;
-  const plannedOrders = customerAcquisitionCost && customerAcquisitionCost > 0
-    ? Math.floor(plannedAdSpend / customerAcquisitionCost)
-    : 0;
-  const requestedModules = averageModulesPerOrder ? plannedOrders * averageModulesPerOrder : 0;
+  let soldByType = emptyModuleBreakdown();
+  let plannedAdSpend = 0;
+  let plannedOrders = 0;
+
+  if (
+    !averageModulesPerOrder ||
+    averageModulesPerOrder <= 0 ||
+    !customerAcquisitionCost ||
+    customerAcquisitionCost <= 0 ||
+    maxDailyAdSpend <= 0
+  ) {
+    return {
+      adSpend: 0,
+      modules: soldByType,
+      orders: 0
+    };
+  }
+
+  for (const saleDate of autoSaleDates(month, defaultMaxDaysApart)) {
+    const eligibleIncoming = containerEligibleBySaleDate(containerDemand, month, saleDate, sellBeforeEtaDays);
+    const availableByType = subtractModuleBreakdown(addModuleBreakdown(startingInventory, eligibleIncoming), soldByType);
+    const maxOrdersBySpend = Math.floor(maxDailyAdSpend / customerAcquisitionCost);
+    const requestedModules = maxOrdersBySpend * averageModulesPerOrder;
+    const modules = proportionalModuleBreakdown(availableByType, requestedModules);
+    const modulesSold = totalModuleBreakdown(modules);
+
+    if (modulesSold <= 0) continue;
+
+    const orders = Math.ceil(modulesSold / averageModulesPerOrder);
+    const spend = Math.min(maxDailyAdSpend, orders * customerAcquisitionCost);
+
+    plannedAdSpend += spend;
+    plannedOrders += orders;
+    soldByType = addModuleBreakdown(soldByType, modules);
+  }
 
   return {
     adSpend: plannedAdSpend,
-    modules: proportionalModuleBreakdown(availableModules, requestedModules),
+    modules: soldByType,
     orders: plannedOrders
   };
-}
-
-function buildSaleEvents({
-  adSpend,
-  modules,
-  orders,
-  plannedSales
-}: {
-  adSpend: number;
-  modules: number;
-  orders: number;
-  plannedSales: DemandSale[];
-}) {
-  if (plannedSales.length === 0) return [];
-
-  const saleDate = new Date(`${plannedSales[0].sale_date}T00:00:00`);
-  const endDate = new Date(`${plannedSales[plannedSales.length - 1].sale_date}T00:00:00`);
-
-  return [{
-    dailyBudget: adSpend / plannedSales.length,
-    date: saleDate,
-    days: plannedSales,
-    endDate,
-    labels: [],
-    modules,
-    orders,
-    totalBudget: adSpend
-  }];
 }
 
 function calculateDemandPlan({
   containers,
   customerAcquisitionCost,
   orders,
-  plannedSales,
   selectedMonth,
   vancouverOnHandBreakdown
 }: {
   containers: ContainerEntry[];
   customerAcquisitionCost: number | null;
   orders: ShopifyOrder[];
-  plannedSales: DemandSale[];
   selectedMonth: MonthOption;
   vancouverOnHandBreakdown: ModuleBreakdown;
 }): DemandPlan {
@@ -512,34 +529,28 @@ function calculateDemandPlan({
   let plannedAdSpend = 0;
   let plannedOrders = 0;
   let endingInventoryByType = vancouverOnHandBreakdown;
-  let selectedMonthSales: DemandSale[] = [];
 
   for (const month of monthRange(firstPlanningMonth, selectedMonth.month)) {
     startingInventoryByType = endingInventoryByType;
     incomingModulesByType = containerIncomingForMonth(containerDemand, month);
-    const availableThisMonth = addModuleBreakdown(startingInventoryByType, incomingModulesByType);
-    selectedMonthSales = salesForMonth(plannedSales, month);
-    const plannedSale = plannedSoldForSales({
+    const plannedSale = plannedSoldForAutoSales({
       averageModulesPerOrder,
-      availableModules: availableThisMonth,
+      containerDemand,
       customerAcquisitionCost,
-      sales: selectedMonthSales
+      maxDailyAdSpend: defaultDailyAdBudget,
+      month,
+      sellBeforeEtaDays: defaultSellBeforeEtaDays,
+      startingInventory: startingInventoryByType
     });
 
     plannedAdSpend = plannedSale.adSpend;
     plannedOrders = plannedSale.orders;
     plannedSoldByType = plannedSale.modules;
-    endingInventoryByType = subtractModuleBreakdown(availableThisMonth, plannedSoldByType);
+    endingInventoryByType = subtractModuleBreakdown(addModuleBreakdown(startingInventoryByType, incomingModulesByType), plannedSoldByType);
   }
 
   const targetModulesByType = endingInventoryByType;
   const targetModulesToSell = totalModuleBreakdown(targetModulesByType);
-  const saleEvents = buildSaleEvents({
-    adSpend: plannedAdSpend,
-    modules: totalModuleBreakdown(plannedSoldByType),
-    orders: plannedOrders,
-    plannedSales: selectedMonthSales
-  });
 
   return {
     averageRevenuePerModule: shopifyProjectionMetrics.averageRevenuePerModule,
@@ -552,23 +563,18 @@ function calculateDemandPlan({
     })),
     incomingModulesByType,
     maxRevenue: maxRevenueFromModuleMix(
-      selectedMonthSales.length > 0 ? plannedSoldByType : targetModulesByType,
+      plannedSoldByType,
       shopifyProjectionMetrics.moduleRevenue,
       shopifyProjectionMetrics.averageRevenuePerModule
     ),
     moduleRevenue: shopifyProjectionMetrics.moduleRevenue,
     plannedSoldByType,
     selectedMonth,
-    saleEvents,
     shopifyProjectionMonth: shopifyProjectionMetrics.sourceMonth,
     targetModulesByType,
     targetMetaBudget: plannedAdSpend,
     targetModulesToSell,
-    targetOrdersToSell: selectedMonthSales.length > 0
-      ? plannedOrders
-      : averageModulesPerOrder
-        ? Math.ceil(targetModulesToSell / averageModulesPerOrder)
-        : null,
+    targetOrdersToSell: plannedOrders,
     totalActiveInboundModules: totalModuleBreakdown(incomingModulesByType),
     eligibleInboundByType: incomingModulesByType,
     plannedSoldBeforeMonthByType: plannedSoldByType,
@@ -620,19 +626,7 @@ function toCalendarPlan(plan: DemandPlan): DemandCalendarPlan {
       vancouverOnHand: plan.vancouverOnHand
     },
     monthLabel: plan.selectedMonth.label,
-    saleEvents: plan.saleEvents.map((event) => ({
-      dailyBudget: event.dailyBudget,
-      date: dateInputValue(event.date),
-      days: event.days.map((day) => ({
-        date: day.sale_date,
-        id: day.id
-      })),
-      endDate: dateInputValue(event.endDate),
-      labels: event.labels,
-      modules: event.modules,
-      orders: event.orders,
-      totalBudget: event.totalBudget
-    })),
+    saleEvents: [],
     selectedMonth: {
       endDay: plan.selectedMonth.end.getDate(),
       firstDay: plan.selectedMonth.start.getDay(),
@@ -649,14 +643,11 @@ export default async function DemandPage({
   const resolvedSearchParams = await searchParams;
   const monthOptions = getMonthOptions(resolvedSearchParams?.month);
   const selectedMonth = monthOptions.find((option) => option.isActive) || monthOptions[0];
-  const saleQueryEnd = addDays(selectedMonth.end, 120);
-  const saleQueryStart = monthOptions[0].start;
   const { profile, supabase } = await requireUser();
   const [
     { data: inventoryRows, error: inventoryError },
     { data: orders },
     { data: containers },
-    { data: plannedSales, error: plannedSalesError },
     wiseSummary
   ] = await Promise.all([
     supabase
@@ -674,13 +665,6 @@ export default async function DemandPage({
       .select("*")
       .order("eta", { ascending: true, nullsFirst: false })
       .returns<ContainerEntry[]>(),
-    supabase
-      .from("demand_sales")
-      .select("*")
-      .gte("sale_date", dateInputValue(saleQueryStart))
-      .lte("sale_date", dateInputValue(saleQueryEnd))
-      .order("sale_date", { ascending: true })
-      .returns<DemandSale[]>(),
     getCachedWiseSummary()
   ]);
 
@@ -693,7 +677,6 @@ export default async function DemandPage({
     containers: containers || [],
     customerAcquisitionCost: customerAcquisitionCost.value,
     orders: orders || [],
-    plannedSales: plannedSales || [],
     selectedMonth,
     vancouverOnHandBreakdown
   });
@@ -714,13 +697,7 @@ export default async function DemandPage({
         </section>
       ) : (
         <div className="space-y-5">
-          {plannedSalesError ? (
-            <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-              Demand sale dates are not ready in Supabase yet. Apply the latest database migration, then refresh this page.
-            </section>
-          ) : null}
-
-          <DemandSaleCalendar canEdit={!plannedSalesError && canUpdateOrderLogistics(profile?.role)} plan={toCalendarPlan(plan)} />
+          <DemandSaleCalendar canEdit={canUpdateOrderLogistics(profile?.role)} plan={toCalendarPlan(plan)} />
         </div>
       )}
     </main>
