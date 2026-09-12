@@ -37,6 +37,29 @@ function isAction(value: unknown): value is DelegationAction {
   return value === "inspect" || value === "clarify" || value === "plan" || value === "approve" || value === "execute";
 }
 
+function isAppDataAccessCheck(message: string) {
+  const normalized = message.toLowerCase();
+  const asksAboutAccess = /\b(can|could|do|does|verify|check|see|access|read|view)\b/.test(normalized);
+  const mentionsAppData = /\b(app data|data|orders?|inventory|containers?|shopify)\b/.test(normalized);
+  const asksForChange = /\b(change|fix|update|edit|write|implement|build|delete|create)\b/.test(normalized);
+
+  return asksAboutAccess && mentionsAppData && !asksForChange;
+}
+
+function buildAppDataAccessResponse(appDataSnapshot: string) {
+  const loadedDatasets = appDataSnapshot.match(/Loaded datasets:\n((?:- .+\n?)+)/)?.[1]?.trim();
+
+  return [
+    "### Spoken (GPT Live)",
+    "Yes. I can read the current Luun Admin app data from your signed-in session.",
+    "",
+    "### Visible notes",
+    loadedDatasets || "The app data snapshot loaded, but no dataset summary was returned.",
+    "",
+    "I skipped the slower Codex model call for this access check. Use Ask for plan when you want repo-aware planning."
+  ].join("\n");
+}
+
 function extractTextFromResponse(body: unknown) {
   if (!body || typeof body !== "object") return "";
   const outputText = (body as { output_text?: unknown }).output_text;
@@ -264,10 +287,13 @@ export async function POST(request: NextRequest) {
       .eq("id", threadId);
   }
 
-  const result = await callCodexWorker({
+  const appDataSnapshot = await buildVoiceCodexAppDataSnapshot(supabase, profile?.role);
+  const result = isAppDataAccessCheck(userMessage)
+    ? { response: buildAppDataAccessResponse(appDataSnapshot), openaiResponseId: null }
+    : await callCodexWorker({
     action,
     accumulatedContext,
-    appDataSnapshot: await buildVoiceCodexAppDataSnapshot(supabase, profile?.role),
+    appDataSnapshot,
     approvalSummary: approvalSummary || "",
     threadId,
     userMessage

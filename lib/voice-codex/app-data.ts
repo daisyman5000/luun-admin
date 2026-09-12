@@ -15,9 +15,11 @@ function isoDaysAgo(days: number) {
 
 async function readQuery(label: string, query: unknown) {
   const result = (await query) as QueryResult;
+  const data = result.error ? null : result.data;
 
   return {
-    data: result.error ? null : result.data,
+    count: Array.isArray(data) ? data.length : data ? 1 : 0,
+    data,
     error: result.error?.message || null,
     label
   };
@@ -81,7 +83,7 @@ export async function buildVoiceCodexAppDataSnapshot(supabase: SupabaseReader, r
             .order("due_date", { ascending: true, nullsFirst: false })
             .limit(80)
         )
-      : Promise.resolve({ data: null, error: "Hidden from this user role", label: "Major expenses" }),
+      : Promise.resolve({ count: 0, data: null, error: "Hidden from this user role", label: "Major expenses" }),
     financialAccess
       ? readQuery(
           "Wayflyer payments",
@@ -91,13 +93,18 @@ export async function buildVoiceCodexAppDataSnapshot(supabase: SupabaseReader, r
             .order("due_date", { ascending: true, nullsFirst: false })
             .limit(80)
         )
-      : Promise.resolve({ data: null, error: "Hidden from this user role", label: "Wayflyer payments" })
+      : Promise.resolve({ count: 0, data: null, error: "Hidden from this user role", label: "Wayflyer payments" })
   ]);
 
   return `
 Read-only Luun Admin data snapshot
 Generated: ${new Date().toISOString()}
 Scope: current signed-in user's Supabase permissions. Raw Shopify JSON, customer emails, phone numbers, and addresses are intentionally excluded.
+
+Loaded datasets:
+${[inventory, recentOrders, containers, demandSales, jobs, majorExpenses, wayflyerPayments]
+  .map((result) => `- ${result.label}: ${result.error ? `unavailable (${result.error})` : `${result.count} rows`}`)
+  .join("\n")}
 
 ${compactJson([inventory, recentOrders, containers, demandSales, jobs, majorExpenses, wayflyerPayments])}
 `.trim();
