@@ -1,8 +1,10 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { redirect } from "next/navigation";
+import { hasValidGrokBotBearer } from "@/lib/grok-bot-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
+
+export { hasValidGrokBotBearer } from "@/lib/grok-bot-auth";
 
 export async function getUserContext() {
   const supabase = await createClient();
@@ -23,30 +25,15 @@ export async function getUserContext() {
   return { supabase, user, profile };
 }
 
-function parseBearerToken(authorizationHeader: string | null | undefined) {
-  if (!authorizationHeader) return null;
-  const match = /^Bearer\s+(\S+)/i.exec(authorizationHeader.trim());
-  return match?.[1] ?? null;
-}
-
-export function hasValidGrokBotBearer(authorizationHeader: string | null | undefined) {
-  const secret = process.env.GROK_BOT_SECRET;
-  const token = parseBearerToken(authorizationHeader);
-
-  if (!secret || !token) {
-    return false;
-  }
-
-  const expected = createHash("sha256").update(secret).digest();
-  const provided = createHash("sha256").update(token).digest();
-  return timingSafeEqual(expected, provided);
-}
-
 export async function getJobsApiContext(authorizationHeader: string | null | undefined) {
-  const context = await getUserContext();
+  try {
+    const context = await getUserContext();
 
-  if (context.user) {
-    return { kind: "user" as const, ...context, user: context.user };
+    if (context.user) {
+      return { kind: "user" as const, ...context, user: context.user };
+    }
+  } catch {
+    // Missing session configuration is treated as no cookie user.
   }
 
   if (hasValidGrokBotBearer(authorizationHeader)) {
