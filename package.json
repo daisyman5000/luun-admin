@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:sales": "tsc lib/sales/pricing.ts lib/sales/types.ts lib/sales/pricing.test.ts --module commonjs --target es2020 --esModuleInterop --outDir .sale-test-build --skipLibCheck && node --test .sale-test-build/pricing.test.js"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",

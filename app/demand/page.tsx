@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { DemandSaleControl } from "@/components/demand-sale-control";
 import { unstable_cache } from "next/cache";
 import { DemandSaleCalendar, type DemandCalendarPlan } from "@/components/demand-sale-calendar";
-import { canUpdateOrderLogistics, requireUser } from "@/lib/auth";
+import { canManageInventory, canUpdateOrderLogistics, requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
 import type { ContainerEntry, DemandMonthSetting, InventoryRow, ShopifyOrder } from "@/lib/types";
 
@@ -727,6 +728,7 @@ export default async function DemandPage({
         </section>
       ) : (
         <div className="space-y-5">
+          <DemandSaleControl canEdit={canManageInventory(profile?.role)} />
           <DemandSaleCalendar
             canEdit={canUpdateOrderLogistics(profile?.role)}
             initialSettingsByMonth={toDemandMonthSettingsByMonth(demandSettings || [])}
