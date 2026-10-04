@@ -8,3 +8,5 @@ dist
 coverage
 *.tsbuildinfo
 npm-debug.log*
+
+.sale-test-build
