@@ -6,16 +6,41 @@ import {FABRICS} from '@/lib/sales/shopify';
 import {quote,validateCounts,type Counts} from '@/lib/sales/pricing';
 import {readSale} from '@/lib/sales/store';
 import {isSaleActive} from '@/lib/sales/types';
+import {registerShopifyOrderWebhooks} from '@/lib/shopify/client';
 
 export const dynamic='force-dynamic';
 const PLAN='gid://shopify/SellingPlan/698922762519';
 const keys=['corner','armless','ottoman'] as const;
 const confirmedContainers=new Set(['MT-LUUN-007','MT-LUUN-008']);
+let webhooksReady=false;
+async function releaseAbandonedCarts(){
+ const domain=process.env.SHOPIFY_STORE_DOMAIN,token=process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+ if(!domain||!/^[a-zA-Z0-9-]+\.myshopify\.com$/.test(domain)||!token)return;
+ const db=createAdminClient();
+ const expired=await db.from('preorder_reservations').select('id,cart_id').is('released_at',null).is('shopify_order_id',null).lt('created_at',new Date(Date.now()-90*60000).toISOString()).limit(5);
+ if(expired.error)return;
+ async function request(query:string,variables:Record<string,unknown>){
+  const response=await fetch(`https://${domain}/api/2026-01/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token!},body:JSON.stringify({query,variables})});
+  const body=await response.json();if(!response.ok||body.errors?.length)throw new Error('Cart cleanup unavailable');return body.data;
+ }
+ await Promise.allSettled((expired.data||[]).map(async row=>{
+  const data=await request('query($id:ID!){cart(id:$id){id lines(first:100){pageInfo{hasNextPage} nodes{id}}}}',{id:row.cart_id});
+  // A completed/missing cart is never evidence that an order was cancelled.
+  if(!data?.cart||data.cart.lines.pageInfo.hasNextPage)return;
+  const ids=data.cart.lines.nodes.map((line:{id:string})=>line.id);
+  if(ids.length){
+   const removed=await request('mutation($cartId:ID!,$lineIds:[ID!]!){cartLinesRemove(cartId:$cartId,lineIds:$lineIds){cart{id lines(first:1){nodes{id}}} userErrors{message}}}',{cartId:row.cart_id,lineIds:ids});
+   if(removed.cartLinesRemove.userErrors.length||!removed.cartLinesRemove.cart||removed.cartLinesRemove.cart.lines.nodes.length)return;
+  }
+  await db.rpc('release_abandoned_preorder_inventory',{reservation_id:row.id});
+ }));
+}
 function fabricKey(value:string){
  const key=value.toLowerCase().trim().replace(/[\s_]+/g,'-');
  return ({white:'off-white',offwhite:'off-white','dark-gray':'dark-grey',grey:'dark-grey',gray:'dark-grey'} as Record<string,string>)[key]||key;
 }
 async function supply(){
+ await releaseAbandonedCarts();
  const db=createAdminClient();
  const [stock,containers]=await Promise.all([
   db.from('inventory').select('fabric_slug,module_slug,available_qty,reserved_qty').eq('builder_visible',true),
@@ -70,6 +95,7 @@ export async function POST(r:Request){
   const domain=process.env.SHOPIFY_STORE_DOMAIN,token=process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
   if(!domain||!/^[a-zA-Z0-9-]+\.myshopify\.com$/.test(domain)||!token)throw new Error('Checkout is not configured.');
   const reservationId=randomUUID();
+  if(!webhooksReady){await registerShopifyOrderWebhooks('https://luun-admin-et42.vercel.app');webhooksReady=true;}
   const response=await fetch(`https://${domain}/api/2026-01/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token},body:JSON.stringify({query:
    `mutation($input:CartInput!){cartCreate(input:$input){cart{id checkoutUrl discountAllocations{discountedAmount{amount currencyCode}} cost{subtotalAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}} sellingPlanAllocation{sellingPlan{id}}}}} userErrors{message}}}`,
    variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[{key:'Luun reservation',value:reservationId},{key:'Luun payment option',value:'20% deposit; balance manually collected when complete sofa is available'}],lines:keys.filter(key=>counts[key]>0).map(key=>({quantity:counts[key],merchandiseId:`gid://shopify/ProductVariant/${variants[key]}`,sellingPlanId:PLAN}))}}})});
