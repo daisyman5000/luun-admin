@@ -21,7 +21,13 @@ export async function POST(request:Request){
   const sale=await readSale();
   const staleLock=sale.status==='syncing' && sale.updated_at && Date.now()-Date.parse(sale.updated_at)>120000;
   if(body.version!==sale.version || (sale.status==='syncing' && !(body.action==='end' && staleLock)))return NextResponse.json({error:'Refresh: another sale update is in progress.'},{status:409});
-  if(!['save','start','end'].includes(body.action))return NextResponse.json({error:'Invalid action'},{status:400});
+  if(!['save','start','end','check'].includes(body.action))return NextResponse.json({error:'Invalid action'},{status:400});
+  if(body.action==='check'){
+   if(sale.enabled)throw new Error('End the sale before checking regular checkout pricing.');
+   await salePermissions();
+   await verifySalePrices(false);
+   return NextResponse.json({sale,message:'Shopify connection and regular checkout totals verified for all five fabrics and module quantity tiers.'});
+  }
   if(body.action==='save'){
    if(sale.enabled)return NextResponse.json({error:'End the sale before editing its settings.'},{status:409});
    return NextResponse.json({sale:await updateSale(sale.version,cleanSale(body),c.user.id)});
