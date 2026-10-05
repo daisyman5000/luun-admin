@@ -1,4 +1,4 @@
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {NextResponse} from 'next/server';
 import {createAdminClient} from '@/lib/supabase/admin';
 import {allowedStorefront,headersFor} from '@/lib/sales/public-headers';
@@ -29,7 +29,7 @@ async function supply(){
   if(!current[fabric]||!keys.includes(key))continue;
   const amount=Math.max(0,Number(row.available_qty||0)-Number(row.reserved_qty||0));
   if(!Number.isSafeInteger(amount))throw new Error('Inventory needs review.');
-  current[fabric][key]+=amount;total[fabric][key]+=amount;
+  current[fabric][key]+=amount;total[fabric][key]+=Number(row.available_qty||0)-Number(row.reserved_qty||0);
  }
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Vancouver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const shipments=(containers.data||[]).filter(row=>
@@ -42,6 +42,7 @@ async function supply(){
   if(!Number.isSafeInteger(item.quantity)||item.quantity<0)throw new Error('Purchase order inventory needs review.');
   total[fabric][key]+=item.quantity;
  }
+ for(const fabric of Object.keys(total))for(const key of keys)total[fabric][key]=Math.max(0,total[fabric][key]);
  return {current,total,shipments};
 }
 export async function OPTIONS(r:Request){return new Response(null,{status:204,headers:headersFor(r)});}
@@ -68,9 +69,10 @@ export async function POST(r:Request){
   const sale=await readSale();const active=isSaleActive(sale);
   const domain=process.env.SHOPIFY_STORE_DOMAIN,token=process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
   if(!domain||!/^[a-zA-Z0-9-]+\.myshopify\.com$/.test(domain)||!token)throw new Error('Checkout is not configured.');
+  const reservationId=randomUUID();
   const response=await fetch(`https://${domain}/api/2026-01/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token},body:JSON.stringify({query:
-   `mutation($input:CartInput!){cartCreate(input:$input){cart{checkoutUrl discountAllocations{discountedAmount{amount currencyCode}} cost{subtotalAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}} sellingPlanAllocation{sellingPlan{id}}}}} userErrors{message}}}`,
-   variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[{key:'Luun payment option',value:'20% deposit; balance manually collected when complete sofa is available'}],lines:keys.filter(key=>counts[key]>0).map(key=>({quantity:counts[key],merchandiseId:`gid://shopify/ProductVariant/${variants[key]}`,sellingPlanId:PLAN}))}}})});
+   `mutation($input:CartInput!){cartCreate(input:$input){cart{id checkoutUrl discountAllocations{discountedAmount{amount currencyCode}} cost{subtotalAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}} sellingPlanAllocation{sellingPlan{id}}}}} userErrors{message}}}`,
+   variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[{key:'Luun reservation',value:reservationId},{key:'Luun payment option',value:'20% deposit; balance manually collected when complete sofa is available'}],lines:keys.filter(key=>counts[key]>0).map(key=>({quantity:counts[key],merchandiseId:`gid://shopify/ProductVariant/${variants[key]}`,sellingPlanId:PLAN}))}}})});
   const result=await response.json();const cart=result.data?.cartCreate?.cart;
   if(!response.ok||result.errors?.length||result.data?.cartCreate?.userErrors?.length||!cart)throw new Error('Shopify could not create the deposit checkout. Please contact support.');
   if(cart.cost.subtotalAmount.currencyCode!=='CAD')throw new Error('Checkout currency differs.');
@@ -79,6 +81,8 @@ export async function POST(r:Request){
   const totalCents=Math.round(Number(cart.cost.subtotalAmount.amount)*100)-discounts;
   if(totalCents!==quote(counts,active).totalCents)throw new Error('Deposit checkout pricing differs from your configuration. Please contact support.');
   const latest=await readSale();if(latest.version!==sale.version||isSaleActive(latest)!==active)throw new Error('Sale pricing changed. Please refresh.');
+  const reservation=await createAdminClient().rpc('claim_preorder_inventory',{reservation_id:reservationId,fabric_input:fabric,counts_input:counts,cart_input:cart.id});
+  if(reservation.error||reservation.data!==true)throw new Error('This inventory was just reserved. Please refresh your configuration.');
   return NextResponse.json({checkoutUrl:cart.checkoutUrl,totalCents,preorder:true},{headers});
  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Checkout unavailable'},{status:409,headers});}
 }
