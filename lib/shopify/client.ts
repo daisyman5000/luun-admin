@@ -3,7 +3,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const SHOPIFY_API_VERSION = "2025-10";
-const SHOPIFY_SCOPES = ["read_orders"];
+const SHOPIFY_SCOPES = ["read_orders", "read_products", "read_discounts", "write_discounts"];
 const SHOPIFY_DOMAIN_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/;
 
 type ShopifyGraphQLError = {
@@ -433,3 +433,4 @@ export async function checkShopifyAdminConnection() {
     return false;
   }
 }
+
