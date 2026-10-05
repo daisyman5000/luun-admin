@@ -79,6 +79,8 @@ const ORDER_FIELDS = /* GraphQL */ `
   id
   name
   createdAt
+  cancelledAt
+  customAttributes { key value }
   email
   phone
   displayFinancialStatus
