@@ -9,6 +9,7 @@ const primaryLinks = [
   { href: "/forecasting/containers", label: "Invoices", short: "In" },
   { href: "/inventory", label: "Inventory", short: "I" },
   { href: "/demand", label: "Demand Plan", short: "D" },
+  { href: "/daily-plan", label: "Daily Plan", short: "DP" },
   { href: "/voice-codex", label: "Voice Codex", short: "VC" },
   { href: "/data", label: "Orders", short: "O" },
   { href: "/cac", label: "CAC", short: "CAC" },
