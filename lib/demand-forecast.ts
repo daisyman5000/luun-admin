@@ -3,7 +3,7 @@ import type { SaleState } from './sales/types';
 
 const DAY = 86400000;
 const keys = Object.keys(MODULE_CENTS) as (keyof Counts)[];
-function arrivalTime(eta: string | null) {
+export function arrivalTime(eta: string | null) {
   if (!eta) return NaN;
   const utc = Date.parse(`${eta}T12:00:00Z`);
   if (!Number.isFinite(utc)) return NaN;
