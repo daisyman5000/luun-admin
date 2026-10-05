@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import { DemandDecisions } from './demand-decisions';
+import type { PlanInput } from '@/lib/demand-plan';
 import { DemandSaleControl } from './demand-sale-control';
 import { forecastDemand, type ForecastInput } from '@/lib/demand-forecast';
 import { isSaleActive, type SaleState } from '@/lib/sales/types';
@@ -9,6 +11,8 @@ const money = (value: number | null) => value === null ? '—' : new Intl.Number
 const number = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('en-CA', { maximumFractionDigits: 1 }).format(value);
 const date = (value: string) => new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric' }).format(new Date(value));
 type Props = {
+  planning: PlanInput;
+  planningError: string | null;
   canEdit: boolean;
   input: ForecastInput;
   initialSale: SaleState | null;
@@ -22,7 +26,7 @@ function Metric({ label, value, detail, primary = false }: { label: string; valu
     <p className={primary ? 'mt-2 text-xs text-slate-400' : 'mt-2 text-xs text-slate-500'}>{detail}</p>
   </div>;
 }
-export function DemandWorkspace({ canEdit, input, initialSale, saleError, history }: Props) {
+export function DemandWorkspace({ planning, planningError, canEdit, input, initialSale, saleError, history }: Props) {
   const [sale, setSale] = useState(initialSale);
   const [budget, setBudget] = useState(input.dailyBudget);
   const [days, setDays] = useState(30);
@@ -34,6 +38,7 @@ export function DemandWorkspace({ canEdit, input, initialSale, saleError, histor
   const maxRevenue = Math.max(1, ...forecast.rows.map(row => row.revenue));
   const stock = Object.values(forecast.stock).reduce((sum, value) => sum + value, 0);
   return <div className="space-y-5">
+    <DemandDecisions input={{ ...planning, now }} canEdit={canEdit} initialError={planningError} />
     {saleError ? <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{saleError}</p> : null}
     {history.truncated ? <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Order history reached the 1,000-order limit. This forecast needs a larger import window.</p> : null}
     <div className="flex flex-wrap items-center justify-between gap-3">
