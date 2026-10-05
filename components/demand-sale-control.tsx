@@ -6,6 +6,7 @@ const money=(cents:number)=>new Intl.NumberFormat('en-CA',{style:'currency',curr
 const localTime=(value:string|null)=>value?new Date(Date.parse(value)-new Date(value).getTimezoneOffset()*60000).toISOString().slice(0,16):'';
 export function DemandSaleControl({canEdit}:{canEdit:boolean}){
  const [sale,setSale]=useState<SaleState>(DEFAULT_SALE);
+ const [notice,setNotice]=useState('');
  const [loaded,setLoaded]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
  const [start,setStart]=useState(localTime(new Date().toISOString()));
  const [end,setEnd]=useState('');
@@ -13,11 +14,11 @@ export function DemandSaleControl({canEdit}:{canEdit:boolean}){
  useEffect(()=>{if(canEdit)void load().catch(e=>setError(e.message));},[canEdit]);
  if(!canEdit)return null;
  async function run(action:string){
-  setBusy(true);setError('');
+  setBusy(true);setError('');setNotice('');
   try{
    const r=await fetch('/api/sale-control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...sale,action,starts_at:start?new Date(start).toISOString():null,ends_at:end?new Date(end).toISOString():null})});
    const body=await r.json();if(!r.ok)throw new Error(body.error);
-   setSale(body.sale);
+   setSale(body.sale);setNotice(body.message||'');
   }catch(e){setError((e as Error).message);try{await load();}catch{}}
   finally{setBusy(false);}
  }
@@ -25,6 +26,7 @@ export function DemandSaleControl({canEdit}:{canEdit:boolean}){
  return <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
   <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="text-lg font-semibold text-slate-950">Website sale</h2><p className="mt-1 text-sm text-slate-500">An additional 35% off after existing module quantity savings.</p></div><span role="status" className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold">{!loaded?'Setup required':sale.status==='ready'&&sale.enabled?'Sale enabled':sale.status==='off'?'Sale off':sale.status==='error'?'Needs attention':'Updating'}</span></div>
   {error&&<p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+  {notice&&<p role="status" className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
   {sale.last_error&&<p className="mt-3 text-sm text-red-800">{sale.last_error}</p>}
   <fieldset disabled={disabled} className="mt-5 grid gap-4 sm:grid-cols-2">
    <label className="text-sm font-medium">Sale name<input className="mt-1 w-full rounded-xl border p-3" maxLength={80} value={sale.name} onChange={e=>setSale({...sale,name:e.target.value})}/></label>
@@ -36,7 +38,7 @@ export function DemandSaleControl({canEdit}:{canEdit:boolean}){
   </fieldset>
   <p className="mt-3 text-xs text-slate-500">Times use your device’s time zone. Start manually at the chosen time; the sale expires automatically at the end time. The demand forecast calendar does not activate website promotions.</p>
   <div className="mt-5 overflow-x-auto"><table className="w-full text-left text-sm"><caption className="mb-3 text-left font-semibold">Checkout estimates before shipping and tax</caption><thead><tr><th className="py-2">Modules</th><th>Quantity savings</th><th>Regular</th><th>With extra 35%</th></tr></thead><tbody>{CHECK_CONFIGS.map(c=>{const p=quote(c,true);return <tr key={p.pieces} className="border-t"><td className="py-3">{c.corner} corner / {c.armless} armless / {c.ottoman} ottoman</td><td>{Math.round(p.quantityRate*100)}%</td><td>{money(p.regularCents)}</td><td className="font-semibold">{money(p.saleCents)}</td></tr>;})}</tbody></table></div>
-  <div className="mt-5 flex flex-wrap gap-3"><button disabled={!loaded||disabled} onClick={()=>void run('save')} className="rounded-full border px-5 py-3 text-sm font-semibold disabled:opacity-40">Save details</button><button disabled={!loaded||disabled} onClick={()=>void run('start')} className="rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">{busy?'Updating…':'Start sale'}</button><button disabled={!loaded||busy||(!sale.enabled&&!sale.shopify_discount_id&&sale.status!=='syncing')} onClick={()=>void run('end')} className="rounded-full border border-red-200 px-5 py-3 text-sm font-semibold text-red-700 disabled:opacity-40">End sale</button></div>
+  <div className="mt-5 flex flex-wrap gap-3"><button disabled={!loaded||disabled} onClick={()=>void run('check')} className="rounded-full border px-5 py-3 text-sm font-semibold disabled:opacity-40">Check Shopify connection</button><button disabled={!loaded||disabled} onClick={()=>void run('save')} className="rounded-full border px-5 py-3 text-sm font-semibold disabled:opacity-40">Save details</button><button disabled={!loaded||disabled} onClick={()=>void run('start')} className="rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-40">{busy?'Updating…':'Start sale'}</button><button disabled={!loaded||busy||(!sale.enabled&&!sale.shopify_discount_id&&sale.status!=='syncing')} onClick={()=>void run('end')} className="rounded-full border border-red-200 px-5 py-3 text-sm font-semibold text-red-700 disabled:opacity-40">End sale</button></div>
   <p className="mt-3 text-xs text-slate-500">Start sale verifies Shopify checkout totals before enabling website sale prices. Failed checks leave the sale unavailable.</p>
  </section>;
 }
