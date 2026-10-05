@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUserContext,canManageInventory } from '@/lib/auth';
 import { auditSale,readSale,updateSale } from '@/lib/sales/store';
 import { cleanSale } from '@/lib/sales/types';
-import { salePermissions,setShopifySale,verifySalePrices } from '@/lib/sales/shopify';
+import { salePermissions,prepareShopifySale,setShopifySale,verifySalePrices,verifyModuleSalePrices } from '@/lib/sales/shopify';
 export const dynamic='force-dynamic';
 export const maxDuration=60;
 async function context(){try{const c=await getUserContext();if(!c.user || !canManageInventory(c.profile?.role))return null;return c;}catch{return null;}}
@@ -26,7 +26,8 @@ export async function POST(request:Request){
    if(sale.enabled)throw new Error('End the sale before checking regular checkout pricing.');
    await salePermissions();
    await verifySalePrices(false);
-   return NextResponse.json({sale,message:'Shopify connection and regular checkout totals verified for all five fabrics and module quantity tiers.'});
+   await verifyModuleSalePrices();
+   return NextResponse.json({sale,message:'Shopify regular and additional-35% module checkout totals verified for all five fabrics and quantity tiers. The website sale is still off.'});
   }
   if(body.action==='save'){
    if(sale.enabled)return NextResponse.json({error:'End the sale before editing its settings.'},{status:409});
@@ -42,8 +43,9 @@ export async function POST(request:Request){
    if(!sale.enabled)await verifySalePrices(false);
    locked=await updateSale(sale.version,{...settings,status:'syncing',enabled:false,last_error:null},c.user.id);
    await auditSale('start_requested',c.user.id,locked.version);
-   discountId=await setShopifySale(locked,true);newlyEnabled=true;
+   discountId=await prepareShopifySale(locked);
    locked=await updateSale(locked.version,{shopify_discount_id:discountId},c.user.id);
+   newlyEnabled=true;await setShopifySale(locked,true);
    await verifySalePrices(true);
    return NextResponse.json({sale:await updateSale(locked.version,{status:'ready',enabled:true},c.user.id)});
   }
