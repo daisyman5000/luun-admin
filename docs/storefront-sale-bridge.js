@@ -13,7 +13,8 @@
   var units=state.moduleCents,rate=old.bundleDiscountRate;
   var regular=0,subtotal=0;
   ['corner','armless','ottoman'].forEach(function(k){var n=old[k],unit=units[k];subtotal+=unit*n;regular+=n*(unit-Math.floor(unit*Math.round(rate*100)/100));});
-  var total=regular-Math.floor((regular*35+50)/100);
+  var bps=rate===.15?4475:rate===.14?4410:rate===.11?4215:3500;
+  var total=0;['corner','armless','ottoman'].forEach(function(k){total+=old[k]*(units[k]-Math.floor(units[k]*bps/10000));});
   return Object.assign({},old,{subtotal:subtotal/100,compareTotal:regular/100,regularTotal:regular/100,total:total/100,saleDiscountRate:.35,discountRate:1-(1-rate)*.65,discountAmount:(subtotal-total)/100});
  };
  var banner=document.createElement('div');banner.setAttribute('data-luun-sale-banner','');banner.hidden=true;
