@@ -49,7 +49,7 @@
   var s=window.LuunBuilderBridge&&window.LuunBuilderBridge.getState();if(!s)return;
   pending=true;message.textContent='Confirming your Shopify checkout total…';
   fetch(base+'/api/sale-checkout',{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},body:JSON.stringify({counts:s.counts,fabric:s.color})}).then(function(r){return r.json().then(function(b){if(!r.ok)throw Error(b.error);return b;});}).then(function(cart){
-   var url=new URL(cart.checkoutUrl);if(url.protocol!=='https:' || !(url.hostname==='luunsofa.myshopify.com'||url.hostname==='checkout.luun.ca'))throw Error('Unexpected checkout destination');
+   var url=new URL(cart.checkoutUrl);if(url.protocol!=='https:' || !(url.hostname==='luunsofa.myshopify.com'||url.hostname==='1ec339-02.myshopify.com'||url.hostname==='checkout.luun.ca'))throw Error('Unexpected checkout destination');
    window.dispatchEvent(new CustomEvent('luun:checkout-start',{detail:{value:cart.totalCents/100,currency:'CAD',counts:s.counts}}));window.location.href=cart.checkoutUrl;
   }).catch(function(error){message.textContent=error.message;}).finally(function(){pending=false;});
  },true);
