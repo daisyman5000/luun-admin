@@ -27,7 +27,11 @@ export async function POST(request:Request){
    await salePermissions();
    await verifySalePrices(false);
    await verifyModuleSalePrices();
-   return NextResponse.json({sale,message:'Shopify regular and additional-35% module checkout totals verified for all five fabrics and quantity tiers. The website sale is still off.'});
+   const prepared=await prepareShopifySale(sale);
+   const checked=sale.shopify_discount_id===prepared?sale:await updateSale(sale.version,{shopify_discount_id:prepared},c.user.id);
+   await setShopifySale(checked,false);
+   await auditSale('connection_verified',c.user.id,checked.version);
+   return NextResponse.json({sale:checked,message:'Shopify regular and additional-35% module checkout totals verified for all five fabrics and quantity tiers. Builder-only automatic discounts are prepared and inactive. The website sale is still off.'});
   }
   if(body.action==='save'){
    if(sale.enabled)return NextResponse.json({error:'End the sale before editing its settings.'},{status:409});
