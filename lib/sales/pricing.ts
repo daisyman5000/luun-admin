@@ -1,5 +1,7 @@
 export const SALE_RATE = 0.35;
 export const MODULE_CENTS = { corner: 148462, armless: 107692, ottoman: 61538 };
+export const SALE_TIERS = [{min:1,bps:3500},{min:3,bps:4215},{min:4,bps:4410},{min:6,bps:4475}] as const;
+export function saleBasisPoints(pieces:number){return pieces>=6?4475:pieces>=4?4410:pieces===3?4215:3500;}
 export type Counts = Record<keyof typeof MODULE_CENTS, number>;
 export function quantityRate(count: number) { return count >= 6 ? 0.15 : count >= 4 ? 0.14 : count === 3 ? 0.11 : 0; }
 export function validateCounts(value: unknown): Counts {
@@ -20,7 +22,8 @@ export function quote(counts: Counts, active: boolean) {
     const unit = MODULE_CENTS[key];
     return sum + counts[key] * (unit - Math.floor((unit * Math.round(rate * 100)) / 100));
   }, 0);
-  const saleCents = regularCents - Math.floor((regularCents * 35 + 50) / 100);
+  const bps=saleBasisPoints(pieces);
+  const saleCents=(Object.keys(MODULE_CENTS) as (keyof Counts)[]).reduce((sum,key)=>sum+counts[key]*(MODULE_CENTS[key]-Math.floor(MODULE_CENTS[key]*bps/10000)),0);
   return { pieces, quantityRate: rate, regularCents, saleCents, totalCents: active ? saleCents : regularCents };
 }
 export const CHECK_CONFIGS: Counts[] = [
