@@ -14,7 +14,8 @@ export const FABRICS: Record<string, Record<keyof Counts, string>> = {
 export async function salePermissions() {
  const result=await shopifyAdminGraphQL<{currentAppInstallation:{accessScopes:{handle:string}[]}}>('query { currentAppInstallation { accessScopes { handle } } }');
  const scopes=result.currentAppInstallation.accessScopes.map(s=>s.handle);
- const missing=['read_discounts','write_discounts','read_products'].filter(s=>!scopes.includes(s));
+ // Shopify write scopes also grant read access and can omit the read handle.
+ const missing=['write_discounts','read_products'].filter(s=>!scopes.includes(s));
  if(missing.length) throw new Error('Shopify connection needs discount permissions. Reconnect after enabling read_discounts, write_discounts and read_products.');
  if(!process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN) throw new Error('Shopify checkout verification needs a Storefront API token.');
  const catalog=await shopifyAdminGraphQL<{products:{pageInfo:{hasNextPage:boolean};nodes:{variants:{pageInfo:{hasNextPage:boolean};nodes:{id:string;price:string}[]}}[]}}>('query { products(first:100,query:"status:active") { pageInfo{hasNextPage} nodes { variants(first:100){pageInfo{hasNextPage} nodes{id price}} } } }');
@@ -57,7 +58,7 @@ export async function checkoutQuote(counts:Counts, fabric:string) {
  const token=process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
  if(!token) throw new Error('Checkout verification is not configured');
  const response=await fetch(`https://${domain}/api/2025-10/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token},body:JSON.stringify({query:
-  `mutation($input:CartInput!){cartCreate(input:$input){cart{checkoutUrl cost{subtotalAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}}}}} userErrors{message}}}`,
+  `mutation($input:CartInput!){cartCreate(input:$input){cart{checkoutUrl cost{subtotalAmount{amount currencyCode}} discountAllocations{discountedAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}}}}} userErrors{message}}}`,
   variables:{input:{buyerIdentity:{countryCode:'CA'},lines:(Object.keys(counts) as (keyof Counts)[]).filter(k=>counts[k]>0).map(k=>({quantity:counts[k],merchandiseId:`gid://shopify/ProductVariant/${variants[k]}`}))}}})});
  const body=await response.json();
  const result=body.data?.cartCreate;
@@ -69,7 +70,12 @@ export async function checkoutQuote(counts:Counts, fabric:string) {
  for(const key of Object.keys(counts) as (keyof Counts)[]) {
   if(counts[key] && !lines.some((l:{quantity:number;merchandise:{id:string}})=>l.merchandise.id===`gid://shopify/ProductVariant/${variants[key]}` && l.quantity===counts[key])) throw new Error('Shopify changed the requested configuration');
  }
- return {checkoutUrl:cart.checkoutUrl as string,totalCents:Math.round(Number(cart.cost.subtotalAmount.amount)*100)};
+ // Subtotal includes product discounts but excludes cart-level order discounts.
+ const orderDiscountCents=(cart.discountAllocations||[]).reduce((sum:number,a:{discountedAmount:{amount:string;currencyCode:string}})=>{
+  if(a.discountedAmount.currencyCode!=='CAD')throw new Error('Checkout discount currency mismatch');
+  return sum+Math.round(Number(a.discountedAmount.amount)*100);
+ },0);
+ return {checkoutUrl:cart.checkoutUrl as string,totalCents:Math.round(Number(cart.cost.subtotalAmount.amount)*100)-orderDiscountCents};
 }
 export async function verifySalePrices(active:boolean) {
  for(const counts of CHECK_CONFIGS) {
