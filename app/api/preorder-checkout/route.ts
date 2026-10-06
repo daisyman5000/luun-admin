@@ -1,18 +1,18 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {NextResponse} from 'next/server';
+import {after,NextResponse} from 'next/server';
 import {createAdminClient} from '@/lib/supabase/admin';
 import {allowedStorefront,headersFor} from '@/lib/sales/public-headers';
 import {FABRICS} from '@/lib/sales/shopify';
 import {quote,validateCounts,quantityRate,saleBasisPoints,MODULE_CENTS,type Counts} from '@/lib/sales/pricing'; import {preorderAppConfig} from '@/lib/preorders/connection';
 import {readSale} from '@/lib/sales/store';
 import {isSaleActive} from '@/lib/sales/types';
-import {registerShopifyOrderWebhooks} from '@/lib/shopify/client';
+
 
 export const dynamic='force-dynamic';
 
 const keys=['corner','armless','ottoman'] as const;
 const confirmedContainers=new Set(['MT-LUUN-007','MT-LUUN-008']);
-let webhooksReady=false;
+
 async function releaseAbandonedCarts(){
  const domain=process.env.SHOPIFY_STORE_DOMAIN,token=process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
  if(!domain||!/^[a-zA-Z0-9-]+\.myshopify\.com$/.test(domain)||!token)return;
@@ -40,7 +40,7 @@ function fabricKey(value:string){
  return ({white:'off-white',offwhite:'off-white','dark-gray':'dark-grey',grey:'dark-grey',gray:'dark-grey'} as Record<string,string>)[key]||key;
 }
 async function supply(){
- await releaseAbandonedCarts();
+ 
  const db=createAdminClient();
  const [stock,containers]=await Promise.all([
   db.from('inventory').select('fabric_slug,module_slug,available_qty,reserved_qty').eq('builder_visible',true),
@@ -80,7 +80,7 @@ async function supply(){
 export async function OPTIONS(r:Request){return new Response(null,{status:204,headers:headersFor(r)});}
 export async function GET(r:Request){
  const headers=headersFor(r);
- try{const data=await supply();return NextResponse.json({...data.total,__preorder:{current:data.current,shipments:data.shipments.map(row=>({id:row.id,eta:row.eta,items:row.manifest_json}))}},{headers});}
+ after(async()=>{try{await releaseAbandonedCarts();}catch{console.error('[preorder-checkout] abandoned-cart cleanup failed');}});try{const data=await supply();return NextResponse.json({...data.total,__preorder:{current:data.current,shipments:data.shipments.map(row=>({id:row.id,eta:row.eta,items:row.manifest_json}))}},{headers});}
  catch{return NextResponse.json({error:'Inventory unavailable'},{status:503,headers});}
 }
 export async function POST(r:Request){
@@ -94,15 +94,15 @@ export async function POST(r:Request){
   if(limit.error||limit.data!==true)return NextResponse.json({error:'Please wait a minute before retrying.'},{status:429,headers});
   const body=await r.json();const counts=validateCounts(body.counts);const fabric=fabricKey(String(body.fabric||''));
   const variants=FABRICS[fabric];if(!variants)throw new Error('Choose a valid fabric.');
-  const data=await supply();
+  const [data,sale]=await Promise.all([supply(),readSale()]);
   if(keys.some(key=>counts[key]>data.total[fabric][key]))throw new Error('This configuration exceeds available and incoming inventory.');
   const preorder=keys.some(key=>counts[key]>data.current[fabric][key]);
   if(typeof body.preorder!=='boolean'||body.preorder!==preorder)throw new Error('Availability changed. Please refresh before checking out.');
-  const sale=await readSale();const active=isSaleActive(sale);
+  const active=isSaleActive(sale);
   const domain=process.env.SHOPIFY_STORE_DOMAIN,token=process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
   if(!domain||!/^[a-zA-Z0-9-]+\.myshopify\.com$/.test(domain)||!token)throw new Error('Checkout is not configured.');
   const pieces=counts.corner+counts.armless+counts.ottoman; const discountBps=active?saleBasisPoints(pieces):Math.round(quantityRate(pieces)*10000); let PLAN:string|undefined; if(preorder){const config=preorderAppConfig();const terms=await createAdminClient().from('preorder_app_connections').select('plan_ids,plan_setup_state').eq('shop_domain',config.shop).eq('client_id',config.clientId).maybeSingle();PLAN=terms.data?.plan_ids?.['luun-deposit-'+discountBps];if(terms.error||terms.data?.plan_setup_state!=='ready'||!PLAN||!/^gid:\/\/shopify\/SellingPlan\/[0-9]+$/.test(PLAN))throw new Error('Preorder payment terms are not connected. Please contact support.');} const reservationId=randomUUID();
-  if(!webhooksReady){await registerShopifyOrderWebhooks('https://luun-admin-et42.vercel.app');webhooksReady=true;}
+  
   const response=await fetch(`https://${domain}/api/2026-01/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token},body:JSON.stringify({query:
    `mutation($input:CartInput!){cartCreate(input:$input){cart{id checkoutUrl discountAllocations{discountedAmount{amount currencyCode}} cost{checkoutChargeAmount{amount currencyCode} subtotalAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}} sellingPlanAllocation{sellingPlan{id} checkoutChargeAmount{amount currencyCode}}}}} userErrors{message}}}`,
    variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[{key:'Luun reservation',value:reservationId},{key:'Luun payment option',value:preorder?'20% deposit; balance manually collected when complete sofa is available':'Full payment'}],lines:keys.filter(key=>counts[key]>0).map(key=>({quantity:counts[key],merchandiseId:`gid://shopify/ProductVariant/${variants[key]}`,...(preorder?{sellingPlanId:PLAN}:{})}))}}})});
