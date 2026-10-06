@@ -409,7 +409,7 @@ export async function registerShopifyOrderWebhooks(origin: string) {
 
     const errors = data.webhookSubscriptionCreate.userErrors;
     const blockingErrors = errors.filter(
-      (error) => !error.message.toLowerCase().includes("already exists")
+      (error) => !error.message.toLowerCase().includes("already exists") && !error.message.toLowerCase().includes("has already been taken")
     );
 
     if (blockingErrors.length > 0) {
