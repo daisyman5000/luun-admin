@@ -80,7 +80,7 @@ async function supply(){
 export async function OPTIONS(r:Request){return new Response(null,{status:204,headers:headersFor(r)});}
 export async function GET(r:Request){
  const headers=headersFor(r);
- after(async()=>{try{await releaseAbandonedCarts();}catch{console.error('[preorder-checkout] abandoned-cart cleanup failed');}});try{const [data,sale]=await Promise.all([supply(),readSale()]);return NextResponse.json({...data.total,__preorder:{current:data.current,shipments:data.shipments.map(row=>({id:row.id,eta:row.eta,items:row.manifest_json}))}},{headers});}
+ after(async()=>{try{await releaseAbandonedCarts();}catch{console.error('[preorder-checkout] abandoned-cart cleanup failed');}});try{const data=await supply();return NextResponse.json({...data.total,__preorder:{current:data.current,shipments:data.shipments.map(row=>({id:row.id,eta:row.eta,items:row.manifest_json}))}},{headers});}
  catch{return NextResponse.json({error:'Inventory unavailable'},{status:503,headers});}
 }
 export async function POST(r:Request){
