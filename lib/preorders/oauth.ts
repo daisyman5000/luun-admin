@@ -32,5 +32,6 @@ export function verifyPreorderCallback(config: PreorderAppConfig, params: URLSea
 }
 export function missingPreorderScopes(scope: string) {
   const granted = new Set(scope.split(',').map(s => s.trim()));
-  return PREORDER_SCOPES.filter(s => !granted.has(s));
+  // Shopify write permission includes the matching read permission.
+  return PREORDER_SCOPES.filter(s => !granted.has(s) && !(s.startsWith('read_') && granted.has('write_' + s.slice(5))));
 }
