@@ -5,6 +5,8 @@ create table public.preorder_reservations (
  cart_id text not null unique,
  created_at timestamptz not null default now(),
  released_at timestamptz
+ ,eta date
+ ,allocations jsonb not null default '[]'::jsonb
 );
 alter table public.preorder_reservations enable row level security;
 revoke all on public.preorder_reservations from anon, authenticated;
@@ -14,6 +16,7 @@ create or replace function public.claim_preorder_inventory(reservation_id uuid, 
 returns boolean language plpgsql set search_path = public as $$
 declare
  k text; n integer; row_id uuid; current_qty integer; reserved_qty integer; incoming_qty integer;
+ po record; needed integer; used integer; take_qty integer; arrival date; allocation_rows jsonb='[]'::jsonb;
 begin
  perform pg_advisory_xact_lock(hashtext('luun-preorder-inventory'));
  if exists(select 1 from preorder_reservations where id=reservation_id) then
@@ -34,13 +37,31 @@ begin
    and item->>'module'=k
    and case lower(trim(item->>'color')) when 'white' then 'off-white' when 'dark grey' then 'dark-grey' when 'dark-gray' then 'dark-grey' else lower(trim(item->>'color')) end=fabric_input;
   if current_qty+incoming_qty-reserved_qty<n then raise exception 'Configuration exceeds remaining inventory'; end if;
+  take_qty=least(n,greatest(0,current_qty-reserved_qty));
+  if take_qty>0 then allocation_rows=allocation_rows||jsonb_build_array(jsonb_build_object('source','stock','module',k,'quantity',take_qty)); end if;
+  needed=n-take_qty; used=greatest(0,reserved_qty-current_qty);
+  for po in
+   select c.id,c.eta,sum((item->>'quantity')::integer)::integer quantity
+   from container_entries c cross join lateral jsonb_array_elements(c.manifest_json) item
+   where (c.status in ('production','in_transit') or c.status='planning' and c.container_number in ('MT-LUUN-007','MT-LUUN-008')) and c.eta >= (now() at time zone 'America/Vancouver')::date and item->>'module'=k
+    and case lower(trim(item->>'color')) when 'white' then 'off-white' when 'dark grey' then 'dark-grey' when 'dark-gray' then 'dark-grey' else lower(trim(item->>'color')) end=fabric_input
+   group by c.id,c.eta order by c.eta,c.id
+  loop
+   take_qty=least(used,po.quantity); used=used-take_qty;
+   take_qty=least(needed,po.quantity-take_qty);
+   if take_qty>0 then
+    allocation_rows=allocation_rows||jsonb_build_array(jsonb_build_object('source',po.id,'module',k,'quantity',take_qty));
+    arrival=greatest(arrival,po.eta); needed=needed-take_qty;
+   end if;
+  end loop;
+  if needed>0 then raise exception 'Configuration exceeds remaining inventory'; end if;
  end loop;
  if (counts_input->>'corner')::integer+(counts_input->>'armless')::integer+(counts_input->>'ottoman')::integer=0 then raise exception 'Empty configuration'; end if;
  for k in select unnest(array['corner','armless','ottoman']) loop
   n=(counts_input->>k)::integer;
   if n>0 then update inventory set reserved_qty=coalesce(inventory.reserved_qty,0)+n where fabric_slug=fabric_input and module_slug=k and builder_visible=true; end if;
  end loop;
- insert into preorder_reservations(id,fabric,counts,cart_id) values(reservation_id,fabric_input,counts_input,cart_input);
+ insert into preorder_reservations(id,fabric,counts,cart_id,eta,allocations) values(reservation_id,fabric_input,counts_input,cart_input,arrival,allocation_rows);
  return true;
 end $$;
 revoke all on function public.claim_preorder_inventory(uuid,text,jsonb,text) from public,anon,authenticated;
@@ -98,3 +119,29 @@ begin
 end $$;
 revoke all on function public.release_abandoned_preorder_inventory(uuid) from public,anon,authenticated;
 grant execute on function public.release_abandoned_preorder_inventory(uuid) to service_role;
+
+create table public.container_receipts(container_id uuid primary key references public.container_entries(id),manifest jsonb not null,received_at timestamptz not null default now());
+alter table public.container_receipts enable row level security;
+revoke all on public.container_receipts from anon,authenticated;
+grant all on public.container_receipts to service_role;
+create or replace function public.receive_container_inventory()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare item jsonb; fabric text; n integer; inserted integer;
+begin
+ if new.status<>'arrived' or old.status='arrived' then return new; end if;
+ perform pg_advisory_xact_lock(hashtext('luun-preorder-inventory'));
+ insert into container_receipts(container_id,manifest) values(new.id,coalesce(new.manifest_json,'[]'::jsonb)) on conflict do nothing;
+ get diagnostics inserted=row_count;
+ if inserted=0 then return new; end if;
+ for item in select * from jsonb_array_elements(coalesce(new.manifest_json,'[]'::jsonb)) loop
+  fabric=case lower(trim(item->>'color')) when 'white' then 'off-white' when 'dark grey' then 'dark-grey' when 'dark-gray' then 'dark-grey' else lower(trim(item->>'color')) end;
+  if fabric not in ('jade','aqua','peach','dark-grey','off-white') or item->>'module' not in ('corner','armless','ottoman') then continue; end if;
+  n=(item->>'quantity')::integer;
+  if n is null or n<0 then raise exception 'Invalid received quantity'; end if;
+  insert into inventory(fabric_slug,module_slug,available_qty,builder_visible) values(fabric,item->>'module',n,true)
+   on conflict(fabric_slug,module_slug) do update set available_qty=coalesce(inventory.available_qty,0)+excluded.available_qty;
+ end loop;
+ return new;
+end $$;
+revoke all on function public.receive_container_inventory() from public,anon,authenticated;
+create trigger receive_container_inventory after update of status on public.container_entries for each row execute function public.receive_container_inventory();
