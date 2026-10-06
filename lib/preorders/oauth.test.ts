@@ -29,7 +29,9 @@ test('callback rejects tampering, cross-app signatures, state replay and duplica
  const duplicate=signed();duplicate.append('shop',config.shop);
  assert.equal(verifyPreorderCallback(config,duplicate,state),false);
 });
-test('incomplete grants cannot be saved as a connected payment app',()=>{
+test('grant normalization accepts implied read without accepting insufficient write access',()=>{
  assert.deepEqual(missingPreorderScopes(PREORDER_SCOPES.join(',')),[]);
+ assert.deepEqual(missingPreorderScopes('read_orders,write_products,write_purchase_options,write_payment_mandate'),[]);
+ assert.ok(missingPreorderScopes('read_orders,write_products,write_purchase_options,read_payment_mandate').includes('write_payment_mandate'));
  assert.ok(missingPreorderScopes('read_orders,write_products').includes('write_payment_mandate'));
 });
