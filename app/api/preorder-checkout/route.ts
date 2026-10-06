@@ -39,7 +39,7 @@ function fabricKey(value:string){
  const key=value.toLowerCase().trim().replace(/[\s_]+/g,'-');
  return ({white:'off-white',offwhite:'off-white','dark-gray':'dark-grey',grey:'dark-grey',gray:'dark-grey'} as Record<string,string>)[key]||key;
 }
-async function supply(){
+async function paymentTerms(){const config=preorderAppConfig();return createAdminClient().from('preorder_app_connections').select('plan_ids,plan_setup_state').eq('shop_domain',config.shop).eq('client_id',config.clientId).maybeSingle();} async function supply(){
  
  const db=createAdminClient();
  const [stock,containers]=await Promise.all([
@@ -83,7 +83,7 @@ export async function GET(r:Request){
  after(async()=>{try{await releaseAbandonedCarts();}catch{console.error('[preorder-checkout] abandoned-cart cleanup failed');}});try{const data=await supply();return NextResponse.json({...data.total,__preorder:{current:data.current,shipments:data.shipments.map(row=>({id:row.id,eta:row.eta,items:row.manifest_json}))}},{headers});}
  catch{return NextResponse.json({error:'Inventory unavailable'},{status:503,headers});}
 }
-export async function POST(r:Request){
+export async function POST(r:Request){const started=Date.now();
  const headers=headersFor(r);
  if(!allowedStorefront(r))return NextResponse.json({error:'Invalid origin'},{status:403,headers});
  if(process.env.LUUN_DOWNPAY_ENABLED!=='1')return NextResponse.json({error:'Preorder checkout is being connected. Please contact support.'},{status:503,headers});
@@ -94,19 +94,19 @@ export async function POST(r:Request){
   if(limit.error||limit.data!==true)return NextResponse.json({error:'Please wait a minute before retrying.'},{status:429,headers});
   const body=await r.json();const counts=validateCounts(body.counts);const fabric=fabricKey(String(body.fabric||''));
   const variants=FABRICS[fabric];if(!variants)throw new Error('Choose a valid fabric.');
-  const [data,sale]=await Promise.all([supply(),readSale()]);
+  const [data,sale,terms]=await Promise.all([supply(),readSale(),paymentTerms()]);
   if(keys.some(key=>counts[key]>data.total[fabric][key]))throw new Error('This configuration exceeds available and incoming inventory.');
   const preorder=keys.some(key=>counts[key]>data.current[fabric][key]);
   if(typeof body.preorder!=='boolean'||body.preorder!==preorder)throw new Error('Availability changed. Please refresh before checking out.');
   const active=isSaleActive(sale);
   const domain=process.env.SHOPIFY_STORE_DOMAIN,token=process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
   if(!domain||!/^[a-zA-Z0-9-]+\.myshopify\.com$/.test(domain)||!token)throw new Error('Checkout is not configured.');
-  const pieces=counts.corner+counts.armless+counts.ottoman; const discountBps=active?saleBasisPoints(pieces):Math.round(quantityRate(pieces)*10000); let PLAN:string|undefined; if(preorder){const config=preorderAppConfig();const terms=await createAdminClient().from('preorder_app_connections').select('plan_ids,plan_setup_state').eq('shop_domain',config.shop).eq('client_id',config.clientId).maybeSingle();PLAN=terms.data?.plan_ids?.['luun-deposit-'+discountBps];if(terms.error||terms.data?.plan_setup_state!=='ready'||!PLAN||!/^gid:\/\/shopify\/SellingPlan\/[0-9]+$/.test(PLAN))throw new Error('Preorder payment terms are not connected. Please contact support.');} const reservationId=randomUUID();
+  const pieces=counts.corner+counts.armless+counts.ottoman; const discountBps=active?saleBasisPoints(pieces):Math.round(quantityRate(pieces)*10000); let PLAN:string|undefined; if(preorder){PLAN=terms.data?.plan_ids?.['luun-deposit-'+discountBps];if(terms.error||terms.data?.plan_setup_state!=='ready'||!PLAN||!/^gid:\/\/shopify\/SellingPlan\/[0-9]+$/.test(PLAN))throw new Error('Preorder payment terms are not connected. Please contact support.');} const reservationId=randomUUID();const shopifyStarted=Date.now();
   
   const response=await fetch(`https://${domain}/api/2026-01/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token},body:JSON.stringify({query:
    `mutation($input:CartInput!){cartCreate(input:$input){cart{id checkoutUrl discountAllocations{discountedAmount{amount currencyCode}} cost{checkoutChargeAmount{amount currencyCode} subtotalAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}} sellingPlanAllocation{sellingPlan{id} checkoutChargeAmount{amount currencyCode}}}}} userErrors{message}}}`,
    variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[{key:'Luun reservation',value:reservationId},{key:'Luun payment option',value:preorder?'20% deposit; balance manually collected when complete sofa is available':'Full payment'}],lines:keys.filter(key=>counts[key]>0).map(key=>({quantity:counts[key],merchandiseId:`gid://shopify/ProductVariant/${variants[key]}`,...(preorder?{sellingPlanId:PLAN}:{})}))}}})});
-  const result=await response.json();const cart=result.data?.cartCreate?.cart;
+  const result=await response.json();const shopifyMs=Date.now()-shopifyStarted;const cart=result.data?.cartCreate?.cart;
   if(!response.ok||result.errors?.length||result.data?.cartCreate?.userErrors?.length||!cart)throw new Error('Shopify could not create the deposit checkout. Please contact support.');
   if(cart.cost.subtotalAmount.currencyCode!=='CAD')throw new Error('Checkout currency differs.');
   for(const key of keys)if(counts[key]&&!cart.lines.nodes.some((line:{quantity:number;merchandise:{id:string};sellingPlanAllocation?:{sellingPlan:{id:string}}})=>line.quantity===counts[key]&&line.merchandise.id===`gid://shopify/ProductVariant/${variants[key]}`&&(!preorder||line.sellingPlanAllocation?.sellingPlan.id===PLAN)))throw new Error('Shopify changed the sofa or deposit option.');
@@ -118,6 +118,6 @@ export async function POST(r:Request){
   if(reservation.error||reservation.data!==true)throw new Error('This inventory was just reserved. Please refresh your configuration.');
   const metadata=await createAdminClient().from('preorder_reservations').select('eta').eq('id',reservationId).single();
   if(metadata.error)throw new Error('Unable to confirm shipment allocation.');
-  return NextResponse.json({checkoutUrl:cart.checkoutUrl,totalCents,depositCents,preorder,eta:metadata.data.eta},{headers});
+  headers.set('Server-Timing',`prepare;dur=${shopifyStarted-started},shopify;dur=${shopifyMs},reserve;dur=${Date.now()-shopifyStarted-shopifyMs}`);return NextResponse.json({checkoutUrl:cart.checkoutUrl,totalCents,depositCents,preorder,eta:metadata.data.eta},{headers});
  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Checkout unavailable'},{status:409,headers});}
 }
