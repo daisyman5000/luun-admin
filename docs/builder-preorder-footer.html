@@ -1,0 +1,111 @@
+<script>
+(function(){
+'use strict';
+function createPreparedCheckout(options){
+ var held=null,inFlight=null,desired=null,generation=0,chain=Promise.resolve();
+ function notify(){if(options.changed)options.changed();}
+ async function clear(){if(!held)return;await options.release(held.cart);held=null;}
+ function ready(key){return held&&desired===key&&held.key===key&&options.now()<held.expiresAt?held.cart:null;}
+ function prepare(snapshot){
+  var cached=ready(snapshot.key);if(cached)return Promise.resolve(cached);
+  if(inFlight&&inFlight.key===snapshot.key&&desired===snapshot.key)return inFlight.promise;
+  desired=snapshot.key;var token=++generation;
+  var operation={key:snapshot.key};
+  operation.promise=chain.then(async function(){
+   if(token!==generation)throw Object.assign(new Error('Checkout changed'),{superseded:true});
+   await clear();
+   if(token!==generation)throw Object.assign(new Error('Checkout changed'),{superseded:true});
+   var cart=await options.create(snapshot);
+   held={key:snapshot.key,cart:cart,expiresAt:Math.min(options.now()+5*60000,cart.expiresAt||Infinity,snapshot.expiresAt||Infinity)};
+   if(token!==generation){await clear();throw Object.assign(new Error('Checkout changed'),{superseded:true});}
+   return cart;
+  });
+  inFlight=operation;chain=operation.promise.catch(function(){});
+  operation.promise.then(function(){if(inFlight===operation)inFlight=null;notify();},function(){if(inFlight===operation)inFlight=null;notify();});
+  return operation.promise;
+ }
+ function cancel(){desired=null;++generation;var result=chain.then(clear);chain=result.catch(function(){});notify();return result;}
+ return {prepare:prepare,cancel:cancel,ready:ready,pending:function(key){return !!(inFlight&&desired===key&&inFlight.key===key);}};
+}
+
+
+var root=document.querySelector('[data-lmb-root]');if(!root)return;
+var errorText=null,lastStateKey=null,lastOpen=false,navigating=false,note=document.createElement('p');
+note.setAttribute('role','status');note.setAttribute('data-luun-deposit-note','');
+note.style.cssText='font:500 14px/1.5 "DM Sans",sans-serif;color:#243c2b;margin:14px 0 0;';
+var panel=root.querySelector('[data-lmb-modal-panel="pay-now"]');if(panel)panel.appendChild(note);
+function state(){return window.LuunBuilderBridge&&window.LuunBuilderBridge.getState();}
+function pre(s){var data=window.__luunPreorderSupply;return !!(data&&s&&data.current[s.color]&&['corner','armless','ottoman'].some(function(k){return s.counts[k]>data.current[s.color][k];}));}
+function eta(s){
+ var data=window.__luunPreorderSupply;if(!data||!data.current[s.color])return null;
+ var result=null;
+ ['corner','armless','ottoman'].forEach(function(k){
+  var needed=Math.max(0,s.counts[k]-data.current[s.color][k]);
+  data.shipments.forEach(function(po){
+   if(!needed)return;var count=0;
+   po.items.forEach(function(i){var fabric=String(i.color).toLowerCase().trim().replace(/\s+/g,'-');fabric=({white:'off-white',offwhite:'off-white',grey:'dark-grey',gray:'dark-grey','dark-gray':'dark-grey'})[fabric]||fabric;if(fabric===s.color&&i.module===k)count+=i.quantity;});
+   if(count){needed=Math.max(0,needed-count);if(!result||po.eta>result)result=po.eta;}
+  });
+ });return result;
+}
+function snapshot(){
+ var s=state(),pricing=window.LuunPricing;if(!s||!pricing)return null;
+ var total=Math.round(pricing.getConfigPrice(s.counts).total*100);
+ if(!Number.isSafeInteger(total)||total<=0)return null;
+ var result={counts:{corner:s.counts.corner,armless:s.counts.armless,ottoman:s.counts.ottoman},fabric:s.color,totalCents:total,preorder:pre(s)};
+ result.key=JSON.stringify([result.fabric,result.counts.corner,result.counts.armless,result.counts.ottoman,total]);
+ var end=window.LUUN_CONFIG&&window.LUUN_CONFIG.sale&&window.LUUN_CONFIG.sale.endsAt;
+ result.expiresAt=end&&Date.parse(end)>Date.now()?Date.parse(end):Infinity;return result;
+}
+function request(method,body,keepalive){return fetch('https://luun-admin-et42.vercel.app/api/preorder-checkout',{method:method,credentials:'omit',keepalive:!!keepalive,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(data){if(!r.ok)throw Error(data.error||'Checkout unavailable');return data;});});}
+function validDestination(cart){var u=new URL(cart.checkoutUrl);if(u.protocol!=='https:'||!['luunsofa.myshopify.com','1ec339-02.myshopify.com','checkout.luun.ca'].includes(u.hostname))throw Error('Checkout destination could not be verified.');}
+var prepared=createPreparedCheckout({now:Date.now,changed:function(){requestAnimationFrame(render);},
+ create:function(s){return request('POST',{counts:s.counts,fabric:s.fabric,prepare:true,expectedTotalCents:s.totalCents}).then(function(cart){validDestination(cart);return cart;});},
+ release:function(cart){return request('DELETE',{cartId:cart.cartId},true);}
+});
+function ensure(s){prepared.prepare(s).catch(function(error){if(!error.superseded){errorText=error.message;requestAnimationFrame(render);}});}
+function render(){
+ var s=state(),snap=snapshot(),cart=snap&&prepared.ready(snap.key),open=root.classList.contains('is-modal-open');
+ if(open!==lastOpen){lastOpen=open;errorText=null;if(!open&&!navigating)prepared.cancel().catch(function(error){errorText=error.message;requestAnimationFrame(render);});}
+ if(snap&&lastStateKey&&snap.key!==lastStateKey)errorText=null;
+ var deposit=cart?cart.preorder:pre(s);
+ if(snap)lastStateKey=snap.key;
+ if(open&&snap&&!cart&&!errorText&&!prepared.pending(snap.key))ensure(snap);
+ var loading=open&&snap&&!cart&&!errorText;
+ root.querySelectorAll('[data-lmb-modal-tab]').forEach(function(tab){
+  if(tab.__luunOriginalText===undefined)tab.__luunOriginalText=tab.textContent;
+  if(tab.__luunOriginalDisplay===undefined)tab.__luunOriginalDisplay=tab.style.display;
+  if(tab.dataset.lmbModalTab==='pay-now')tab.textContent=deposit?'20% deposit':tab.__luunOriginalText;
+  else tab.style.display=deposit?'none':tab.__luunOriginalDisplay;
+  if(deposit)tab.classList.toggle('is-active',tab.dataset.lmbModalTab==='pay-now');
+ });
+ if(deposit)root.querySelectorAll('[data-lmb-modal-panel]').forEach(function(panel){panel.classList.toggle('is-active',panel.dataset.lmbModalPanel==='pay-now');});
+ root.querySelectorAll('[data-lmb-checkout-btn]').forEach(function(button){if(open&&snap){if(button.disabled!==!!loading)button.disabled=!!loading;button.setAttribute('aria-disabled',loading?'true':'false');button.setAttribute('aria-busy',loading?'true':'false');button.textContent=loading?'Preparing checkout…':errorText?'Try checkout again':deposit?'Preorder · 20% deposit':'Checkout';}});
+ root.querySelectorAll('[data-lmb-nav-ship],[data-lmb-ship]').forEach(function(el){if(el.__luunOriginalShipText===undefined)el.__luunOriginalShipText=el.textContent;if(!deposit)el.textContent=el.__luunOriginalShipText;});
+ if(!deposit){note.textContent=errorText||(loading?'Preparing your secure Shopify checkout…':'');return;}
+ var date=cart&&cart.preorder?cart.eta:eta(s),when=date?new Intl.DateTimeFormat('en-CA',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z')):null;
+ note.textContent=errorText||(loading?'Preparing your secure Shopify checkout… ':'')+('Pay 20% at checkout. The remaining 80% is collected when your complete sofa is available. '+(when?'Incoming shipment estimated '+when+'. ':'')+'Your sofa ships together. Shipping and taxes are calculated at checkout.');
+ root.querySelectorAll('[data-lmb-nav-ship],[data-lmb-ship]').forEach(function(el){el.textContent=when?'Preorder · shipment estimated '+when:'Preorder · incoming inventory';});
+}
+window.addEventListener('luun-builder-counts-changed',function(){requestAnimationFrame(render);});
+new MutationObserver(function(){requestAnimationFrame(render);}).observe(root,{attributes:true,attributeFilter:['class']});
+var button=root.querySelector('[data-lmb-checkout-btn]');
+if(button)new MutationObserver(function(){requestAnimationFrame(render);}).observe(button,{attributes:true,attributeFilter:['disabled']});
+var price=root.querySelector('[data-lmb-price]');
+if(price)new MutationObserver(function(){requestAnimationFrame(render);}).observe(price,{childList:true,characterData:true,subtree:true});
+var polls=0,boot=setInterval(function(){render();if(window.__luunPreorderSupply||++polls>30)clearInterval(boot);},500);
+setInterval(function(){if(root.classList.contains('is-modal-open'))render();},1000);
+window.addEventListener('pagehide',function(){if(!navigating)prepared.cancel().catch(function(){});});
+window.addEventListener('pageshow',function(){navigating=false;requestAnimationFrame(render);});
+window.addEventListener('click',function(e){
+ var button=e.target.closest&&e.target.closest('[data-lmb-checkout-btn]');if(!button||!root.contains(button))return;
+ e.preventDefault();e.stopImmediatePropagation();if(navigating)return;
+ var s=snapshot();if(!s)return;
+ var cart=prepared.ready(s.key);
+ if(!cart){errorText=null;ensure(s);render();return;}
+ validDestination(cart);navigating=true;
+ window.dispatchEvent(new CustomEvent('luun:checkout-start',{detail:{value:cart.totalCents/100,currency:'CAD',counts:s.counts,payment_option:cart.preorder?'20_percent_deposit':'full_payment'}}));
+ location.href=cart.checkoutUrl;
+},true);
+})();
+</script>
