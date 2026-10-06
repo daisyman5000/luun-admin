@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { shopifyAdminGraphQL } from "@/lib/shopify/client";
+import { FABRICS } from "@/lib/sales/shopify";
 
 type ShopifyMailingAddress = {
   name?: string | null;
@@ -53,6 +54,7 @@ type ShopifyOrderNode = {
         quantity?: number | null;
         sku?: string | null;
         variantTitle?: string | null;
+        variant?: {id:string} | null;
       };
     }>;
   } | null;
@@ -79,6 +81,8 @@ const ORDER_FIELDS = /* GraphQL */ `
   id
   name
   createdAt
+  cancelledAt
+  customAttributes { key value }
   email
   phone
   displayFinancialStatus
@@ -137,6 +141,7 @@ const ORDER_FIELDS = /* GraphQL */ `
         quantity
         sku
         variantTitle
+        variant { id }
       }
     }
   }
@@ -195,6 +200,13 @@ function moduleFromText(value: string) {
 
 function extractFabricSlug(order: ShopifyOrderNode) {
   const lineItems = order.lineItems?.edges || [];
+  const fabrics=new Set<string>();
+  let known=lineItems.length>0;
+  for(const {node} of lineItems){
+    const fabric=Object.entries(FABRICS).find(([,variants])=>Object.values(variants).some(id=>node.variant?.id===`gid://shopify/ProductVariant/${id}`))?.[0];
+    if(fabric)fabrics.add(fabric);else known=false;
+  }
+  if(known&&fabrics.size===1)return [...fabrics][0];
   const candidates = lineItems.flatMap(({ node }) =>
     [node.variantTitle, node.sku, node.title].filter((value): value is string => Boolean(value))
   );
