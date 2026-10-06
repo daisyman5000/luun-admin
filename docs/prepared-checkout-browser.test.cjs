@@ -8,15 +8,22 @@ function harness(){
  const root={classList:{contains:()=>open},contains:()=>true,querySelector:s=>s.includes('modal-panel')?panel:s.includes('checkout-btn')?button:null,querySelectorAll:s=>s.includes('checkout-btn')?[button]:[]};
  const ctx={Date,URL,Intl,Math,Number,JSON,Error,Promise,location,document:{querySelector:()=>root,createElement:()=>note},requestAnimationFrame:fn=>frames.push(fn),setInterval:fn=>{intervals.push(fn);return intervals.length},clearInterval(){},MutationObserver:class{constructor(fn){this.fn=fn}observe(target){observers.push({target,fn:this.fn})}},fetch:(url,options)=>{requests.push(options);return options.method==='DELETE'?Promise.resolve({ok:true,json:async()=>({released:true})}):new Promise(resolve=>response=resolve)},CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail}}};
  ctx.window=ctx;ctx.addEventListener=(event,fn)=>{(listeners[event]??=[]).push(fn)};ctx.dispatchEvent=e=>events.push(e);
- ctx.LuunPricing={getConfigPrice:()=>({total:2340.72})};ctx.LUUN_CONFIG={sale:{}};
+ ctx.LuunPricing={getConfigPrice:()=>({total:2340.72,saleDiscountRate:.35})};ctx.LUUN_CONFIG={sale:{active:true}};
  ctx.LuunBuilderBridge={getState:()=>({color:'dark-grey',counts:{corner:2,armless:1,ottoman:0}})};
- ctx.__luunPreorderSupply={current:{'dark-grey':{corner:7,armless:0,ottoman:7}},shipments:[]};
+ ctx.__luunPreorderSupply={current:{'dark-grey':{corner:7,armless:0,ottoman:7}},shipments:[],planIds:{'luun-deposit-4215':'gid://shopify/SellingPlan/1'}};
  vm.runInNewContext(source,ctx);
  const flush=async()=>{for(let i=0;i<12;i++){while(frames.length)frames.shift()();await Promise.resolve()}};
  return {requests,events,button,note,location,flush,open:()=>{open=true;observers.filter(x=>x.target===root).forEach(x=>x.fn())},close:()=>{open=false;observers.filter(x=>x.target===root).forEach(x=>x.fn())},boot:()=>intervals[0](),complete:()=>response({ok:true,json:async()=>({cartId:'gid://shopify/Cart/test?key=secret',checkoutUrl:'https://luunsofa.myshopify.com/cart/c/test?key=secret',totalCents:234072,depositCents:46814,preorder:true})}),click:()=>listeners.click[0]({target:{closest:()=>button},preventDefault(){},stopImmediatePropagation(){}})};
 }
-test('browse does not reserve; opening prepares once; ready click redirects without a network request',async()=>{const x=harness();x.boot();await x.flush();assert.equal(x.requests.length,0);x.open();await x.flush();assert.equal(x.requests.length,1);assert.equal(x.button.disabled,true);assert.equal(x.button.textContent,'Preparing checkout…');x.boot();await x.flush();assert.equal(x.requests.length,1);x.complete();await x.flush();assert.equal(x.button.disabled,false);assert.equal(x.button.textContent,'Preorder · 20% deposit');const before=x.requests.length;x.click();assert.match(x.location.href,/luunsofa/);assert.equal(x.requests.length,before);assert.equal(x.events.filter(e=>e.type==='luun:checkout-start').length,1);});
-test('closing the panel cancels exactly the prepared cart',async()=>{const x=harness();x.open();await x.flush();x.complete();await x.flush();x.close();await x.flush();assert.equal(x.requests.length,2);assert.equal(x.requests[1].method,'DELETE');assert.equal(JSON.parse(x.requests[1].body).cartId,'gid://shopify/Cart/test?key=secret');assert.equal(x.location.href,'');});
+test('opening does not reserve; one click makes one checkout request and redirects automatically',async()=>{
+ const x=harness();x.boot();await x.flush();x.open();await x.flush();assert.equal(x.requests.length,0);assert.equal(x.button.disabled,false);
+ x.click();await x.flush();assert.equal(x.requests.length,1);assert.equal(x.button.disabled,true);assert.equal(x.button.textContent,'Opening checkout…');
+ const payload=JSON.parse(x.requests[0].body);assert.equal(payload.fastCheckout,true);assert.equal(payload.preorder,true);assert.equal(payload.planId,'gid://shopify/SellingPlan/1');
+ x.boot();await x.flush();assert.equal(x.requests.length,1);x.complete();await x.flush();assert.match(x.location.href,/luunsofa/);assert.equal(x.requests.length,1);assert.equal(x.events.filter(e=>e.type==='luun:checkout-start').length,1);
+});
+test('closing during the clicked request cancels its exact cart and never redirects',async()=>{
+ const x=harness();x.open();await x.flush();x.click();await x.flush();x.close();await x.flush();x.complete();await x.flush();assert.equal(x.requests.length,2);assert.equal(x.requests[1].method,'DELETE');assert.equal(JSON.parse(x.requests[1].body).cartId,'gid://shopify/Cart/test?key=secret');assert.equal(x.location.href,'');
+});
 
 const factoryContext={};vm.runInNewContext(source.slice(source.indexOf('function createPreparedCheckout'),source.indexOf('var root='))+';this.factory=createPreparedCheckout;',factoryContext);const createController=factoryContext.factory;
 function deferred(){let resolve;return {promise:new Promise(r=>resolve=r),resolve:v=>resolve(v)}}
