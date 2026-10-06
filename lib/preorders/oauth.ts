@@ -12,7 +12,7 @@ export function preorderAuthorizeUrl(config: PreorderAppConfig, state: string) {
   if (!/^[a-f0-9]{64}$/.test(state)) throw new Error('Invalid OAuth state');
   const url = new URL('https://' + config.shop + '/admin/oauth/authorize');
   url.searchParams.set('client_id', config.clientId);
-  url.searchParams.set('scope', PREORDER_SCOPES.join(','));
+  url.searchParams.set('scope', [...PREORDER_SCOPES, 'write_inventory', 'read_locations'].join(','));
   url.searchParams.set('redirect_uri', config.origin + '/api/preorders/callback');
   url.searchParams.set('state', state);
   return url.toString();
