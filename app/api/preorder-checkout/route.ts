@@ -5,7 +5,7 @@ import {allowedStorefront,headersFor} from '@/lib/sales/public-headers';
 import {FABRICS} from '@/lib/sales/shopify';
 import {quote,validateCounts,quantityRate,saleBasisPoints,MODULE_CENTS,type Counts} from '@/lib/sales/pricing'; import {preorderAppConfig} from '@/lib/preorders/connection';
 import {readSale} from '@/lib/sales/store';
-import {isSaleActive} from '@/lib/sales/types';
+import {isSaleActive} from '@/lib/sales/types'; import {cancelPreparedCart} from '@/lib/preorders/cancel-prepared';
 
 
 export const dynamic='force-dynamic';
@@ -77,7 +77,7 @@ async function paymentTerms(){const config=preorderAppConfig();return createAdmi
  });
  return {current,total,shipments};
 }
-export async function OPTIONS(r:Request){return new Response(null,{status:204,headers:headersFor(r)});}
+export async function OPTIONS(r:Request){const headers=headersFor(r);headers.set('Access-Control-Allow-Methods','GET,POST,DELETE,OPTIONS');return new Response(null,{status:204,headers});} export async function DELETE(r:Request){const headers=headersFor(r);if(!allowedStorefront(r))return NextResponse.json({error:'Invalid origin'},{status:403,headers});try{const ip=r.headers.get('x-forwarded-for')?.split(',')[0]?.trim();if(!ip)throw new Error('Checkout request could not be verified.');const limit=await createAdminClient().rpc('claim_sale_checkout_request',{key_hash_input:createHash('sha256').update('luun-preorder-cancel:'+ip).digest('hex')});if(limit.error||limit.data!==true)return NextResponse.json({error:'Please wait a minute before retrying.'},{status:429,headers});const body=await r.json();await cancelPreparedCart(body.cartId);return NextResponse.json({released:true},{headers});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Checkout cancellation unavailable'},{status:409,headers});}}
 export async function GET(r:Request){
  const headers=headersFor(r);
  after(async()=>{try{await releaseAbandonedCarts();}catch{console.error('[preorder-checkout] abandoned-cart cleanup failed');}});try{const data=await supply();return NextResponse.json({...data.total,__preorder:{current:data.current,shipments:data.shipments.map(row=>({id:row.id,eta:row.eta,items:row.manifest_json}))}},{headers});}
@@ -97,8 +97,8 @@ export async function POST(r:Request){const started=Date.now();
   const [data,sale,terms]=await Promise.all([supply(),readSale(),paymentTerms()]);
   if(keys.some(key=>counts[key]>data.total[fabric][key]))throw new Error('This configuration exceeds available and incoming inventory.');
   const preorder=keys.some(key=>counts[key]>data.current[fabric][key]);
-  if(typeof body.preorder!=='boolean'||body.preorder!==preorder)throw new Error('Availability changed. Please refresh before checking out.');
-  const active=isSaleActive(sale);
+  if(body.prepare!==true&&(typeof body.preorder!=='boolean'||body.preorder!==preorder))throw new Error('Availability changed. Please refresh before checking out.');
+  const active=isSaleActive(sale);if(body.prepare===true&&(!Number.isSafeInteger(body.expectedTotalCents)||body.expectedTotalCents!==quote(counts,active).totalCents))throw new Error('Pricing changed. Review the updated total before checkout.');
   const domain=process.env.SHOPIFY_STORE_DOMAIN,token=process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN;
   if(!domain||!/^[a-zA-Z0-9-]+\.myshopify\.com$/.test(domain)||!token)throw new Error('Checkout is not configured.');
   const pieces=counts.corner+counts.armless+counts.ottoman; const discountBps=active?saleBasisPoints(pieces):Math.round(quantityRate(pieces)*10000); let PLAN:string|undefined; if(preorder){PLAN=terms.data?.plan_ids?.['luun-deposit-'+discountBps];if(terms.error||terms.data?.plan_setup_state!=='ready'||!PLAN||!/^gid:\/\/shopify\/SellingPlan\/[0-9]+$/.test(PLAN))throw new Error('Preorder payment terms are not connected. Please contact support.');} const reservationId=randomUUID();const shopifyStarted=Date.now();
@@ -118,6 +118,6 @@ export async function POST(r:Request){const started=Date.now();
   if(reservation.error||reservation.data!==true)throw new Error('This inventory was just reserved. Please refresh your configuration.');
   const metadata=await createAdminClient().from('preorder_reservations').select('eta').eq('id',reservationId).single();
   if(metadata.error)throw new Error('Unable to confirm shipment allocation.');
-  headers.set('Server-Timing',`prepare;dur=${shopifyStarted-started},shopify;dur=${shopifyMs},reserve;dur=${Date.now()-shopifyStarted-shopifyMs}`);return NextResponse.json({checkoutUrl:cart.checkoutUrl,totalCents,depositCents,preorder,eta:metadata.data.eta},{headers});
+  headers.set('Server-Timing',`prepare;dur=${shopifyStarted-started},shopify;dur=${shopifyMs},reserve;dur=${Date.now()-shopifyStarted-shopifyMs}`);return NextResponse.json({checkoutUrl:cart.checkoutUrl,totalCents,depositCents,preorder,eta:metadata.data.eta,...(body.prepare===true?{cartId:cart.id,expiresAt:Date.now()+90*60000}:{})},{headers});
  }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Checkout unavailable'},{status:409,headers});}
 }
