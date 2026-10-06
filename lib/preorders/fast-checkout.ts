@@ -44,7 +44,7 @@ export async function fastCheckout(body:Record<string,unknown>,ip:string){
  const totalCents=Math.round(Number(cart.cost.subtotalAmount.amount)*100)-discounts;
  if(totalCents!==expected)throw Error('Shopify pricing changed. Review the updated total before checkout.');
  const depositCents=preorder?keys.reduce((sum,k)=>sum+counts[k]*Math.round(MODULE_CENTS[k]*(10000-bps)/50000),0):totalCents;
- if(cart.cost.checkoutChargeAmount?.currencyCode!=='CAD'||Math.round(Number(cart.cost.checkoutChargeAmount.amount)*100)!==depositCents)throw Error('The amount due at checkout could not be confirmed.');
+ if(preorder&&(cart.cost.checkoutChargeAmount?.currencyCode!=='CAD'||Math.round(Number(cart.cost.checkoutChargeAmount.amount)*100)!==depositCents))throw Error('The amount due at checkout could not be confirmed.');
  const config=preorderAppConfig();
  const confirmed=await createAdminClient().rpc('confirm_luun_checkout',{
   reservation_input:reservationId,fabric_input:fabric,counts_input:counts,cart_input:cart.id,
