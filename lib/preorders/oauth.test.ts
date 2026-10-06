@@ -15,7 +15,7 @@ test('authorization uses isolated client, callback and bounded permissions',()=>
  assert.equal(url.hostname,config.shop);
  assert.equal(url.searchParams.get('client_id'),config.clientId);
  assert.equal(url.searchParams.get('redirect_uri'),config.origin+'/api/preorders/callback');
- assert.equal(url.searchParams.get('scope'),PREORDER_SCOPES.join(','));
+ assert.equal(url.searchParams.get('scope'),[...PREORDER_SCOPES,'write_inventory','read_locations'].join(','));
  assert.throws(()=>preorderAuthorizeUrl({...config,shop:'attacker.example.com'},state));
  assert.throws(()=>preorderAuthorizeUrl({...config,origin:'http://luun-admin.example.com'},state));
 });
