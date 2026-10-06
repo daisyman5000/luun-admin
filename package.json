@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .", "test:checkout": "node --test docs/prepared-checkout-browser.test.cjs docs/cancel-prepared.test.cjs && node docs/preorder-checkout-regression.cjs",
+    "lint": "eslint .", "test:checkout": "node --test docs/prepared-checkout-browser.test.cjs docs/cancel-prepared.test.cjs docs/fast-checkout.test.cjs && node docs/preorder-checkout-regression.cjs",
     "typecheck": "tsc --noEmit",
     "test:sales": "tsc lib/sales/pricing.ts lib/sales/types.ts lib/sales/pricing.test.ts --module commonjs --target es2020 --esModuleInterop --outDir .sale-test-build --skipLibCheck && node --test .sale-test-build/pricing.test.js",
     "test:demand": "tsc lib/demand-forecast.ts lib/demand-forecast.test.ts lib/demand-plan.ts lib/demand-plan.test.ts --module commonjs --target es2020 --esModuleInterop --outDir .sale-test-build --skipLibCheck && node --test .sale-test-build/demand-forecast.test.js .sale-test-build/demand-plan.test.js"
