@@ -1,4 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
+import {fastCheckout} from '@/lib/preorders/fast-checkout';
 import {after,NextResponse} from 'next/server';
 import {createAdminClient} from '@/lib/supabase/admin';
 import {allowedStorefront,headersFor} from '@/lib/sales/public-headers';
@@ -80,7 +81,7 @@ async function paymentTerms(){const config=preorderAppConfig();return createAdmi
 export async function OPTIONS(r:Request){const headers=headersFor(r);headers.set('Access-Control-Allow-Methods','GET,POST,DELETE,OPTIONS');return new Response(null,{status:204,headers});} export async function DELETE(r:Request){const headers=headersFor(r);if(!allowedStorefront(r))return NextResponse.json({error:'Invalid origin'},{status:403,headers});try{const ip=r.headers.get('x-forwarded-for')?.split(',')[0]?.trim();if(!ip)throw new Error('Checkout request could not be verified.');const limit=await createAdminClient().rpc('claim_sale_checkout_request',{key_hash_input:createHash('sha256').update('luun-preorder-cancel:'+ip).digest('hex')});if(limit.error||limit.data!==true)return NextResponse.json({error:'Please wait a minute before retrying.'},{status:429,headers});const body=await r.json();await cancelPreparedCart(body.cartId);return NextResponse.json({released:true},{headers});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Checkout cancellation unavailable'},{status:409,headers});}}
 export async function GET(r:Request){
  const headers=headersFor(r);
- after(async()=>{try{await releaseAbandonedCarts();}catch{console.error('[preorder-checkout] abandoned-cart cleanup failed');}});try{const data=await supply();return NextResponse.json({...data.total,__preorder:{current:data.current,shipments:data.shipments.map(row=>({id:row.id,eta:row.eta,items:row.manifest_json}))}},{headers});}
+ after(async()=>{try{await releaseAbandonedCarts();}catch{console.error('[preorder-checkout] abandoned-cart cleanup failed');}});try{const [data,terms]=await Promise.all([supply(),paymentTerms()]);return NextResponse.json({...data.total,__preorder:{current:data.current,planIds:terms.data?.plan_setup_state==='ready'?terms.data.plan_ids:{},shipments:data.shipments.map(row=>({id:row.id,eta:row.eta,items:row.manifest_json}))}},{headers});}
  catch{return NextResponse.json({error:'Inventory unavailable'},{status:503,headers});}
 }
 export async function POST(r:Request){const started=Date.now();
@@ -90,9 +91,11 @@ export async function POST(r:Request){const started=Date.now();
  try{
   const ip=r.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
   if(!ip)throw new Error('Checkout request could not be verified.');
+  const body=await r.json();
+  if(body.fastCheckout===true){const result=await fastCheckout(body,ip);headers.set('Server-Timing',result.timing);return NextResponse.json(result.cart,{headers});}
   const limit=await createAdminClient().rpc('claim_sale_checkout_request',{key_hash_input:createHash('sha256').update('luun-preorder:'+ip).digest('hex')});
   if(limit.error||limit.data!==true)return NextResponse.json({error:'Please wait a minute before retrying.'},{status:429,headers});
-  const body=await r.json();const counts=validateCounts(body.counts);const fabric=fabricKey(String(body.fabric||''));
+  const counts=validateCounts(body.counts);const fabric=fabricKey(String(body.fabric||''));
   const variants=FABRICS[fabric];if(!variants)throw new Error('Choose a valid fabric.');
   const [data,sale,terms]=await Promise.all([supply(),readSale(),paymentTerms()]);
   if(keys.some(key=>counts[key]>data.total[fabric][key]))throw new Error('This configuration exceeds available and incoming inventory.');

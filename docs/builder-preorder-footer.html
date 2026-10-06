@@ -50,9 +50,13 @@ function eta(s){
 }
 function snapshot(){
  var s=state(),pricing=window.LuunPricing;if(!s||!pricing)return null;
- var total=Math.round(pricing.getConfigPrice(s.counts).total*100);
+ var priced=pricing.getConfigPrice(s.counts),total=Math.round(priced.total*100);
  if(!Number.isSafeInteger(total)||total<=0)return null;
  var result={counts:{corner:s.counts.corner,armless:s.counts.armless,ottoman:s.counts.ottoman},fabric:s.color,totalCents:total,preorder:pre(s)};
+ var pieces=result.counts.corner+result.counts.armless+result.counts.ottoman;
+ var candidates=window.__luunPreorderSupply&&window.__luunPreorderSupply.planIds;
+ var bps=priced.saleDiscountRate===.35? (pieces>=6?4475:pieces>=4?4410:pieces===3?4215:3500) : (pieces>=6?1500:pieces>=4?1400:pieces===3?1100:0);
+ result.planId=result.preorder&&candidates?candidates['luun-deposit-'+bps]:null;
  result.key=JSON.stringify([result.fabric,result.counts.corner,result.counts.armless,result.counts.ottoman,total]);
  var end=window.LUUN_CONFIG&&window.LUUN_CONFIG.sale&&window.LUUN_CONFIG.sale.endsAt;
  result.expiresAt=end&&Date.parse(end)>Date.now()?Date.parse(end):Infinity;return result;
@@ -60,7 +64,7 @@ function snapshot(){
 function request(method,body,keepalive){return fetch('https://luun-admin-et42.vercel.app/api/preorder-checkout',{method:method,credentials:'omit',keepalive:!!keepalive,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(data){if(!r.ok)throw Error(data.error||'Checkout unavailable');return data;});});}
 function validDestination(cart){var u=new URL(cart.checkoutUrl);if(u.protocol!=='https:'||!['luunsofa.myshopify.com','1ec339-02.myshopify.com','checkout.luun.ca'].includes(u.hostname))throw Error('Checkout destination could not be verified.');}
 var prepared=createPreparedCheckout({now:Date.now,changed:function(){requestAnimationFrame(render);},
- create:function(s){return request('POST',{counts:s.counts,fabric:s.fabric,prepare:true,expectedTotalCents:s.totalCents}).then(function(cart){validDestination(cart);return cart;});},
+ create:function(s){return request('POST',{counts:s.counts,fabric:s.fabric,prepare:true,fastCheckout:!!(!s.preorder||s.planId),preorder:s.preorder,planId:s.planId,expectedTotalCents:s.totalCents}).then(function(cart){validDestination(cart);return cart;});},
  release:function(cart){return request('DELETE',{cartId:cart.cartId},true);}
 });
 function ensure(s){prepared.prepare(s).catch(function(error){if(!error.superseded){errorText=error.message;requestAnimationFrame(render);}});}
@@ -70,8 +74,8 @@ function render(){
  if(snap&&lastStateKey&&snap.key!==lastStateKey)errorText=null;
  var deposit=cart?cart.preorder:pre(s);
  if(snap)lastStateKey=snap.key;
- if(open&&snap&&!cart&&!errorText&&!prepared.pending(snap.key))ensure(snap);
- var loading=open&&snap&&!cart&&!errorText;
+ // Checkout preparation starts on the customer's click, not on panel opening.
+ var loading=open&&snap&&!cart&&!errorText&&prepared.pending(snap.key);
  root.querySelectorAll('[data-lmb-modal-tab]').forEach(function(tab){
   if(tab.__luunOriginalText===undefined)tab.__luunOriginalText=tab.textContent;
   if(tab.__luunOriginalDisplay===undefined)tab.__luunOriginalDisplay=tab.style.display;
@@ -80,11 +84,11 @@ function render(){
   if(deposit)tab.classList.toggle('is-active',tab.dataset.lmbModalTab==='pay-now');
  });
  if(deposit)root.querySelectorAll('[data-lmb-modal-panel]').forEach(function(panel){panel.classList.toggle('is-active',panel.dataset.lmbModalPanel==='pay-now');});
- root.querySelectorAll('[data-lmb-checkout-btn]').forEach(function(button){if(open&&snap){if(button.disabled!==!!loading)button.disabled=!!loading;button.setAttribute('aria-disabled',loading?'true':'false');button.setAttribute('aria-busy',loading?'true':'false');button.textContent=loading?'Preparing checkout…':errorText?'Try checkout again':deposit?'Preorder · 20% deposit':'Checkout';}});
+ root.querySelectorAll('[data-lmb-checkout-btn]').forEach(function(button){if(open&&snap){if(button.disabled!==!!loading)button.disabled=!!loading;button.setAttribute('aria-disabled',loading?'true':'false');button.setAttribute('aria-busy',loading?'true':'false');button.textContent=loading?'Opening checkout…':errorText?'Try checkout again':deposit?'Preorder · 20% deposit':'Checkout';}});
  root.querySelectorAll('[data-lmb-nav-ship],[data-lmb-ship]').forEach(function(el){if(el.__luunOriginalShipText===undefined)el.__luunOriginalShipText=el.textContent;if(!deposit)el.textContent=el.__luunOriginalShipText;});
- if(!deposit){note.textContent=errorText||(loading?'Preparing your secure Shopify checkout…':'');return;}
+ if(!deposit){note.textContent=errorText||(loading?'Opening Shopify checkout…':'');return;}
  var date=cart&&cart.preorder?cart.eta:eta(s),when=date?new Intl.DateTimeFormat('en-CA',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z')):null;
- note.textContent=errorText||(loading?'Preparing your secure Shopify checkout… ':'')+('Pay 20% at checkout. The remaining 80% is collected when your complete sofa is available. '+(when?'Incoming shipment estimated '+when+'. ':'')+'Your sofa ships together. Shipping and taxes are calculated at checkout.');
+ note.textContent=errorText||(loading?'Opening Shopify checkout… ':'')+('Pay 20% at checkout. The remaining 80% is collected when your complete sofa is available. '+(when?'Incoming shipment estimated '+when+'. ':'')+'Your sofa ships together. Shipping and taxes are calculated at checkout.');
  root.querySelectorAll('[data-lmb-nav-ship],[data-lmb-ship]').forEach(function(el){el.textContent=when?'Preorder · shipment estimated '+when:'Preorder · incoming inventory';});
 }
 window.addEventListener('luun-builder-counts-changed',function(){requestAnimationFrame(render);});
@@ -102,10 +106,12 @@ window.addEventListener('click',function(e){
  e.preventDefault();e.stopImmediatePropagation();if(navigating)return;
  var s=snapshot();if(!s)return;
  var cart=prepared.ready(s.key);
- if(!cart){errorText=null;ensure(s);render();return;}
- validDestination(cart);navigating=true;
+ if(!cart){errorText=null;prepared.prepare(s).then(function(ready){var latest=snapshot();if(!root.classList.contains('is-modal-open')||!latest||latest.key!==s.key)return;go(ready,s);}).catch(function(error){if(!error.superseded){errorText=error.message;render();}});render();return;}
+ go(cart,s);
+},true);
+function go(cart,s){validDestination(cart);navigating=true;
  window.dispatchEvent(new CustomEvent('luun:checkout-start',{detail:{value:cart.totalCents/100,currency:'CAD',counts:s.counts,payment_option:cart.preorder?'20_percent_deposit':'full_payment'}}));
  location.href=cart.checkoutUrl;
-},true);
+}
 })();
 </script>

@@ -8,6 +8,7 @@ function query(table){
  q.then=(resolve,reject)=>Promise.resolve({data:table==='inventory'?[{fabric_slug:'dark-grey',module_slug:'corner',available_qty:7,reserved_qty:0},{fabric_slug:'dark-grey',module_slug:'armless',available_qty:0,reserved_qty:0}]:table==='container_entries'?[{id:'7',container_number:'MT-LUUN-007',status:'planning',eta:'2099-10-20',manifest_json:[{color:'dark-grey',module:'armless',quantity:10}]}]:[]}).then(resolve,reject);return q;
 }
 const modules={
+ '@/lib/preorders/fast-checkout':{fastCheckout:async()=>{throw Error('Unexpected fast-path request in legacy compatibility check');}},
  'next/server':{after:fn=>callbacks.push(fn),NextResponse:{json:(body,options)=>({body,status:options?.status||200})}},
  '@/lib/supabase/admin':{createAdminClient:()=>({from:query,rpc:async(name)=>{calls.push(name);return {data:true}}})},
  '@/lib/sales/public-headers':{allowedStorefront:()=>true,headersFor:()=>new Headers()},
