@@ -57,7 +57,7 @@ export function inquiryFromWebflow(event: unknown) {
     priority: "normal" as const,
     title: (field("subject", "topic") || `Inquiry from ${name || email || "website visitor"}`).slice(0, 160),
     customer_name: name.slice(0, 300) || null,
-    customer_email: email.slice(0, 320) || null,
+    customer_email: email.slice(0, 320).toLowerCase() || null,
     details: `${message}\n\n— Webflow inquiry —\n${metadata}`,
     created_at: new Date(submittedAt).toISOString()
   };
