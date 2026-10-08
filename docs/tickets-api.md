@@ -42,3 +42,12 @@ The admin New ticket form uses this endpoint too. Email is optional for manual t
 npm run typecheck
 ./node_modules/.bin/tsc lib/inquiry-tickets.ts lib/inquiry-tickets.test.ts --module commonjs --target es2022 --esModuleInterop --outDir .sale-test-build/tickets --skipLibCheck
 node --test .sale-test-build/tickets/inquiry-tickets.test.js
+
+## October 8 conversation update
+
+Statuses are now new, answered, waiting_on_customer, needs_tyson and closed. Old unresolved/resolved writes still map to new/closed. Lists default to New, hide tests and sort by last_activity_at. Query show_tests=true includes test tickets. List responses include counts for every status, scoped by category and test visibility.
+
+GET /api/inquiries/{id}/messages returns chronological stored emails. Private bot POST /api/inquiries/messages imports a Gmail email:
+{"provider_message_id":"gmail:unique-message-id","gmail_thread_id":"hex-thread-id","from_email":"team@luun.ca","to_email":"customer@example.com","subject":"Re: Your inquiry","body":"Reply text","sent_at":"2026-10-08T12:00:00Z"}
+
+Only team@↔customer messages are accepted. Duplicate IDs are harmless; the newest team@ reply changes status to Answered. A newer customer reply returns the ticket to New, preserving Needs Tyson. Last activity advances only with new messages. Gmail thread ID is preferred for subsequent matching; initial match uses customer email. This endpoint stores messages, it does not send any email. The Gmail connection must still be authorized before automatic import can start; see docs/gmail-ticket-sync/README.md.
