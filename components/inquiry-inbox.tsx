@@ -15,18 +15,21 @@ export function InquiryInbox({ initialTickets, initialHasMore, initialError, can
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState("active");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [error, setError] = useState(initialError);
   const [busy, setBusy] = useState(false);
   const [updating, setUpdating] = useState(false);
   const ticket = tickets.find(item => item.id === selected);
   const visible = tickets.filter(item => (filter === "all" || (filter === "done" ? item.status === "done" : item.status !== "done")) &&
-    [item.customer_name, item.customer_email, item.title, item.details].some(value => value?.toLowerCase().includes(search.toLowerCase())));
+    (categoryFilter === "all" || (item.inquiry_category || "customer_inquiry") === categoryFilter) && [item.customer_name, item.customer_email, item.title, item.details].some(value => value?.toLowerCase().includes(search.toLowerCase())));
 
-  async function load(more = false, desiredFilter = filter) {
+  async function load(more = false, desiredFilter = filter, desiredCategory = categoryFilter) {
     setBusy(true); setError(null);
     try {
-      const response = await fetch(`/api/inquiries?status=${desiredFilter === "active" ? "unresolved" : desiredFilter === "done" ? "resolved" : "all"}&offset=${more ? tickets.length : 0}`, { cache: "no-store" });
+      const response = await fetch(`/api/inquiries?status=${desiredFilter === "active" ? "unresolved" : desiredFilter === "done" ? "resolved" : "all"}&category=${desiredCategory}&offset=${more ? tickets.length : 0}`, { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to load inquiries");
       setTickets(old => more ? [...new Map([...old,...body.tickets.map(internalInquiry)].map(item => [item.id,item])).values()] : body.tickets.map(internalInquiry));
@@ -62,6 +65,19 @@ export function InquiryInbox({ initialTickets, initialHasMore, initialError, can
     finally { setUpdating(false); }
   }
 
+  async function createTicket(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSaving(true); setError(null);
+    const form = new FormData(event.currentTarget);
+    try {
+      const response = await fetch("/api/inquiries", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({name:form.get("name"),email:form.get("email"),message:form.get("message"),category:form.get("category")}) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to create ticket");
+      setFilter("active"); setCategoryFilter("all"); setSearch(""); setCreating(false);
+      await load(false, "active", "all"); setSelected(body.id);
+    } catch (err) {setError(err instanceof Error ? err.message : "Unable to create ticket");}
+    finally {setSaving(false);}
+  }
+
   const details = ticket?.details?.split("\n\n— Webflow inquiry —\n") || [];
   return <>
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -71,11 +87,23 @@ export function InquiryInbox({ initialTickets, initialHasMore, initialError, can
             className={`rounded-md px-4 py-2 text-sm font-medium ${filter === value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>{label}</button>)}
       </div>
       <div className="flex flex-wrap gap-2">
+        <select aria-label="Filter by category" value={categoryFilter} onChange={event => {setCategoryFilter(event.target.value); void load(false, filter, event.target.value);}} className="rounded-lg border border-line bg-white px-3 py-2 text-sm"><option value="all">All categories</option>{Object.entries(inquiryCategories).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
+        {canEdit && <button onClick={() => setCreating(true)} className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white">New ticket</button>}
         <input aria-label="Search tickets" placeholder="Search tickets" value={search} onChange={event => setSearch(event.target.value)} className="w-52 rounded-lg border border-line bg-white px-3 py-2 text-sm" />
         <button disabled={busy} onClick={() => load()} className="rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-50">{busy ? "Loading…" : "Refresh"}</button>
       </div>
     </div>
     {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    {creating && <div className="mb-6 rounded-xl border border-line bg-white p-6 shadow-sm">
+      <form onSubmit={createTicket} className="grid gap-4 sm:grid-cols-2" aria-label="New ticket">
+        <h2 className="text-lg font-semibold sm:col-span-2">New ticket</h2>
+        <label className="text-sm">Customer or title<input name="name" maxLength={300} className="mt-2 block w-full rounded-lg border border-line p-3" /></label>
+        <label className="text-sm">Email (optional)<input name="email" type="email" maxLength={320} className="mt-2 block w-full rounded-lg border border-line p-3" /></label>
+        <label className="text-sm">Category<select name="category" className="mt-2 block w-full rounded-lg border border-line bg-white p-3">{Object.entries(inquiryCategories).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="text-sm sm:col-span-2">Details<textarea name="message" required maxLength={30000} rows={4} className="mt-2 block w-full rounded-lg border border-line p-3" /></label>
+        <div className="flex gap-3 sm:col-span-2"><button disabled={saving} className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Create ticket"}</button><button type="button" disabled={saving} onClick={() => setCreating(false)} className="rounded-lg border border-line px-5 py-3 text-sm">Cancel</button></div>
+      </form>
+    </div>}
     <div className="grid overflow-hidden rounded-xl border border-line bg-white shadow-sm lg:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.5fr)]">
       <div className="border-b border-line lg:border-b-0 lg:border-r">
         <div className="max-h-[70vh] overflow-y-auto">
