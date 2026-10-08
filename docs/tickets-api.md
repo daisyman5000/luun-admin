@@ -50,4 +50,14 @@ Statuses are now new, answered, waiting_on_customer, needs_tyson and closed. Old
 GET /api/inquiries/{id}/messages returns chronological stored emails. Private bot POST /api/inquiries/messages imports a Gmail email:
 {"provider_message_id":"gmail:unique-message-id","gmail_thread_id":"hex-thread-id","from_email":"team@luun.ca","to_email":"customer@example.com","subject":"Re: Your inquiry","body":"Reply text","sent_at":"2026-10-08T12:00:00Z"}
 
-Only team@↔customer messages are accepted. Duplicate IDs are harmless; the newest team@ reply changes status to Answered. A newer customer reply returns the ticket to New, preserving Needs Tyson. Last activity advances only with new messages. Gmail thread ID is preferred for subsequent matching; initial match uses customer email. This endpoint stores messages, it does not send any email. The Gmail connection must still be authorized before automatic import can start; see docs/gmail-ticket-sync/README.md.
+Only team@↔customer messages are accepted. Duplicate IDs are harmless; the newest team@ reply changes status to Answered. A newer customer reply returns the ticket to New, preserving Needs Tyson. Last activity advances only with new messages. Gmail thread ID is preferred for subsequent matching; initial match uses customer email. This endpoint stores messages, it does not send any email. Grokbot imports the emails it already receives; Luun Admin does not connect to Gmail itself.
+
+## Attach the Gmail thread link (no Gmail connection required)
+
+PATCH /api/inquiries/{id}
+Authorization: Bearer <existing GROK_BOT_SECRET>
+Content-Type: application/json
+
+{"gmail_thread_url":"https://mail.google.com/mail/u/0/#inbox/THREAD","status":"answered"}
+
+Use the real conversation URL from the team@ mailbox. The link appears as Open in Gmail on that ticket. Grokbot can add the URL alone, or include status in the same request after it sends a reply. No new key or Gmail authorization. To display email text inside the ticket as well, use the private POST /api/inquiries/messages endpoint above. The backend stores it without sending email.
