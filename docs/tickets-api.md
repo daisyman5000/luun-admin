@@ -1,0 +1,43 @@
+# Minimal Luun Tickets API
+
+Uses the existing Webflow intake, job_tickets table and GROK_BOT_SECRET. No Gmail connection, outbound-email handler, new bot key or approval workflow. Webflow inquiries appear automatically. The existing /ticketing link now says Tickets.
+
+Apply supabase/migrations/20261008000000_inquiry_categories.sql once. It adds one category field; existing inquiries default to Customer inquiry. Existing resolved/unresolved history is preserved.
+
+Private requests use Authorization: Bearer <existing GROK_BOT_SECRET>. Never place that key in browser code or URLs. Staff can also use their existing app session. Viewer accounts cannot change tickets. Grok sends email independently; these endpoints only store and update inquiries.
+
+## Read
+
+GET /api/inquiries?status=unresolved
+GET /api/inquiries?status=resolved
+GET /api/inquiries?status=all&offset=100
+GET /api/inquiries/{id}
+
+List returns { tickets: [...], hasMore: boolean }. Batches contain up to 100. Status is unresolved or resolved. Category is customer_inquiry, warranty, delivery, returns or other. Customer email/name, original details and notes remain available. On list pagination keep requesting offset=100,200,... until hasMore=false. No public/anonymous access.
+
+## Update after handling a customer
+
+PATCH /api/inquiries/{id}
+Content-Type: application/json
+
+{"status":"resolved"}
+
+Optional follow-up:
+{"status":"unresolved","category":"warranty","notes":"Waiting for customer photos"}
+
+Only status, category and notes may be changed here. The endpoint cannot edit customer identity or unrelated jobs. Notes are internal and do not send an email. The response is the updated ticket. Sending an email does not itself resolve a ticket; Grok explicitly changes its status after successful handling.
+
+## Add an inquiry from another channel
+
+POST /api/inquiries
+Content-Type: application/json
+
+{"name":"Customer","email":"customer@example.com","message":"Original inquiry","category":"customer_inquiry"}
+
+This is optional, for Grok to insert email/Instagram inquiries it already receives. It does not connect those services. POST creates a new ticket and is not automatically retry-idempotent: retain its returned ID before continuing; don't blindly retry an ambiguous creation result.
+
+## Verification
+
+npm run typecheck
+./node_modules/.bin/tsc lib/inquiry-tickets.ts lib/inquiry-tickets.test.ts --module commonjs --target es2022 --esModuleInterop --outDir .sale-test-build/tickets --skipLibCheck
+node --test .sale-test-build/tickets/inquiry-tickets.test.js
