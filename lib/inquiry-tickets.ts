@@ -3,7 +3,7 @@ export const inquiryCategories = { customer_inquiry:"Customer inquiry", warranty
 export const inquiryStatuses = {new:"New", answered:"Answered", waiting_on_customer:"Waiting on customer", needs_tyson:"Needs Tyson", closed:"Closed"} as const;
 export type InquiryCategory = keyof typeof inquiryCategories;
 export type InquiryStatus = keyof typeof inquiryStatuses;
-export type InquiryTicket = JobTicket & { inquiry_category?: InquiryCategory; inquiry_status?: InquiryStatus; is_test?: boolean; last_activity_at?: string; gmail_thread_id?: string|null };
+export type InquiryTicket = JobTicket & { inquiry_category?: InquiryCategory; inquiry_status?: InquiryStatus; is_test?: boolean; last_activity_at?: string; gmail_thread_id?: string|null; gmail_thread_url?: string|null };
 export type InquiryMessage = {id:string; ticket_id:string; provider_message_id:string; gmail_thread_id:string; direction:"inbound"|"outbound"; from_email:string; to_email:string; subject:string|null; body:string; sent_at:string};
 export const isInquiryCategory = (value:unknown): value is InquiryCategory => typeof value==="string" && Object.hasOwn(inquiryCategories,value);
 export const isInquiryStatus = (value:unknown): value is InquiryStatus => typeof value==="string" && Object.hasOwn(inquiryStatuses,value);
@@ -12,9 +12,13 @@ export const isTestInquiry = (name:string|null|undefined,message:string|null|und
 export function inquiryUpdates(value:unknown) {
  if(!value || typeof value!=="object" || Array.isArray(value)) throw new Error("Invalid update");
  const body=value as Record<string,unknown>,updates:Record<string,string|null|boolean>={};
- if(Object.keys(body).some(key=>!["status","category","notes","is_test"].includes(key))) throw new Error("Only status, category, notes and is_test can be updated");
+ if(Object.keys(body).some(key=>!["status","category","notes","is_test","gmail_thread_url"].includes(key))) throw new Error("Only status, category, notes, is_test and gmail_thread_url can be updated");
  if(body.status!==undefined){const status=body.status==="resolved"?"closed":body.status==="unresolved"?"new":body.status;if(!isInquiryStatus(status))throw new Error("Invalid ticket status");updates.inquiry_status=status;updates.status=status==="closed"?"done":"open";}
  if(body.category!==undefined){if(!isInquiryCategory(body.category))throw new Error("Invalid inquiry category");updates.inquiry_category=body.category;}
+ if(body.gmail_thread_url!==undefined){
+  if(body.gmail_thread_url===null)updates.gmail_thread_url=null;
+  else {if(typeof body.gmail_thread_url!=="string"||body.gmail_thread_url.length>2000)throw new Error("Invalid Gmail thread link");const url=new URL(body.gmail_thread_url);if(url.protocol!=="https:"||url.hostname!=="mail.google.com"||url.username||url.password||!/^\/mail\/(?:u\/\d+\/)?$/.test(url.pathname)||!url.hash)throw new Error("Use the Gmail conversation link");updates.gmail_thread_url=url.href;}
+ }
  if(body.is_test!==undefined){if(typeof body.is_test!=="boolean")throw new Error("Invalid test flag");updates.is_test=body.is_test;}
  if(body.notes!==undefined){if(body.notes!==null&&(typeof body.notes!=="string"||body.notes.length>10000))throw new Error("Invalid notes");updates.next_step=typeof body.notes==="string"?body.notes.trim()||null:null;}
  if(!Object.keys(updates).length)throw new Error("No update supplied");
