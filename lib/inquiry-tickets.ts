@@ -17,7 +17,7 @@ export function inquiryUpdates(value:unknown) {
  if(body.category!==undefined){if(!isInquiryCategory(body.category))throw new Error("Invalid inquiry category");updates.inquiry_category=body.category;}
  if(body.gmail_thread_url!==undefined){
   if(body.gmail_thread_url===null)updates.gmail_thread_url=null;
-  else {if(typeof body.gmail_thread_url!=="string"||body.gmail_thread_url.length>2000)throw new Error("Invalid Gmail thread link");const url=new URL(body.gmail_thread_url);if(url.protocol!=="https:"||url.hostname!=="mail.google.com"||url.username||url.password||!/^\/mail\/(?:u\/\d+\/)?$/.test(url.pathname)||!url.hash)throw new Error("Use the Gmail conversation link");updates.gmail_thread_url=url.href;}
+  else {if(typeof body.gmail_thread_url!=="string"||body.gmail_thread_url.length>2000)throw new Error("Invalid Gmail thread link");const url=new URL(body.gmail_thread_url);if(url.protocol!=="https:"||url.hostname!=="mail.google.com"||url.port||url.username||url.password||!/^\/mail\/(?:u\/\d+\/)?$/.test(url.pathname)||!url.hash)throw new Error("Use the Gmail conversation link");url.pathname="/mail/";url.search="";url.searchParams.set("authuser","team@luun.ca");updates.gmail_thread_url=url.href;}
  }
  if(body.is_test!==undefined){if(typeof body.is_test!=="boolean")throw new Error("Invalid test flag");updates.is_test=body.is_test;}
  if(body.notes!==undefined){if(body.notes!==null&&(typeof body.notes!=="string"||body.notes.length>10000))throw new Error("Invalid notes");updates.next_step=typeof body.notes==="string"?body.notes.trim()||null:null;}
