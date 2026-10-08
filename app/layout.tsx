@@ -51,6 +51,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                       { href: "/daily-plan", label: "Daily Plan" },
                       { href: "/voice-codex", label: "Voice Codex" },
                       { href: "/data", label: "Orders" },
+                      { href: "/ticketing", label: "Inquiries" },
                       { href: "/cac", label: "CAC" },
                       { href: "/jobs", label: "Jobs" },
                       { href: "/settings/users", label: "Users" }
