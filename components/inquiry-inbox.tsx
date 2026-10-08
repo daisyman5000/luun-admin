@@ -1,137 +1,62 @@
 "use client";
-
-import { useEffect, useState } from "react";
-import { inquiryCategories, internalInquiry } from "@/lib/inquiry-tickets";
-import type { InquiryCategory, InquiryTicket } from "@/lib/inquiry-tickets";
-import type { JobTicketStatus } from "@/lib/types";
-
-const labels: Record<JobTicketStatus,string> = { open: "Unresolved", in_progress: "Unresolved", blocked: "Unresolved", done: "Resolved" };
-const date = (value: string) => new Intl.DateTimeFormat("en-CA", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Vancouver" }).format(new Date(value));
-
-export function InquiryInbox({ initialTickets, initialHasMore, initialError, canEdit }: {
-  initialTickets: InquiryTicket[]; initialHasMore: boolean; initialError: string | null; canEdit: boolean;
-}) {
-  const [tickets, setTickets] = useState(initialTickets);
-  const [hasMore, setHasMore] = useState(initialHasMore);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [filter, setFilter] = useState("active");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [creating, setCreating] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState("");
-  const [error, setError] = useState(initialError);
-  const [busy, setBusy] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const ticket = tickets.find(item => item.id === selected);
-  const visible = tickets.filter(item => (filter === "all" || (filter === "done" ? item.status === "done" : item.status !== "done")) &&
-    (categoryFilter === "all" || (item.inquiry_category || "customer_inquiry") === categoryFilter) && [item.customer_name, item.customer_email, item.title, item.details].some(value => value?.toLowerCase().includes(search.toLowerCase())));
-
-  async function load(more = false, desiredFilter = filter, desiredCategory = categoryFilter) {
-    setBusy(true); setError(null);
-    try {
-      const response = await fetch(`/api/inquiries?status=${desiredFilter === "active" ? "unresolved" : desiredFilter === "done" ? "resolved" : "all"}&category=${desiredCategory}&offset=${more ? tickets.length : 0}`, { cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Unable to load inquiries");
-      setTickets(old => more ? [...new Map([...old,...body.tickets.map(internalInquiry)].map(item => [item.id,item])).values()] : body.tickets.map(internalInquiry));
-      setHasMore(body.hasMore);
-    } catch (err) { setError(err instanceof Error ? err.message : "Unable to load inquiries"); }
-    finally { setBusy(false); }
-  }
-
-  // Poll only the newest batch; retain older loaded messages and current selection.
-  useEffect(() => {
-    const timer = setInterval(async () => {
-      if (document.visibilityState !== "visible") return;
-      try {
-        const response = await fetch(`/api/inquiries?status=all`, { cache: "no-store" });
-        if (!response.ok) return;
-        const body = await response.json();
-        setTickets(old => [...new Map([...old,...body.tickets.map(internalInquiry).filter((item: InquiryTicket) => old.some(existing => existing.id === item.id) || filter === "all" || (filter === "done" ? item.status === "done" : item.status !== "done"))].map(item => [item.id,item])).values()]
-          .sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)));
-      } catch { /* Manual refresh remains available. */ }
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [filter]);
-
-  async function updateTicket(updates: {status?: "unresolved" | "resolved"; category?: InquiryCategory}) {
-    if (!ticket) return;
-    setUpdating(true); setError(null);
-    try {
-      const response = await fetch(`/api/inquiries/${ticket.id}`, { method: "PATCH", headers: { "Content-Type":"application/json" }, body: JSON.stringify(updates) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Unable to update inquiry");
-      setTickets(old => old.map(item => item.id === body.id ? internalInquiry(body) : item));
-    } catch (err) { setError(err instanceof Error ? err.message : "Unable to update inquiry"); }
-    finally { setUpdating(false); }
-  }
-
-  async function createTicket(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setSaving(true); setError(null);
-    const form = new FormData(event.currentTarget);
-    try {
-      const response = await fetch("/api/inquiries", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({name:form.get("name"),email:form.get("email"),message:form.get("message"),category:form.get("category")}) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Unable to create ticket");
-      setFilter("active"); setCategoryFilter("all"); setSearch(""); setCreating(false);
-      await load(false, "active", "all"); setSelected(body.id);
-    } catch (err) {setError(err instanceof Error ? err.message : "Unable to create ticket");}
-    finally {setSaving(false);}
-  }
-
-  const details = ticket?.details?.split("\n\n— Webflow inquiry —\n") || [];
-  return <>
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex gap-1 rounded-lg bg-slate-100 p-1" aria-label="Inquiry filters">
-        {[["active","Unresolved"],["done","Resolved"],["all","All"]].map(([value,label]) =>
-          <button key={value} aria-pressed={filter === value} onClick={() => { setFilter(value); void load(false, value); }}
-            className={`rounded-md px-4 py-2 text-sm font-medium ${filter === value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>{label}</button>)}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <select aria-label="Filter by category" value={categoryFilter} onChange={event => {setCategoryFilter(event.target.value); void load(false, filter, event.target.value);}} className="rounded-lg border border-line bg-white px-3 py-2 text-sm"><option value="all">All categories</option>{Object.entries(inquiryCategories).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
-        {canEdit && <button onClick={() => setCreating(true)} className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white">New ticket</button>}
-        <input aria-label="Search tickets" placeholder="Search tickets" value={search} onChange={event => setSearch(event.target.value)} className="w-52 rounded-lg border border-line bg-white px-3 py-2 text-sm" />
-        <button disabled={busy} onClick={() => load()} className="rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-50">{busy ? "Loading…" : "Refresh"}</button>
-      </div>
-    </div>
-    {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-    {creating && <div className="mb-6 rounded-xl border border-line bg-white p-6 shadow-sm">
-      <form onSubmit={createTicket} className="grid gap-4 sm:grid-cols-2" aria-label="New ticket">
-        <h2 className="text-lg font-semibold sm:col-span-2">New ticket</h2>
-        <label className="text-sm">Customer or title<input name="name" maxLength={300} className="mt-2 block w-full rounded-lg border border-line p-3" /></label>
-        <label className="text-sm">Email (optional)<input name="email" type="email" maxLength={320} className="mt-2 block w-full rounded-lg border border-line p-3" /></label>
-        <label className="text-sm">Category<select name="category" className="mt-2 block w-full rounded-lg border border-line bg-white p-3">{Object.entries(inquiryCategories).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label className="text-sm sm:col-span-2">Details<textarea name="message" required maxLength={30000} rows={4} className="mt-2 block w-full rounded-lg border border-line p-3" /></label>
-        <div className="flex gap-3 sm:col-span-2"><button disabled={saving} className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Create ticket"}</button><button type="button" disabled={saving} onClick={() => setCreating(false)} className="rounded-lg border border-line px-5 py-3 text-sm">Cancel</button></div>
-      </form>
-    </div>}
-    <div className="grid overflow-hidden rounded-xl border border-line bg-white shadow-sm lg:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.5fr)]">
-      <div className="border-b border-line lg:border-b-0 lg:border-r">
-        <div className="max-h-[70vh] overflow-y-auto">
-          {visible.length ? visible.map(item => <button key={item.id} onClick={() => setSelected(item.id)} aria-pressed={selected === item.id}
-            className={`block w-full border-b border-line p-5 text-left last:border-b-0 ${selected === item.id ? "bg-blue-50" : "hover:bg-slate-50"}`}>
-            <div className="flex items-center justify-between gap-3"><span className="truncate font-semibold text-slate-900">{item.customer_name || item.customer_email || "Website visitor"}</span>
-              <span className={`shrink-0 rounded-full px-2 py-1 text-xs ${item.status === "open" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-600"}`}>{labels[item.status]}</span></div>
-            <p className="mt-2 line-clamp-2 text-sm text-slate-600">{item.details?.split("\n\n— Webflow inquiry —\n")[0] || item.title}</p>
-            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-400"><span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">{inquiryCategories[item.inquiry_category || "customer_inquiry"]}</span><span>{date(item.created_at)}</span></div>
-          </button>) : <div className="px-6 py-12 text-center text-sm text-slate-500">{search ? "No matching tickets." : "No tickets here yet."}</div>}
-        </div>
-        {hasMore && <button disabled={busy} onClick={() => load(true)} className="w-full border-t border-line p-4 text-sm font-medium text-slate-700">Load older inquiries</button>}
-      </div>
-      <section className="min-w-0 p-6 sm:p-8" aria-label="Inquiry details">
-        {ticket ? <>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0"><h2 className="break-words text-xl font-semibold text-slate-900">{ticket.customer_name || "Website visitor"}</h2>
-              <p className="mt-2 break-all text-sm text-slate-500">{ticket.customer_email || "No email supplied"}</p><p className="mt-2 text-xs text-slate-400">{date(ticket.created_at)}</p></div>
-            <div className="flex flex-wrap gap-2"><select aria-label="Ticket category" value={ticket.inquiry_category || "customer_inquiry"} disabled={!canEdit || updating} onChange={event=>updateTicket({category:event.target.value as InquiryCategory})} className="rounded-lg border border-line bg-white px-3 py-2 text-sm">{Object.entries(inquiryCategories).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><select aria-label="Inquiry status" value={ticket.status === "done" ? "resolved" : "unresolved"} disabled={!canEdit || updating} onChange={event => updateTicket({status: event.target.value as "unresolved" | "resolved"})} className="rounded-lg border border-line bg-white px-3 py-2 text-sm">
-              <option value="unresolved">Unresolved</option><option value="resolved">Resolved</option>
-            </select></div>
-          </div>
-          <p className="my-8 whitespace-pre-wrap break-words text-base leading-7 text-slate-800">{details[0] || ticket.title}</p>
-          {details[1] && <p className="mb-6 whitespace-pre-wrap break-words border-t border-line pt-4 text-xs leading-6 text-slate-400">{details[1]}</p>}
-          {ticket.next_step && <div className="mb-6 rounded-lg bg-slate-50 p-4"><p className="text-xs font-medium text-slate-500">Follow-up notes</p><p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-700">{ticket.next_step}</p></div>}
-          {ticket.customer_email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ticket.customer_email) && <a href={`mailto:${encodeURIComponent(ticket.customer_email)}?subject=${encodeURIComponent("Re: Your Luun inquiry")}`} className="inline-flex rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white">Reply by email</a>}
-        </> : <div className="py-16 text-center text-sm text-slate-400">Select a ticket to read the message.</div>}
-      </section>
-    </div>
-  </>;
+import { useCallback, useEffect, useRef, useState } from "react";
+import { inquiryCategories,inquiryStatuses,internalInquiry,parseInquiry,ticketStatus } from "@/lib/inquiry-tickets";
+import type {InquiryCategory,InquiryTicket,InquiryStatus,InquiryMessage} from "@/lib/inquiry-tickets";
+const date=(value:string)=>new Intl.DateTimeFormat("en-CA",{dateStyle:"medium",timeStyle:"short",timeZone:"America/Vancouver"}).format(new Date(value));
+const control="mt-2 block w-full rounded-lg border border-line bg-white p-3 text-sm";
+export function InquiryInbox({initialTickets,initialHasMore,initialError,initialCounts,canEdit}:{initialTickets:InquiryTicket[];initialHasMore:boolean;initialError:string|null;initialCounts:Record<string,number>;canEdit:boolean}){
+ const [tickets,setTickets]=useState(initialTickets),[hasMore,setHasMore]=useState(initialHasMore),[counts,setCounts]=useState(initialCounts);
+ const [selected,setSelected]=useState<string|null>(null),[detail,setDetail]=useState<InquiryTicket|null>(null),[messages,setMessages]=useState<InquiryMessage[]>([]);
+ const [threadError,setThreadError]=useState<string|null>(null),[threadBusy,setThreadBusy]=useState(false);
+ const [filter,setFilter]=useState("new"),[category,setCategory]=useState("all"),[showTests,setShowTests]=useState(false),[search,setSearch]=useState("");
+ const [creating,setCreating]=useState(false),[saving,setSaving]=useState(false),[updating,setUpdating]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(initialError);
+ const [refreshed,setRefreshed]=useState<string|null>(null);const sequence=useRef(0);
+ const load=useCallback(async(offset=0)=>{
+  const seq=++sequence.current;setBusy(true);
+  try{const response=await fetch(`/api/inquiries?status=${filter}&category=${category}&show_tests=${showTests}&offset=${offset}`,{cache:"no-store"});const body=await response.json();if(!response.ok)throw new Error(body.error||"Unable to load tickets");if(seq!==sequence.current)return;
+   const rows=body.tickets.map(internalInquiry);setTickets(old=>offset?[...old,...rows]:rows);setHasMore(body.hasMore);setCounts(body.counts);setRefreshed(body.refreshed_at);setError(null);
+  }catch(err){if(seq===sequence.current)setError(err instanceof Error?err.message:"Unable to load tickets");}finally{if(seq===sequence.current)setBusy(false);}
+ },[filter,category,showTests]);
+ useEffect(()=>{void load();const timer=setInterval(()=>{if(document.visibilityState==="visible")void load();},30000);return()=>{clearInterval(timer);};},[load]);
+ useEffect(()=>{
+  if(!selected)return;let cancelled=false;setThreadBusy(true);setThreadError(null);
+  Promise.all([fetch(`/api/inquiries/${selected}`,{cache:"no-store"}),fetch(`/api/inquiries/${selected}/messages`,{cache:"no-store"})]).then(async([ticketResponse,messageResponse])=>{
+   const [row,thread]=await Promise.all([ticketResponse.json(),messageResponse.json()]);if(cancelled)return;
+   if(!ticketResponse.ok)throw new Error(row.error||"Unable to load ticket");setDetail(internalInquiry(row));
+   if(!messageResponse.ok)throw new Error(thread.error||"Unable to load email thread");setMessages(thread.messages);
+  }).catch(err=>{if(!cancelled)setThreadError(err instanceof Error?err.message:"Unable to load thread");}).finally(()=>{if(!cancelled)setThreadBusy(false);});
+  return()=>{cancelled=true;};
+ },[selected,refreshed]);
+ async function updateTicket(updates:{status?:InquiryStatus;category?:InquiryCategory}){
+  if(!detail)return;setUpdating(true);setError(null);
+  try{const response=await fetch(`/api/inquiries/${detail.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(updates)});const body=await response.json();if(!response.ok)throw new Error(body.error||"Unable to update ticket");setDetail(internalInquiry(body));await load();}
+  catch(err){setError(err instanceof Error?err.message:"Unable to update ticket");}finally{setUpdating(false);}
+ }
+ async function createTicket(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setSaving(true);setError(null);const form=new FormData(event.currentTarget);
+  try{const response=await fetch("/api/inquiries",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:form.get("name"),email:form.get("email"),message:form.get("message"),category:form.get("category")})});const body=await response.json();if(!response.ok)throw new Error(body.error||"Unable to create ticket");setFilter("new");setCategory("all");setShowTests(body.is_test);setSearch("");setCreating(false);setDetail(internalInquiry(body));setMessages([]);setSelected(body.id);if(filter==="new"&&category==="all"&&showTests===body.is_test)await load();}
+  catch(err){setError(err instanceof Error?err.message:"Unable to create ticket");}finally{setSaving(false);}
+ }
+ const visible=tickets.filter(item=>(filter==="all"||ticketStatus(item)===filter)&&(showTests||!item.is_test)&&(category==="all"||(item.inquiry_category||"customer_inquiry")===category)&&[item.customer_name,item.customer_email,item.title,item.details].some(value=>value?.toLowerCase().includes(search.toLowerCase())));
+ const parsed=parseInquiry(detail?.details);
+ const threadIds=[...new Set([detail?.gmail_thread_id,...messages.map(message=>message.gmail_thread_id)].filter((id):id is string=>!!id&&/^[a-f0-9]{8,64}$/i.test(id)))];
+ return <>
+  <div className="mb-4 flex flex-wrap gap-2" aria-label="Ticket status filters">{[...Object.entries(inquiryStatuses),["all","All"]].map(([value,label])=><button key={value} aria-pressed={filter===value} onClick={()=>setFilter(value)} className={`rounded-lg border px-3 py-2 text-sm ${filter===value?"border-ink bg-ink text-white":"border-line bg-white text-slate-600"}`}>{label}<span className="ml-2 opacity-70">{value==="all"?Object.values(counts).reduce((a,b)=>a+b,0):counts[value]||0}</span></button>)}</div>
+  <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-3">
+   <select aria-label="Filter by category" value={category} onChange={event=>setCategory(event.target.value)} className="rounded-lg border border-line bg-white px-3 py-2 text-sm"><option value="all">All categories</option>{Object.entries(inquiryCategories).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>
+   <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={showTests} onChange={event=>setShowTests(event.target.checked)} />Show tests</label>
+   <input aria-label="Search tickets" placeholder="Search tickets" value={search} onChange={event=>setSearch(event.target.value)} className="w-44 rounded-lg border border-line px-3 py-2 text-sm" />
+  </div><div className="flex flex-wrap items-center gap-3"><span className="text-xs text-slate-400">{refreshed?`Last refreshed ${new Date(refreshed).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}`:"Refreshing…"}</span><button disabled={busy} onClick={()=>load()} className="rounded-lg border border-line bg-white px-3 py-2 text-sm disabled:opacity-50">Refresh</button>{canEdit&&<button onClick={()=>setCreating(true)} className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white">New ticket</button>}</div></div>
+  {error&&<p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+  {creating&&<form onSubmit={createTicket} className="mb-6 grid gap-4 rounded-xl border border-line bg-white p-6 sm:grid-cols-2" aria-label="New ticket"><h2 className="text-lg font-semibold sm:col-span-2">New ticket</h2><label className="text-sm">Customer or title<input name="name" maxLength={300} className={control}/></label><label className="text-sm">Email (optional)<input name="email" type="email" maxLength={320} className={control}/></label><label className="text-sm">Category<select name="category" className={control}>{Object.entries(inquiryCategories).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label className="text-sm sm:col-span-2">Details<textarea name="message" required maxLength={30000} rows={4} className={control}/></label><div className="flex gap-3 sm:col-span-2"><button disabled={saving} className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{saving?"Saving…":"Create ticket"}</button><button type="button" disabled={saving} onClick={()=>setCreating(false)} className="rounded-lg border border-line px-5 py-3 text-sm">Cancel</button></div></form>}
+  <div className="grid overflow-hidden rounded-xl border border-line bg-white shadow-sm lg:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.5fr)]"><div className="border-b border-line lg:border-b-0 lg:border-r"><div className="max-h-[75vh] overflow-y-auto">
+   {visible.length?visible.map(item=><button key={item.id} aria-pressed={selected===item.id} onClick={()=>{setDetail(item);setMessages([]);setSelected(item.id);}} className={`block w-full border-b border-line p-5 text-left last:border-b-0 ${selected===item.id?"bg-blue-50":"hover:bg-slate-50"}`}><div className="flex items-center justify-between gap-3"><span className="truncate font-semibold text-slate-900">{item.customer_name||item.customer_email||item.title}</span><span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{inquiryStatuses[ticketStatus(item)]}</span></div><p className="mt-2 line-clamp-2 text-sm text-slate-600">{parseInquiry(item.details).body||item.title}</p><div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-slate-400"><span>{inquiryCategories[item.inquiry_category||"customer_inquiry"]}{item.is_test?" · Test":""}</span><span>Last activity {date(item.last_activity_at||item.created_at)}</span></div></button>):<p className="px-6 py-12 text-center text-sm text-slate-500">No tickets in this view.</p>}
+  </div>{hasMore&&<button disabled={busy} onClick={()=>load(tickets.length)} className="w-full border-t border-line p-4 text-sm">Load older tickets</button>}</div>
+  <section className="min-w-0 p-6 sm:p-8" aria-label="Ticket details">{detail?<>
+   <div className="flex flex-wrap items-start justify-between gap-6"><div className="min-w-0"><h2 className="break-words text-xl font-semibold">{detail.customer_name||detail.title}</h2><p className="mt-2 break-all text-sm text-slate-500">{detail.customer_email||"No email supplied"}</p></div><div className="flex flex-wrap gap-3"><label className="text-xs font-medium text-slate-500">Category<select aria-label="Ticket category" value={detail.inquiry_category||"customer_inquiry"} disabled={!canEdit||updating} onChange={event=>updateTicket({category:event.target.value as InquiryCategory})} className={control}>{Object.entries(inquiryCategories).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label className="text-xs font-medium text-slate-500">Status<select aria-label="Ticket status" value={ticketStatus(detail)} disabled={!canEdit||updating} onChange={event=>updateTicket({status:event.target.value as InquiryStatus})} className={control}>{Object.entries(inquiryStatuses).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label></div></div>
+   <div className="mt-8 space-y-4"><dl className="space-y-2 text-sm">{parsed.topic&&<div><dt className="inline font-semibold">Topic: </dt><dd className="inline">{parsed.topic}</dd></div>}{parsed.order&&<div><dt className="inline font-semibold">Order: </dt><dd className="inline">{parsed.order}</dd></div>}</dl><div><p className="text-xs font-medium text-slate-500">Original message · {date(detail.created_at)}</p><p className="mt-3 whitespace-pre-wrap break-words text-base leading-7">{parsed.body||detail.title}</p></div><dl className="space-y-1 border-t border-line pt-4 text-xs text-slate-400">{parsed.metadata.map(({label,value})=><div key={label+value} className="break-all"><dt className="inline">{label}: </dt><dd className="inline">{value}</dd></div>)}</dl></div>
+   <div className="mt-8 border-t border-line pt-6"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">Email conversation</h3>{threadIds.map((id,index)=><a key={id} href={`https://mail.google.com/mail/?authuser=team%40luun.ca#all/${id}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium underline">Open in Gmail{threadIds.length>1?` ${index+1}`:""}</a>)}</div>{threadError&&<p role="alert" className="mt-3 text-sm text-red-700">{threadError}</p>}{!threadError&&!messages.length&&<p className="mt-3 text-sm text-slate-400">{threadBusy?"Loading conversation…":"No linked emails yet."}</p>}<div className="mt-4 space-y-4">{messages.map(message=><article key={message.id} className={`rounded-lg p-4 ${message.direction==="outbound"?"bg-blue-50":"bg-slate-50"}`}><div className="flex flex-wrap justify-between gap-2 text-xs text-slate-500"><span className="font-medium">{message.direction==="outbound"?"team@luun.ca":message.from_email}</span><time dateTime={message.sent_at}>{date(message.sent_at)}</time></div>{message.subject&&<p className="mt-2 text-xs text-slate-500">{message.subject}</p>}<p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6">{message.body}</p></article>)}</div></div>
+   {detail.next_step&&<div className="mt-6 rounded-lg bg-slate-50 p-4"><p className="text-xs font-medium text-slate-500">Follow-up notes</p><p className="mt-2 whitespace-pre-wrap break-words text-sm">{detail.next_step}</p></div>}
+   {detail.customer_email&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(detail.customer_email)&&<a href={`mailto:${encodeURIComponent(detail.customer_email)}?subject=${encodeURIComponent("Re: Your Luun inquiry")}`} className="mt-6 inline-flex rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white">Reply by email</a>}
+  </>:<p className="py-16 text-center text-sm text-slate-400">Select a ticket to read the conversation.</p>}</section></div>
+ </>;
 }
