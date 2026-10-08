@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {inquiryUpdates,isInquiryCategory,publicInquiry,internalInquiry} from './inquiry-tickets';
+import type {InquiryTicket} from './inquiry-tickets';
+test('only unresolved/resolved are accepted',()=>{assert.deepEqual(inquiryUpdates({status:'resolved'}),{status:'done'});assert.deepEqual(inquiryUpdates({status:'unresolved'}),{status:'open'});assert.throws(()=>inquiryUpdates({status:'sent'}));});
+test('category is separate from job category',()=>{assert.deepEqual(inquiryUpdates({category:'warranty'}),{inquiry_category:'warranty'});for(const value of ['ads_created','__proto__',null,12])assert.equal(isInquiryCategory(value),false);});
+test('bot cannot overwrite inquiry identity or content through status endpoint',()=>{for(const key of ['id','email','customer_email','details','created_by'])assert.throws(()=>inquiryUpdates({[key]:'value'}));});
+test('notes are bounded and can be cleared',()=>{assert.deepEqual(inquiryUpdates({notes:' Waiting for photos '}),{next_step:'Waiting for photos'});assert.deepEqual(inquiryUpdates({notes:null}),{next_step:null});assert.throws(()=>inquiryUpdates({notes:'x'.repeat(10001)}));});
+test('public API uses simple statuses and round-trips into the existing inbox',()=>{const row={id:'1',category:'customer_inquiry',status:'blocked',inquiry_category:'warranty',next_step:'Waiting'} as InquiryTicket;const api=publicInquiry(row);assert.equal(api.status,'unresolved');assert.equal(api.category,'warranty');assert.equal(api.notes,'Waiting');assert.equal(internalInquiry(api).status,'open');assert.equal(publicInquiry({...row,status:'done'}).status,'resolved');});
+test('empty, array and malformed updates are rejected',()=>{for(const value of [null,[],{},'',123])assert.throws(()=>inquiryUpdates(value));});
