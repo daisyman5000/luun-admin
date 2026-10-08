@@ -40,10 +40,10 @@ export function InquiryInbox({ initialTickets, initialHasMore, initialError, can
     const timer = setInterval(async () => {
       if (document.visibilityState !== "visible") return;
       try {
-        const response = await fetch(`/api/inquiries?status=${filter === "active" ? "unresolved" : filter === "done" ? "resolved" : "all"}`, { cache: "no-store" });
+        const response = await fetch(`/api/inquiries?status=all`, { cache: "no-store" });
         if (!response.ok) return;
         const body = await response.json();
-        setTickets(old => [...new Map([...old,...body.tickets.map(internalInquiry)].map(item => [item.id,item])).values()]
+        setTickets(old => [...new Map([...old,...body.tickets.map(internalInquiry).filter((item: InquiryTicket) => old.some(existing => existing.id === item.id) || filter === "all" || (filter === "done" ? item.status === "done" : item.status !== "done"))].map(item => [item.id,item])).values()]
           .sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)));
       } catch { /* Manual refresh remains available. */ }
     }, 30000);
@@ -100,6 +100,7 @@ export function InquiryInbox({ initialTickets, initialHasMore, initialError, can
           </div>
           <p className="my-8 whitespace-pre-wrap break-words text-base leading-7 text-slate-800">{details[0] || ticket.title}</p>
           {details[1] && <p className="mb-6 whitespace-pre-wrap break-words border-t border-line pt-4 text-xs leading-6 text-slate-400">{details[1]}</p>}
+          {ticket.next_step && <div className="mb-6 rounded-lg bg-slate-50 p-4"><p className="text-xs font-medium text-slate-500">Follow-up notes</p><p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-700">{ticket.next_step}</p></div>}
           {ticket.customer_email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ticket.customer_email) && <a href={`mailto:${encodeURIComponent(ticket.customer_email)}?subject=${encodeURIComponent("Re: Your Luun inquiry")}`} className="inline-flex rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-white">Reply by email</a>}
         </> : <div className="py-16 text-center text-sm text-slate-400">Select a ticket to read the message.</div>}
       </section>
