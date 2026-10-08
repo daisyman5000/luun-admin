@@ -12,6 +12,7 @@ const primaryLinks = [
   { href: "/daily-plan", label: "Daily Plan", short: "DP" },
   { href: "/voice-codex", label: "Voice Codex", short: "VC" },
   { href: "/data", label: "Orders", short: "O" },
+  { href: "/ticketing", label: "Inquiries", short: "Q" },
   { href: "/cac", label: "CAC", short: "CAC" },
   { href: "/jobs", label: "Jobs", short: "J" }
 ];
