@@ -10,6 +10,7 @@ Private requests use Authorization: Bearer <existing GROK_BOT_SECRET>. Never pla
 
 GET /api/inquiries?status=unresolved
 GET /api/inquiries?status=resolved
+GET /api/inquiries?status=unresolved&category=warranty
 GET /api/inquiries?status=all&offset=100
 GET /api/inquiries/{id}
 
@@ -34,7 +35,7 @@ Content-Type: application/json
 
 {"name":"Customer","email":"customer@example.com","message":"Original inquiry","category":"customer_inquiry"}
 
-This is optional, for Grok to insert email/Instagram inquiries it already receives. It does not connect those services. POST creates a new ticket and is not automatically retry-idempotent: retain its returned ID before continuing; don't blindly retry an ambiguous creation result.
+The admin New ticket form uses this endpoint too. Email is optional for manual tickets; details are required. This is optional, for Grok to insert email/Instagram inquiries it already receives. It does not connect those services. POST creates a new ticket and is not automatically retry-idempotent: retain its returned ID before continuing; don't blindly retry an ambiguous creation result.
 
 ## Verification
 
