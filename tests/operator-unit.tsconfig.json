@@ -39,7 +39,9 @@
     "../lib/workspace-request.test.ts",
     "../lib/source-sync.test.ts",
     "../lib/evidence-review.test.ts",
-    "../lib/warehouse-stock.test.ts"
+    "../lib/warehouse-stock.test.ts",
+    "../lib/cash-simulator.test.ts",
+    "../lib/cash-simulator-ui.test.tsx"
   ],
   "exclude": [
     "../node_modules"
