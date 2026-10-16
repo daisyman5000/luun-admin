@@ -50,6 +50,7 @@ export async function GET() {
     shopifyConnectedAt: shopifyConnection.updatedAt,
     shopifyApiConnectionWorks,
     wiseApiTokenExists: wiseConfig.apiTokenExists,
+    wiseRequestsEnabled: wiseConfig.requestsEnabled,
     wiseApiConnectionWorks
   });
 }

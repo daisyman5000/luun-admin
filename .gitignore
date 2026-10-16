@@ -10,3 +10,10 @@ coverage
 npm-debug.log*
 
 .sale-test-build
+
+# Private local content packages
+.local-content/
+
+.workspace-dependencies/
+
+.next-verification/

@@ -1,3 +1,5 @@
+import { WiseSourceStatus } from '@/components/wise-source-status';
+import { wiseOperationalData } from '@/lib/wise/summary';
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { getWiseSummary } from "@/lib/wise/client";
@@ -286,6 +288,7 @@ export default async function CacPage({
     .order("created_at", { ascending: true })
     .returns<ShopifyOrder[]>();
   const wiseSummary = await getWiseSummary();
+  const spendingAvailable=wiseOperationalData(wiseSummary,Date.now()).spendingUsable&&!!wiseSummary.statementWindow&&selectedMonth.start.getTime()>=Date.parse(wiseSummary.statementWindow.from);
   const dailyRows = buildDailyCac({
     metaExpenses: wiseSummary.metaSpend.expenses,
     month: selectedMonth,
@@ -310,18 +313,18 @@ export default async function CacPage({
         <MonthSelector options={monthOptions} />
       </div>
 
-      <section className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Monthly CAC" value={cacLabel(monthSummary.cac)} />
-        <StatCard label="Meta spend" value={money(monthSummary.metaSpend)} />
+      <WiseSourceStatus summary={wiseSummary}/>{!spendingAvailable?<p role="status" className="mb-5 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Wise spending is unavailable, partial, stale or outside the returned statement window. CAC and spending charts are withheld; no zero is assumed.</p>:null}<section className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Monthly CAC" value={spendingAvailable?cacLabel(monthSummary.cac):"Unavailable"} />
+        <StatCard label="Meta spend" value={spendingAvailable?money(monthSummary.metaSpend):"Unavailable"} />
         <StatCard label="Orders" value={monthSummary.orderCount} />
         <StatCard label="Revenue" value={money(monthSummary.revenue)} />
       </section>
 
-      <div className="space-y-5">
+      {spendingAvailable?<div className="space-y-5">
         <DailyTable rows={dailyRows} />
         <SummaryTable rows={weeklyRows} title="Weekly CAC" />
         <SummaryTable rows={saleRows} title="Detected sale periods" />
-      </div>
+      </div>:null}
     </main>
   );
 }

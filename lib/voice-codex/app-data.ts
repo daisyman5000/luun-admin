@@ -33,7 +33,7 @@ export async function buildVoiceCodexAppDataSnapshot(supabase: SupabaseReader, r
   const recentDate = isoDaysAgo(120);
   const financialAccess = role === "owner" || role === "admin";
 
-  const [inventory, recentOrders, containers, demandSales, jobs, majorExpenses, wayflyerPayments] = await Promise.all([
+  const [inventory, recentOrders, containers, demandSales, jobs, majorExpenses, wayflyerPayments, businessPlan] = await Promise.all([
     readQuery(
       "Inventory",
       supabase
@@ -93,7 +93,8 @@ export async function buildVoiceCodexAppDataSnapshot(supabase: SupabaseReader, r
             .order("due_date", { ascending: true, nullsFirst: false })
             .limit(80)
         )
-      : Promise.resolve({ count: 0, data: null, error: "Hidden from this user role", label: "Wayflyer payments" })
+      : Promise.resolve({ count: 0, data: null, error: "Hidden from this user role", label: "Wayflyer payments" }),
+    readQuery("Shared business plan",supabase.from("operator_business_plan").select("package,version,updated_at").eq("id",1))
   ]);
 
   return `
@@ -102,10 +103,10 @@ Generated: ${new Date().toISOString()}
 Scope: current signed-in user's Supabase permissions. Raw Shopify JSON, customer emails, phone numbers, and addresses are intentionally excluded.
 
 Loaded datasets:
-${[inventory, recentOrders, containers, demandSales, jobs, majorExpenses, wayflyerPayments]
+${[inventory, recentOrders, containers, demandSales, jobs, majorExpenses, wayflyerPayments, businessPlan]
   .map((result) => `- ${result.label}: ${result.error ? `unavailable (${result.error})` : `${result.count} rows`}`)
   .join("\n")}
 
-${compactJson([inventory, recentOrders, containers, demandSales, jobs, majorExpenses, wayflyerPayments])}
+${compactJson([inventory, recentOrders, containers, demandSales, jobs, majorExpenses, wayflyerPayments, businessPlan])}
 `.trim();
 }

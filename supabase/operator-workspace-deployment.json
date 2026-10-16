@@ -1,0 +1,10 @@
+{
+  "project_ref": "pgoxvqziybtasivqiymw",
+  "migration_name": "operator_workspace",
+  "remote_version": "20261016160756",
+  "local_file": "migrations/20261016160756_operator_workspace.sql",
+  "sha256": "5c647bf00f0386d999e58e3909c998c5388ee554a12ef20961d22b9b8aef628e",
+  "status": "applied_and_verified_by_parent",
+  "original_approved_filename": "20261016000000_operator_workspace.sql",
+  "warning": "Do not reapply. Legacy local migration files are not reconciled with remote history; do not run a blanket db push."
+}

@@ -1,3 +1,5 @@
+import { WiseSourceStatus } from '@/components/wise-source-status';
+import { wiseOperationalData } from '@/lib/wise/summary';
 import { canViewFinancials, requireUser } from "@/lib/auth";
 import { getWiseSummary, type WiseBalanceSummary, type WiseMetaSpendSummary } from "@/lib/wise/client";
 
@@ -51,7 +53,7 @@ function formatMonth(value: string) {
   });
 }
 
-function CombinedCash({ balances }: { balances: WiseBalanceSummary[] }) {
+function CombinedCash({ balances,complete }: { balances: WiseBalanceSummary[];complete:boolean }) {
   const combinedBalances = getCombinedBalances(balances);
 
   if (combinedBalances.length === 0) {
@@ -60,7 +62,7 @@ function CombinedCash({ balances }: { balances: WiseBalanceSummary[] }) {
 
   return (
     <section className="rounded-3xl border border-blue-100 bg-blue-50 p-6 shadow-sm">
-      <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">Total Wise cash</p>
+      <p className="text-sm font-semibold uppercase tracking-normal text-blue-700">{complete?'Total returned Wise cash':'Partial Wise balances · incomplete cash total'}</p>
       <div className="mt-4 flex flex-wrap gap-x-10 gap-y-4">
         {combinedBalances.map((balance) => (
           <div key={balance.currency}>
@@ -214,6 +216,7 @@ export default async function FinancialsPage() {
   }
 
   const summary = await getWiseSummary();
+  const operational=wiseOperationalData(summary,Date.now());
 
   return (
     <main className="px-5 py-8 sm:px-8 lg:px-10">
@@ -225,11 +228,11 @@ export default async function FinancialsPage() {
         </p>
       </div>
 
-      {!summary.configured ? (
+      <WiseSourceStatus summary={summary}/>{!summary.configured ? (
         <section className="rounded-2xl border border-dashed border-line bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">Wise is not connected yet</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Wise configuration unavailable in this runtime</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Add `WISE_API_TOKEN` in Vercel to show Wise cash balances here.
+            The hosted app may already have its connection. No Wise login or new connection is required by this screen; existing hosted configuration has not been inspected here.
           </p>
         </section>
       ) : (
@@ -239,9 +242,9 @@ export default async function FinancialsPage() {
               {summary.errors.join(" ")}
             </section>
           ) : null}
-          <CombinedCash balances={summary.balances} />
-          <MetaSpendPanel metaSpend={summary.metaSpend} />
-          <BalanceCards balances={summary.balances} />
+          {operational.balances?<CombinedCash balances={summary.balances} complete={operational.cashComplete}/>:<p>Cash unavailable; no zero balance is assumed.</p>}
+          {operational.spendingUsable?<MetaSpendPanel metaSpend={summary.metaSpend}/>:<p role="status">Meta spending unavailable or incomplete. No zero spending or CAC is inferred.</p>}
+          {operational.balances?<BalanceCards balances={summary.balances}/>:null}
         </div>
       )}
     </main>

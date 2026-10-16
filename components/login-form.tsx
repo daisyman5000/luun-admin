@@ -1,5 +1,6 @@
 "use client";
 
+import { loginDestination } from "@/lib/login-destination";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
@@ -25,7 +26,7 @@ export function LoginForm() {
       supabase = createClient();
     } catch {
       setLoading(false);
-      setError("Supabase is not configured in Vercel.");
+      setError("This workspace connection is not configured yet.");
       return;
     }
 
@@ -41,7 +42,7 @@ export function LoginForm() {
       return;
     }
 
-    router.replace(searchParams.get("redirectedFrom") || "/data");
+    router.replace(loginDestination(searchParams.get("redirectedFrom")));
     router.refresh();
   }
 
@@ -77,7 +78,7 @@ export function LoginForm() {
       </div>
       {!isConfigured ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          Supabase is not configured in Vercel.
+          This workspace connection is not configured yet.
         </p>
       ) : null}
       {error ? <p className="text-sm text-red-700">{error}</p> : null}

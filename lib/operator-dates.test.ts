@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {operatorDate,operatorTimeZone} from './operator-dates';
+test('planned dates follow the explicit IANA zone across midnight and DST',()=>{assert.equal(operatorDate('2026-10-17T01:30:00Z','America/Vancouver'),'2026-10-16');assert.equal(operatorDate('2026-10-17T01:30:00Z','UTC'),'2026-10-17');assert.equal(operatorDate('2026-11-01T08:30:00Z','America/Vancouver'),'2026-11-01');assert.equal(operatorDate('2026-11-01T09:30:00Z','America/Vancouver'),'2026-11-01');assert.equal(operatorTimeZone('https://external.invalid'),'UTC');});

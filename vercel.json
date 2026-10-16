@@ -1,0 +1,7 @@
+{
+  "env": {
+    "LUUN_WISE_REQUESTS_ENABLED": "1",
+    "LUUN_WISE_STATEMENTS_ENABLED": "0",
+    "LUUN_LOCAL_CONTENT": "0"
+  }
+}

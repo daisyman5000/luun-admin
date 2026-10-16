@@ -1,3 +1,4 @@
+import { OperatorWorkLoop } from '@/components/operator-work-loop';
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ReactNode } from "react";
@@ -5,6 +6,10 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { LogoutButton } from "@/components/logout-button";
 import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
+import { headers } from "next/headers";
+import { localContentEnabled } from "@/lib/local-content";
+import { SharedBusinessPlan } from "@/components/shared-business-plan";
+import { operatorLinks } from "@/lib/operator-navigation";
 
 export const metadata: Metadata = {
   title: "Luun Admin",
@@ -13,6 +18,7 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   let user = null;
+  const localContent = localContentEnabled((await headers()).get("host"));
 
   try {
     const supabase = await createClient();
@@ -28,9 +34,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     <html lang="en">
       <body>
         <div className="min-h-screen">
-          {user ? (
+          {user || localContent ? (
             <div className="min-h-screen lg:flex">
-              <AppSidebar />
+              <AppSidebar signedIn={!!user} />
               <div className="min-w-0 flex-1">
                 <header className="sticky top-0 z-30 border-b border-line bg-white/85 shadow-sm backdrop-blur-xl lg:hidden">
                   <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -40,22 +46,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                       </span>
                       <span>Luun Admin</span>
                     </Link>
-                    <LogoutButton />
+                    {user ? <LogoutButton /> : <span className="text-xs text-slate-500">Local workspace</span>}
                   </div>
                   <nav className="flex gap-2 overflow-x-auto px-4 pb-3 text-sm">
-                    {[
-                      { href: "/", label: "Home" },
-                      { href: "/forecasting/containers", label: "Invoices" },
-                      { href: "/inventory", label: "Inventory" },
-                      { href: "/demand", label: "Demand Plan" },
-                      { href: "/daily-plan", label: "Daily Plan" },
-                      { href: "/voice-codex", label: "Voice Codex" },
-                      { href: "/data", label: "Orders" },
-                      { href: "/ticketing", label: "Tickets" },
-                      { href: "/cac", label: "CAC" },
-                      { href: "/jobs", label: "Jobs" },
-                      { href: "/settings/users", label: "Users" }
-                    ].map((link) => (
+                    {operatorLinks.map((link) => (
                       <Link
                         className="shrink-0 rounded-md border border-line bg-white px-4 py-2.5 font-medium text-slate-700 hover:bg-slate-50"
                         href={link.href}
@@ -64,8 +58,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                         {link.label}
                       </Link>
                     ))}
+                    <Link href="/back-office" className="shrink-0 px-4 py-2.5 text-slate-500">Back office / Settings</Link>
                   </nav>
                 </header>
+                <SharedBusinessPlan /><OperatorWorkLoop/>
                 {children}
               </div>
             </div>

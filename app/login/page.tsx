@@ -10,7 +10,7 @@ export default function LoginPage() {
             L
           </div>
           <h1 className="text-2xl font-semibold tracking-normal">Luun Admin</h1>
-          <p className="mt-1 text-sm text-slate-600">Private logistics control center.</p>
+          <p className="mt-1 text-sm text-slate-600">Your Luun workspace.</p>
         </div>
         <Suspense>
           <LoginForm />

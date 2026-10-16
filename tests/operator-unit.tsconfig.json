@@ -1,0 +1,39 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "incremental": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "outDir": "/tmp/luun-operator-unit",
+    "rootDir": "..",
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "../lib/content.test.ts",
+    "../lib/inquiry-tickets.test.ts",
+    "../lib/sales/pricing.test.ts",
+    "../lib/demand-forecast.test.ts",
+    "../lib/demand-plan.test.ts",
+    "../lib/creative-library.test.ts",
+    "../lib/business-plan.test.ts",
+    "../lib/work-plan.test.ts",
+    "../lib/content-database.test.ts",
+    "../lib/operator-readiness.test.ts",
+    "../lib/content-calendar.test.ts",
+    "../lib/studio-bridge.test.ts",
+    "../lib/operating-strategy.test.ts",
+    "../lib/strategy-ai.test.ts",
+    "../lib/wise/summary.test.ts",
+    "../lib/wise/cash-summary.test.tsx",
+    "../lib/wise/account-groups.test.ts",
+    "../lib/operator-brief.test.ts",
+    "../lib/operator-dates.test.ts",
+    "../lib/brief-export.test.ts",
+    "../lib/wise/balance-refresh.test.ts"
+  ],
+  "exclude": [
+    "../node_modules"
+  ]
+}

@@ -1,3 +1,4 @@
+import { readOperatorContext } from "@/lib/content-database";
 import { NextResponse } from "next/server";
 import { canUpdateOrderLogistics,getJobsApiContext } from "@/lib/auth";
 import { inquiryStatuses,isInquiryStatus,isInquiryCategory,publicInquiry } from "@/lib/inquiry-tickets";
@@ -13,7 +14,7 @@ export async function GET(request:Request){
  const [result,...totals]=await Promise.all([query.range(offset,offset+100).returns<InquiryTicket[]>(),...Object.keys(inquiryStatuses).map(value=>base().eq("inquiry_status",value).limit(0))]);
  if(result.error||totals.some(item=>item.error))return NextResponse.json({error:"Unable to load tickets"},{status:500});
  const counts=Object.fromEntries(Object.keys(inquiryStatuses).map((value,index)=>[value,totals[index].count||0]));
- return NextResponse.json({tickets:(result.data||[]).slice(0,100).map(publicInquiry),hasMore:(result.data||[]).length>100,counts,refreshed_at:new Date().toISOString()},{headers:{"Cache-Control":"private, no-store"}});
+ return NextResponse.json({tickets:(result.data||[]).slice(0,100).map(publicInquiry),hasMore:(result.data||[]).length>100,counts,business_context:await readOperatorContext(auth.supabase),refreshed_at:new Date().toISOString()},{headers:{"Cache-Control":"private, no-store"}});
 }
 export async function POST(request:Request){
  const auth=await getJobsApiContext(request.headers.get("authorization"));
