@@ -1,0 +1,2 @@
+import {timingSafeEqual} from 'node:crypto';
+export function authorizedSourceSync(header:string|null,env:Record<string,string|undefined>){if(env.LUUN_BACKGROUND_SYNC_ENABLED!=='1'||!env.CRON_SECRET||env.CRON_SECRET.length<16||!header)return false;const actual=Buffer.from(header),expected=Buffer.from('Bearer '+env.CRON_SECRET);return actual.length===expected.length&&timingSafeEqual(actual,expected);}

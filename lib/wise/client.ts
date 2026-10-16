@@ -133,6 +133,6 @@ export async function getWiseMonthlyAdPayments(month:string){
  const balances=await getWiseBalances();
  if(balances.sources.balances.status!=='ok')throw new Error('Wise account coverage is unavailable or partial.');
  const prior=adReads.get(month);if(prior&&Date.now()-prior.at<300000)return prior.pending;
- const pending=readMonthlyWiseAdPayments(month,balances.balances,<T>(path:string)=>wiseFetch<T>(path,'ad-reconciliation'));
+ const pending=readMonthlyWiseAdPayments(month,balances.balances,<T>(path:string)=>wiseFetch<T>(path,'ad-reconciliation')).then(result=>({...result,coverage:{...result.coverage,profiles:balances.profiles.map(profile=>profile.id),profileInventory:balances.profiles.map(profile=>({id:profile.id,type:profile.type,balanceCount:balances.balances.filter(row=>row.profileId===profile.id).length}))}}));
  if(adReads.size>=24)adReads.delete(adReads.keys().next().value!);adReads.set(month,{at:Date.now(),pending});return pending;
 }

@@ -1,0 +1,8 @@
+{
+  "project_ref": "pgoxvqziybtasivqiymw",
+  "version": "20261016211041",
+  "name": "operator_source_sync",
+  "sha256": "a089d3513b91a7b82692651f7540968b46e0b1a6b28ac2a341c43a128c36b1b3",
+  "status": "applied_and_metadata_verified",
+  "warning": "Do not reapply. Legacy local migrations remain unreconciled; no blanket db push."
+}

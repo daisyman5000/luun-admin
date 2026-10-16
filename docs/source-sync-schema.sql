@@ -1,0 +1,2 @@
+-- APPLIED as 20261016211041_operator_source_sync; do not replay.
+-- Canonical SQL: ../supabase/migrations/20261016211041_operator_source_sync.sql

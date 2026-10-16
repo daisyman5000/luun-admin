@@ -81,6 +81,8 @@ const ORDER_FIELDS = /* GraphQL */ `
   id
   name
   createdAt
+  updatedAt
+  test
   cancelledAt
   customAttributes { key value }
   email
@@ -420,4 +422,17 @@ export async function importRecentShopifyOrders(
   });
 
   return upsertShopifyOrderRows(rows, summary);
+}
+
+// Bounded daily catch-up for existing order-read access. No new scope, checkout or discount mutation.
+export async function importUpdatedShopifyOrders(since:string,after:string|null=null){
+ if(!Number.isFinite(Date.parse(since)))throw Error('Invalid sync boundary');
+ const query=`query UpdatedOrders($first:Int!,$after:String,$query:String!){orders(first:$first,after:$after,sortKey:UPDATED_AT,reverse:false,query:$query){pageInfo{hasNextPage endCursor} edges{node{${ORDER_FIELDS}}}}}`;
+ const summary:ImportOrdersSummary={imported:0,updated:0,skipped:0,errors:[]};let cursor=after,complete=false,sourceUpdatedAt:string|null=null;
+ for(let page=0;page<5;page++){
+  const data=await shopifyAdminGraphQL<{orders:{pageInfo:{hasNextPage:boolean;endCursor:string|null};edges:{node:ShopifyOrderNode&{updatedAt?:string}}[]}}>(query,{first:100,after:cursor,query:`updated_at:>=${since}`});
+  const rows=data.orders.edges.map(edge=>{if(edge.node.updatedAt&&(!sourceUpdatedAt||edge.node.updatedAt>sourceUpdatedAt))sourceUpdatedAt=edge.node.updatedAt;return mapOrderToRow(edge.node);});
+  await upsertShopifyOrderRows(rows,summary);if(!data.orders.pageInfo.hasNextPage){complete=true;cursor=null;break;}if(!data.orders.pageInfo.endCursor)throw Error('Missing Shopify continuation cursor');cursor=data.orders.pageInfo.endCursor;
+ }
+ return {complete,summary,after:cursor,sourceUpdatedAt};
 }
