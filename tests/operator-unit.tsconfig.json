@@ -41,7 +41,8 @@
     "../lib/evidence-review.test.ts",
     "../lib/warehouse-stock.test.ts",
     "../lib/cash-simulator.test.ts",
-    "../lib/cash-simulator-ui.test.tsx"
+    "../lib/cash-simulator-ui.test.tsx",
+    "../lib/business-position.test.ts"
   ],
   "exclude": [
     "../node_modules"

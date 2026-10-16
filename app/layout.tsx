@@ -1,3 +1,4 @@
+import {OperatorContextPlacement} from '@/components/operator-context-placement';
 import { OperatorWorkLoop } from '@/components/operator-work-loop';
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -61,8 +62,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                     <Link href="/back-office" className="shrink-0 px-4 py-2.5 text-slate-500">Back office / Settings</Link>
                   </nav>
                 </header>
-                <SharedBusinessPlan /><OperatorWorkLoop/>
-                {children}
+                <OperatorContextPlacement context={<><SharedBusinessPlan /><OperatorWorkLoop/></>}>{children}</OperatorContextPlacement>
               </div>
             </div>
           ) : (
