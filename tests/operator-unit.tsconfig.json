@@ -35,7 +35,8 @@
     "../lib/acquisition.test.ts",
     "../lib/wise/ad-payments.test.ts",
     "../lib/decision-position.test.ts",
-    "../lib/decision-ui.test.tsx"
+    "../lib/decision-ui.test.tsx",
+    "../lib/workspace-request.test.ts"
   ],
   "exclude": [
     "../node_modules"
