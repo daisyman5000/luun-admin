@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import {AcquisitionSummary} from './acquisition-summary';
 import { DemandDecisions } from './demand-decisions';
 import type { PlanInput } from '@/lib/demand-plan';
 import { DemandSaleControl } from './demand-sale-control';
@@ -70,6 +71,7 @@ export function DemandWorkspace({ planning, planningError, canEdit, input, initi
     </section></details>
     <div className="flex flex-wrap gap-x-6 gap-y-2 px-1 text-xs text-slate-500"><span>Last 30 days: <strong className="text-slate-700">{money(history.revenue)} paid product sales</strong></span><span>{history.orders} paid orders</span><span>{history.budgetAvailable ? `${money(history.adSpend)} recorded Meta spend` : 'Meta spend unavailable'}</span></div>
 
+    <AcquisitionSummary/>
     <details className="rounded-2xl border border-line bg-white p-4 text-xs text-slate-500">
       <summary className="cursor-pointer font-medium text-slate-700">Forecast assumptions</summary>
       <div className="mt-3 space-y-2 leading-5">

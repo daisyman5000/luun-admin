@@ -1,9 +1,9 @@
-import { LiveCashSummary } from '@/components/live-cash-summary';
+import {storedAcquisitionContext} from '@/lib/acquisition-service';
+import {DecisionWorkspace} from '@/components/decision-workspace';
 import {refreshWiseBalances} from '@/lib/wise/balance-service';
 import { readWiseSummary,wiseOperationalData } from '@/lib/wise/summary';
 import { strategyAIConfiguration } from '@/lib/strategy-ai';
 import { StrategyAIAdvice } from '@/components/strategy-ai-advice';
-import { OperatingStrategy } from '@/components/operating-strategy';
 import { buildOperatingStrategy,type CashCommitment } from '@/lib/operating-strategy';
 import { readOperatorContext } from '@/lib/content-database';
 import { DemandDecisions } from '@/components/demand-decisions';
@@ -43,9 +43,9 @@ export async function renderDemandPage(planOnly: boolean) {
   return <main className="mx-auto max-w-6xl px-5 py-8 sm:px-8">
     <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Demand &amp; Sales</h1>
     <p className="mt-1 mb-6 text-sm text-slate-500">Control your website sale. Check the numbers before deciding what comes next.</p>
-    <LiveCashSummary initialSummary={wise}/>
+
     {contextNote ? <p className="mb-4 rounded-xl border border-line bg-white p-4 text-sm text-slate-600">Shared promotion focus: {contextNote} <span className="text-xs text-slate-400">· Confirm against current stock and offer before acting.</span></p> : null}
-    <OperatingStrategy strategy={strategy}/><StrategyAIAdvice configuration={strategyAIConfiguration(process.env)}/>
+    <DecisionWorkspace initialStrategy={strategy} initialWise={wise}/><StrategyAIAdvice configuration={strategyAIConfiguration(process.env)}/>
     {coreDataUnavailable?<p role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Detailed demand modelling is paused because stock, orders or arrivals could not be read. The situation above shows only available records.</p>:<DemandWorkspace planning={{ now, rows: [...stockRows.values()], incoming: planningIncoming, dailyOrders: orders.length ? orders.length / 30 : null, settings: readPlanningSettings(planningResult.data?.settings), blocked: (orderResult.data || []).length === 1000 || orders.some(order => !order.fabric_slug) }} planningError={planningResult.error ? "Planning settings are not installed yet. Apply the planning migration to save settings." : null} canEdit={canManageInventory(profile?.role)} initialSale={saleResult.sale} saleError={saleResult.error} input={{ now, days: 30, inventory, incoming, modulesPerOrder: orders.length ? modules / orders.length : null, dailyOrders: orders.length ? orders.length / 30 : null, dailyBudget: spend / 30, acquisitionCost: recordedSpend!==null && spend > 0 && orders.length > 0 ? spend / orders.length : null, sale: saleResult.sale }} history={{ revenue: revenueValues.every(value => value !== null) ? revenueValues.reduce<number>((sum, value) => sum + (value || 0), 0) : null, orders: orders.length, modules, adSpend: spend, budgetAvailable: recordedSpend!==null, truncated: (orderResult.data || []).length === 1000 }} />}
   </main>;
 }
@@ -53,7 +53,7 @@ export async function renderDemandPage(planOnly: boolean) {
 export async function loadDemandData(supabase:Awaited<ReturnType<typeof requireUser>>['supabase'],options:{suppressWise?:boolean}={}){
   const now = Date.now();
   const since = now - 30 * 86400000;
-  const [inventoryResult, orderResult, containerResult, wise, saleResult, planningResult, businessContext, expensesResult, financingResult] = await Promise.all([
+  const [inventoryResult, orderResult, containerResult, wise, saleResult, planningResult, businessContext, expensesResult, financingResult, acquisition] = await Promise.all([
     supabase.from('inventory').select('available_qty,module_slug,reserved_qty,fabric_slug,updated_at').returns<Pick<InventoryRow, 'available_qty' | 'module_slug' | 'reserved_qty' | 'fabric_slug' | 'updated_at'>[]>(),
     supabase.from('shopify_orders').select('created_at,fabric_slug,total_modules,total_price,payment_status,currency,corner_qty,armless_qty,ottoman_qty,raw_shopify_json').gte('created_at', new Date(since).toISOString()).order('created_at', { ascending: false }).limit(1000).returns<ShopifyOrder[]>(),
     supabase.from('container_entries').select('*').order('eta', { ascending: true, nullsFirst: false }).returns<(ContainerEntry & {amount_currency?:string|null})[]>(),
@@ -62,7 +62,8 @@ export async function loadDemandData(supabase:Awaited<ReturnType<typeof requireU
     supabase.from('demand_planning_settings').select('settings').eq('id', 1).maybeSingle(),
     readOperatorContext(supabase),
     supabase.from("major_expenses").select("*").eq("status","open").returns<MajorExpense[]>(),
-    supabase.from("wayflyer_payments").select("*").eq("status","scheduled").returns<WayflyerPayment[]>()
+    supabase.from("wayflyer_payments").select("*").eq("status","scheduled").returns<WayflyerPayment[]>(),
+    storedAcquisitionContext(supabase).catch(()=>null)
   ]);
   const coreDataUnavailable=!!(inventoryResult.error||orderResult.error||containerResult.error);
   // Shared context is advisory; it never changes sale, budget or stock calculations.
@@ -104,7 +105,7 @@ export async function loadDemandData(supabase:Awaited<ReturnType<typeof requireU
   const planningInput={now,rows:[...stockRows.values()],incoming:planningIncoming,dailyOrders:orders.length?orders.length/30:null,settings:readPlanningSettings(planningResult.data?.settings),blocked:(orderResult.data||[]).length===1000||orders.some(order=>!order.fabric_slug)};
   const forecastInput={now,days:30,inventory,incoming,modulesPerOrder:orders.length?modules/orders.length:null,dailyOrders:orders.length?orders.length/30:null,dailyBudget:spend/30,acquisitionCost:recordedSpend!==null&&spend>0&&orders.length>0?spend/orders.length:null,sale:saleResult.sale};
   const cashCommitments:CashCommitment[]=[...(expensesResult.data||[]).map(item=>({id:item.id,title:item.label,amount:item.amount,currency:item.currency,dueDate:item.due_date,source:'invoice' as const})),...(financingResult.data||[]).map(item=>({id:item.id,title:item.label,amount:item.amount,currency:item.currency,dueDate:item.due_date,source:'financing' as const})),...(containerResult.data||[]).filter(item=>item.status!=='closed'&&Number(item.amount_to_be_paid)>0).map(item=>({id:item.id,title:'Container '+item.container_number,amount:item.amount_to_be_paid,currency:item.amount_currency||'USD',dueDate:item.payment_due_at,source:'container' as const}))];
-  const strategy=buildOperatingStrategy({now,saleStatusAvailable:!saleResult.error,objective:businessContext.available?businessContext.objective:'',targetDate:businessContext.available?businessContext.targetDate:'',goal:businessContext.available?businessContext.goal:null,dailyAdBudget:businessContext.available?businessContext.dailyAdBudget:null,planUpdatedAt:businessContext.available?businessContext.updatedAt:null,planCommitments:businessContext.available?businessContext.commitments:[],balances:wiseData.businessBalances,cashComplete:wiseData.cashComplete,cashRetrievedAt:wiseData.cashRetrievedAt,cashStatus:wiseData.cashStatus,cashWarnings:[...wiseData.warnings,...(wiseData.spendingUsable&&recordedSpend===null?['Wise statement coverage does not include the requested thirty-day window; spending is unavailable.']:[])],statementStatus:wiseData.spendingStatus,statementRetrievedAt:wiseData.spendingRetrievedAt,commitments:cashCommitments,commitmentsComplete:!expensesResult.error&&!financingResult.error&&!containerResult.error,inventoryAvailable:!inventoryResult.error,ordersAvailable:!orderResult.error,arrivalsAvailable:!containerResult.error,inventory:(inventoryResult.data||[]).map(row=>({key:(row.fabric_slug||'unknown')+':'+(row.module_slug||'unknown'),available:Math.max(0,Number(row.available_qty||0)-Number(row.reserved_qty||0)),updatedAt:row.updated_at})),incoming:(containerResult.data||[]).filter(item=>item.status==='in_transit'||item.status==='production').map(item=>({id:item.id,eta:item.eta,modules:(item.manifest_json||[]).reduce((sum,module)=>sum+Number(module.quantity||0),0)})),paidOrders:orders.length,forecast:forecastInput,planning:planningInput});
+  const strategy=buildOperatingStrategy({acquisition,now,saleStatusAvailable:!saleResult.error,objective:businessContext.available?businessContext.objective:'',targetDate:businessContext.available?businessContext.targetDate:'',goal:businessContext.available?businessContext.goal:null,dailyAdBudget:businessContext.available?businessContext.dailyAdBudget:null,planUpdatedAt:businessContext.available?businessContext.updatedAt:null,planCommitments:businessContext.available?businessContext.commitments:[],balances:wiseData.balances,cashComplete:wiseData.cashComplete,cashRetrievedAt:wiseData.cashRetrievedAt,cashStatus:wiseData.cashStatus,cashWarnings:[...wiseData.warnings,...(wiseData.spendingUsable&&recordedSpend===null?['Wise statement coverage does not include the requested thirty-day window; spending is unavailable.']:[])],statementStatus:wiseData.spendingStatus,statementRetrievedAt:wiseData.spendingRetrievedAt,commitments:cashCommitments,commitmentsComplete:!expensesResult.error&&!financingResult.error&&!containerResult.error,inventoryAvailable:!inventoryResult.error,ordersAvailable:!orderResult.error,arrivalsAvailable:!containerResult.error,inventory:(inventoryResult.data||[]).map(row=>({key:(row.fabric_slug||'unknown')+':'+(row.module_slug||'unknown'),available:Math.max(0,Number(row.available_qty||0)-Number(row.reserved_qty||0)),updatedAt:row.updated_at})),incoming:(containerResult.data||[]).filter(item=>item.status==='in_transit'||item.status==='production').map(item=>({id:item.id,eta:item.eta,modules:(item.manifest_json||[]).reduce((sum,module)=>sum+Number(module.quantity||0),0)})),paidOrders:orders.length,forecast:forecastInput,planning:planningInput});
 
  return {now,inventoryResult,orderResult,containerResult,wise,saleResult,planningResult,businessContext,contextNote,inventory,orders,modules,spend,recordedSpend,wiseData,revenueValues,incoming,stockRows,planningIncoming,coreDataUnavailable,strategy};
 }

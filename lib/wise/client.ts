@@ -76,10 +76,10 @@ export function getWiseConfigStatus() {
   };
 }
 
-async function wiseFetch<T>(path: string) {
+async function wiseFetch<T>(path: string, purpose?:'ad-reconciliation') {
   if(process.env.LUUN_WISE_REQUESTS_ENABLED!=='1')throw new Error('Upstream Wise requests are disabled.');
   if(!/^\/profiles$|^\/profiles\/\d+\/balances\?types=STANDARD,SAVINGS$|^\/profiles\/\d+\/balance-statements\/\d+\/statement\.json\?/.test(path))throw new Error('Unsupported Wise read path.');
-  if(path.includes('/balance-statements/')&&process.env.LUUN_WISE_STATEMENTS_ENABLED!=='1')throw new Error('Wise statement requests are disabled.');
+  if(path.includes('/balance-statements/')&&process.env.LUUN_WISE_STATEMENTS_ENABLED!=='1'&&!(purpose==='ad-reconciliation'&&process.env.LUUN_WISE_AD_SPEND_ENABLED==='1'))throw new Error('Wise statement requests are disabled.');
   const config = getWiseConfig();
 
   if (!config.apiToken) {
@@ -122,4 +122,17 @@ export async function getWiseBalances():Promise<WiseSummary>{return (await getWi
 export async function checkWiseConnection(){
  if(process.env.LUUN_WISE_REQUESTS_ENABLED!=='1')return false;
  try{return (await getWiseBalances()).sources.balances.status==='ok';}catch{return false;}
+}
+
+// Separate opt-in for the explicitly requested monthly financial-ad reconciliation.
+// Does not enable legacy general statement reports or perform any payment mutation.
+const adReads=new Map<string,{at:number;pending:Promise<import('./ad-payments').WiseAdPaymentResult>}>();
+export async function getWiseMonthlyAdPayments(month:string){
+ const {readMonthlyWiseAdPayments}=await import('./ad-payments');
+ if(process.env.LUUN_WISE_REQUESTS_ENABLED!=='1'||process.env.LUUN_WISE_AD_SPEND_ENABLED!=='1')throw new Error('Monthly Wise ad reconciliation is disabled.');
+ const balances=await getWiseBalances();
+ if(balances.sources.balances.status!=='ok')throw new Error('Wise account coverage is unavailable or partial.');
+ const prior=adReads.get(month);if(prior&&Date.now()-prior.at<300000)return prior.pending;
+ const pending=readMonthlyWiseAdPayments(month,balances.balances,<T>(path:string)=>wiseFetch<T>(path,'ad-reconciliation'));
+ if(adReads.size>=24)adReads.delete(adReads.keys().next().value!);adReads.set(month,{at:Date.now(),pending});return pending;
 }

@@ -5,11 +5,12 @@ export function decisionSnapshot(strategy:Strategy):DecisionSnapshot{
  const facts:DecisionSnapshot['facts']={'stock.modules':strategy.onHand,'ads.dailyCAD':strategy.adDailyBudget,'cash.sourceStatus':strategy.cashStatus||'unknown','cash.retrievedAt':strategy.cashRetrievedAt||null,'statements.sourceStatus':strategy.statementStatus||'unknown','statements.retrievedAt':strategy.statementRetrievedAt||null};
  for(const [currency,value] of Object.entries(strategy.cashByCurrency||{}))if(/^[A-Z]{3}$/.test(currency))facts['cash.'+currency]=value;
  for(const [currency,value] of Object.entries(strategy.commitmentsByCurrency))if(/^[A-Z]{3}$/.test(currency))facts['commitments.'+currency]=value;
+ if(strategy.acquisition){facts['acquisition.month']=strategy.acquisition.month;facts['acquisition.label']=strategy.acquisition.label;facts['acquisition.value']=strategy.acquisition.value;facts['acquisition.currency']=strategy.acquisition.currency;facts['acquisition.status']=strategy.acquisition.status;}
  const comparison=strategy.comparison;
  if(comparison){facts['goal.target']=comparison.target;facts['goal.current']=comparison.current;facts['goal.gap']=comparison.gap;facts['goal.currency']=comparison.currency;facts['goal.provisional']=comparison.provisional;}
- const limitations=[...strategy.warnings,...strategy.assumptions];
+ const limitations=[...strategy.warnings,...strategy.assumptions,...(strategy.acquisition?[...strategy.acquisition.warnings,...strategy.acquisition.limitations]:['Reconciled monthly ad acquisition evidence is unavailable; no dynamic CAC or cost per order is assumed.'])];
  // Deliberately omit user-written objectives, commitments, names, messages and raw order/bank records.
- return {asOf:strategy.asOf,facts,calculations:[{id:'reserve-comparison',result:comparison},{id:'demand-scenario',result:strategy.forecast},{id:'replenishment-model',result:strategy.planning}],limitations,reviewOnly:!strategy.cashByCurrency||strategy.warnings.length>0};
+ return {asOf:strategy.asOf,facts,calculations:[{id:'reserve-comparison',result:comparison},{id:'demand-scenario',result:strategy.forecast},{id:'replenishment-model',result:strategy.planning},{id:'historical-acquisition',result:strategy.acquisition||null}],limitations,reviewOnly:!strategy.cashByCurrency||strategy.warnings.length>0};
 }
 export function strategyAIConfiguration(env:Record<string,string|undefined>){
  const missing=['OPENAI_API_KEY','OPENAI_STRATEGY_MODEL'].filter(key=>!env[key]?.trim());

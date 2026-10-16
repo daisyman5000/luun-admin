@@ -31,7 +31,11 @@
     "../lib/operator-brief.test.ts",
     "../lib/operator-dates.test.ts",
     "../lib/brief-export.test.ts",
-    "../lib/wise/balance-refresh.test.ts"
+    "../lib/wise/balance-refresh.test.ts",
+    "../lib/acquisition.test.ts",
+    "../lib/wise/ad-payments.test.ts",
+    "../lib/decision-position.test.ts",
+    "../lib/decision-ui.test.tsx"
   ],
   "exclude": [
     "../node_modules"
