@@ -1,9 +1,9 @@
 "use client";
 
+import {LiveWarehouseInventory} from "./live-warehouse-inventory";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
-  CANADA_INVENTORY,
   COLORS,
   CONTAINERS,
   INITIAL_PLANNING_TARGETS,
@@ -63,7 +63,7 @@ function statusClasses(status: ForecastStatus | ContainerShipment["status"]) {
   }
 }
 
-export function ForecastingWorkspace({ view = "board" }: { view?: ForecastView }) {
+export function LegacyForecastingWorkspace({ view = "board" }: { view?: ForecastView }) {
   const [selected, setSelected] = useState<SelectedItem>(null);
   const [planningTargets, setPlanningTargets] = useState(INITIAL_PLANNING_TARGETS);
 
@@ -72,7 +72,7 @@ export function ForecastingWorkspace({ view = "board" }: { view?: ForecastView }
     []
   );
 
-  const inventoryRows = useMemo(() => summarizeInventory(CANADA_INVENTORY), []);
+  const inventoryRows = useMemo(() => summarizeInventory([]), []);
 
   const transitRows = useMemo(
     () => summarizePurchaseItems(PURCHASE_ORDERS.filter((po) => containerPurchaseOrderIds.has(po.id)).flatMap((po) => po.items)),
@@ -734,3 +734,5 @@ function buildMonthDays(events: CalendarEvent[]) {
 
   return days;
 }
+
+export function ForecastingWorkspace({view}:{view?:ForecastView}){void view;return <LiveWarehouseInventory/>;}

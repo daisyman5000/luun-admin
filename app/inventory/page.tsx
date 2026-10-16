@@ -16,7 +16,7 @@ export default async function InventoryPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-semibold tracking-normal">Inventory</h1>
         <p className="mt-2 text-base text-slate-600">
-          Available quantity by fabric and module.
+          Recorded warehouse on-hand before reservations. Sellable = max(0, on-hand − reserved). Warehouse source and snapshot as-of are unverified.
         </p>
       </div>
       {error ? (

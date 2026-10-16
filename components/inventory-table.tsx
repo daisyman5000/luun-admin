@@ -65,7 +65,7 @@ export function InventoryTable({
     <section className="space-y-4">
       <div className="flex flex-col gap-2 rounded-lg border border-line bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-slate-600">
-          {canEdit ? "Available quantity saves per row." : "Your role can view inventory only."}
+          {canEdit ? "On-hand before reservations saves per row. Preserve allocations; a database edit is not warehouse verification." : "Your role can view inventory only."}
         </p>
         {message ? <p className="text-sm text-slate-700">{message}</p> : null}
       </div>
@@ -73,7 +73,7 @@ export function InventoryTable({
         <table className="min-w-[560px] w-full border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-normal text-slate-500">
             <tr>
-              {["Fabric", "Module", "Available", ""].map((heading) => (
+              {["Fabric", "Module", "On-hand", "Reserved", "Sellable", ""].map((heading) => (
                 <th className="border-b border-line px-3 py-3 font-semibold" key={heading}>
                   {heading}
                 </th>
@@ -87,7 +87,7 @@ export function InventoryTable({
                 <td className="px-4 py-4">{row.module_slug}</td>
                 <td className="px-4 py-3">
                   <input
-                    aria-label={`${row.fabric_slug} ${row.module_slug} available quantity`}
+                    aria-label={`${row.fabric_slug} ${row.module_slug} on-hand quantity`}
                     className="w-32 rounded-md border border-line bg-white px-4 py-3 text-base disabled:border-line disabled:bg-slate-50"
                     disabled={!canEdit}
                     min={0}
@@ -98,7 +98,7 @@ export function InventoryTable({
                     value={row.available_qty ?? 0}
                   />
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3">{row.reserved_qty ?? "Unknown"}</td><td className="px-4 py-3">{Math.max(0,Number(row.available_qty||0)-Number(row.reserved_qty||0))}</td><td className="px-4 py-3 text-right">
                   {canEdit ? (
                     <button
                       className="rounded-md bg-ink px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -114,7 +114,7 @@ export function InventoryTable({
             ))}
             {sortedRows.length === 0 ? (
               <tr>
-                <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>
+                <td className="px-3 py-8 text-center text-slate-500" colSpan={6}>
                   No inventory rows yet.
                 </td>
               </tr>

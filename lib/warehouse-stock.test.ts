@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {warehouseStock} from './warehouse-stock';
+test('subtract reservations once per SKU and never borrow another SKU stock',()=>{assert.deepEqual(warehouseStock([{available_qty:10,reserved_qty:3},{available_qty:2,reserved_qty:5}]),{onHand:12,reserved:8,sellable:7});});
+test('incoming stock is not included and no source freshness is invented',()=>{const row={available_qty:10,reserved_qty:2,incoming_qty:100};assert.deepEqual(warehouseStock([row]),{onHand:10,reserved:2,sellable:8});assert.equal('warehouseAsOf' in warehouseStock([row]),false);});

@@ -38,7 +38,8 @@
     "../lib/decision-ui.test.tsx",
     "../lib/workspace-request.test.ts",
     "../lib/source-sync.test.ts",
-    "../lib/evidence-review.test.ts"
+    "../lib/evidence-review.test.ts",
+    "../lib/warehouse-stock.test.ts"
   ],
   "exclude": [
     "../node_modules"

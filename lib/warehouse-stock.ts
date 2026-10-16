@@ -1,0 +1,2 @@
+import type {InventoryRow} from './types';
+export function warehouseStock(rows:Pick<InventoryRow,'available_qty'|'reserved_qty'>[]){return rows.reduce((total,row)=>{const onHand=Math.max(0,Number(row.available_qty||0));const reserved=Math.max(0,Number(row.reserved_qty||0));return {onHand:total.onHand+onHand,reserved:total.reserved+reserved,sellable:total.sellable+Math.max(0,onHand-reserved)};},{onHand:0,reserved:0,sellable:0});}
