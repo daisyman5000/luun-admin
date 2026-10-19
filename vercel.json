@@ -14,10 +14,6 @@
     {
       "path": "/api/internal/source-sync",
       "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/internal/instagram-publish",
-      "schedule": "* * * * *"
     }
   ]
 }
