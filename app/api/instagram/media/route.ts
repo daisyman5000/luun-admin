@@ -10,3 +10,9 @@ export async function POST(request:Request){
   const uploaded=await s.db.storage.from('instagram-media').upload(path,bytes,{contentType:'image/jpeg',upsert:false});if(uploaded.error)throw Error();const record=await s.db.from('instagram_media').insert({id,path,sha256:sha256(bytes),mime:'image/jpeg',size:bytes.length,...dimensions,uploaded_by:actor});if(record.error){await s.db.storage.from('instagram-media').remove([path]);throw Error();}return Response.json({assetReference:'instagram-media:'+id},{headers:instagramHeaders});
  }catch{return Response.json({error:'Upload unavailable. Setup and owner/admin sign-in are required. Use a JPEG under 8 MB, width 320–1440px, aspect ratio 4:5–1.91:1.'},{status:400,headers:instagramHeaders});}
 }
+
+export async function GET(request:Request){
+ try{await instagramOwner();}catch{return Response.json({error:'Owner/admin sign-in required.'},{status:403,headers:instagramHeaders});}
+ try{const id=new URL(request.url).searchParams.get('id')||'',s=instagramServer(),m=await s.media(id);const result=await s.db.storage.from('instagram-media').createSignedUrl(m.path,300);if(result.error||!result.data)throw Error();return Response.json({url:result.data.signedUrl},{headers:instagramHeaders});}
+ catch{return Response.json({error:'Image preview unavailable.'},{status:503,headers:instagramHeaders});}
+}
