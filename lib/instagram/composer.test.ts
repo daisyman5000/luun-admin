@@ -32,3 +32,8 @@ test('Publish now uses explicit today action; future days never acquire an inven
  assert.equal(publishNowPlacement(draft,now).plannedAt,draft.plannedAt);
  const midnight=new Date(2026,9,19,23,59,30).getTime();assert.throws(()=>publishNowPlacement({...draft,plannedAt:'',dueDate:localDateKey(new Date(midnight))},midnight));
 });
+
+test('an existing today draft uses a fresh explicit Publish now placement without needing cron',()=>{
+ const now=new Date(2026,9,19,17,0).getTime(),oldTime=new Date(2026,9,19,16,0).toISOString();
+ const placed=publishNowPlacement({...draft,plannedAt:oldTime,dueDate:'2027-01-01'},now);assert.equal(placed.plannedAt,new Date(now+30000).toISOString());
+});

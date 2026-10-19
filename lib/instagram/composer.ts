@@ -22,10 +22,11 @@ export function composerLabel(post:ContentPost,publishingReady:boolean){
  return 'Draft';
 }
 
+export function isTodayPlacement(draft:PostDraft,now=Date.now()){return (draft.plannedAt?localDateKey(new Date(draft.plannedAt)):draft.dueDate)===localDateKey(new Date(now));}
 export function publishNowPlacement(draft:PostDraft,now=Date.now()):PostDraft{
- if(draft.plannedAt)return draft;
+ if(draft.plannedAt&&!isTodayPlacement(draft,now))return draft;
  const next=now+30000;
- if(draft.dueDate!==localDateKey(new Date(now))||draft.dueDate!==localDateKey(new Date(next)))throw Error('Choose a calendar placement before scheduling.');
+ if(!isTodayPlacement(draft,now)||localDateKey(new Date(now))!==localDateKey(new Date(next)))throw Error('Choose a calendar placement before scheduling.');
  // Explicit Publish now starts within this owner-requested invocation; never a future-day default.
  return {...draft,plannedAt:new Date(next).toISOString()};
 }
