@@ -27,9 +27,9 @@ test('missing, empty, negative, fractional and malformed identifiers fail closed
  for(const id of [undefined,null,'',0,-1,1.5,' 1020000000000001','00123']){
   await assert.rejects(mocked([{...short,user_id:id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid|response_unconfirmed/);
   await assert.rejects(mocked([short,{...profile,id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid|response_unconfirmed/);
-  await assert.rejects(mocked([short,{...profile,user_id:id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid|response_unconfirmed/);
+  await assert.rejects(mocked([short,{...profile,user_id:id}]).api.exchange('SYNTHETIC_CODE'),/professional_id_missing|professional_id_invalid|response_unconfirmed/);
  }
- for(const username of [undefined,''])await assert.rejects(mocked([short,{...profile,username}]).api.exchange('SYNTHETIC_CODE'),/account_mismatch/);
+ for(const username of [undefined,''])await assert.rejects(mocked([short,{...profile,username}]).api.exchange('SYNTHETIC_CODE'),/profile_username_missing/);
 });
 test('safe numeric IDs normalize exactly and large decimal string IDs retain precision',async()=>{
  for(const id of [Number(scoped),'9007199254740993']){const p={...profile,id};const r=await mocked([{...short,user_id:id},p,long,p]).api.exchange('SYNTHETIC_CODE');assert.equal(r.scopedId,String(id));assert.equal(r.accountId,config.accountId);}

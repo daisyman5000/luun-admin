@@ -174,3 +174,11 @@ Reviewed references:
 - https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/get-started
 - https://developers.facebook.com/documentation/instagram-platform/reference/access_token
 - https://github.com/josdejong/lossless-json
+
+### Profile diagnostic clarification
+
+The profile request explicitly asks for `id,user_id,username`. Meta documents `id` as app-scoped and `user_id` as the professional account ID. Both pass through the raw-byte lossless parser before comparison. App ID `1101144599508064` (Meta dashboard), Instagram product app ID `1820435792490081`, and professional account ID are separate namespaces. The intended public profile is `https://www.instagram.com/luun_official/`; that URL alone does not verify its numeric professional ID.
+
+The former `profile · account_mismatch` code combined several predicates and cannot identify which one failed historically. New owner-only fixed reasons distinguish `configured_account_mismatch`, `professional_id_missing`, `professional_id_invalid`, `professional_account_mismatch`, and `profile_username_missing`. Scoped-ID disagreements retain `account_match · account_mismatch`. No account ID, username, token or provider response is retained in these diagnostics. A mismatching account is still rejected before long-token exchange or credential storage. Do not substitute the app-scoped ID, bind by username, or change the approved pin to make a connection pass.
+
+This diagnostic clarification requires a new deployment before it can explain a future owner-authorized connection attempt. It does not fix or establish the cause of the prior live profile mismatch. Existing callback data was discarded; no stored connection exists from that failed attempt. No credential edits or OAuth attempts are part of this patch.

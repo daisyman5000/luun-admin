@@ -22,7 +22,10 @@ test('mocked exchange failures identify the stage and fixed category without pro
   [[{...short,user_id:'9002'},profile],'account_match','account_mismatch'],
   [[short,profile,new Response('SYNTHETIC_PROVIDER_DETAIL',{status:401})],'long_token','provider_auth_rejected'],
   [[short,profile,{access_token:'synthetic-long',expires_in:0}],'long_token','token_response_unconfirmed'],
-  [[short,{...profile,user_id:'9002'}],'profile','account_mismatch']
+  [[short,{...profile,user_id:'9002'}],'profile','professional_account_mismatch'],
+  [[short,{...profile,user_id:undefined}],'profile','professional_id_missing'],
+  [[short,{...profile,user_id:'invalid'}],'profile','professional_id_invalid'],
+  [[short,{...profile,username:undefined}],'profile','profile_username_missing']
  ];
  for(const [responses,expectedStage,reason]of cases){let stage:OAuthStage='unknown';const send=(async()=>{const value=responses.shift();return value instanceof Response?value:Response.json(value);}) as typeof fetch;
   await assert.rejects(new InstagramClient(config,send).exchange('synthetic-code',s=>{stage=s;}),error=>{assert.deepEqual(oauthFailure(stage,error),{stage:expectedStage,reason});assert.ok(!JSON.stringify(oauthFailure(stage,error)).includes('SYNTHETIC_PROVIDER_DETAIL'));return true;});

@@ -47,7 +47,18 @@ export class InstagramClient{
   if(me.scopedId!==shortProfile.scopedId||me.accountId!==shortProfile.accountId)throw new InstagramError('instagram_account_mismatch');
   return {...long,scopes,username:me.username,accountId:me.accountId,scopedId:me.scopedId};
  }
- async profile(token:string){const u=this.graph('me');u.searchParams.set('fields','id,user_id,username');const me=singleRecord(await this.request(u,{headers:{Authorization:'Bearer '+token}}));const scopedId=identifier(me.id),accountId=identifier(me.user_id);if(this.c.accountId!==INSTAGRAM_APPROVED_ACCOUNT_ID||accountId!==this.c.accountId||typeof me.username!=='string'||!me.username.trim())throw new InstagramError('instagram_account_mismatch');return {username:me.username,accountId,scopedId};}
+ async profile(token:string){
+  const u=this.graph('me');u.searchParams.set('fields','id,user_id,username');
+  const me=singleRecord(await this.request(u,{headers:{Authorization:'Bearer '+token}}));
+  if(this.c.accountId!==INSTAGRAM_APPROVED_ACCOUNT_ID)throw new InstagramError('instagram_configured_account_mismatch');
+  if(me.user_id===undefined||me.user_id===null||me.user_id==='')throw new InstagramError('instagram_professional_id_missing');
+  let accountId:string;
+  try{accountId=identifier(me.user_id);}catch{throw new InstagramError('instagram_professional_id_invalid');}
+  if(accountId!==this.c.accountId)throw new InstagramError('instagram_professional_account_mismatch');
+  if(typeof me.username!=='string'||!me.username.trim())throw new InstagramError('instagram_profile_username_missing');
+  const scopedId=identifier(me.id);
+  return {username:me.username,accountId,scopedId};
+ }
  async refresh(token:string){const u=new URL('https://graph.instagram.com/refresh_access_token');u.search=new URLSearchParams({grant_type:'ig_refresh_token',access_token:token}).toString();return tokenResult(await this.request(u));}
  async create(token:string,imageUrl:string,caption:string){const r=await this.request(this.graph(this.c.accountId+'/media'),{method:'POST',headers:{Authorization:'Bearer '+token},body:new URLSearchParams({image_url:imageUrl,caption})},true);if(!r.id)throw new InstagramError('instagram_creation_unconfirmed',true);return String(r.id);}
  async status(token:string,id:string){const u=this.graph(encodeURIComponent(id));u.searchParams.set('fields','status_code');const r=await this.request(u,{headers:{Authorization:'Bearer '+token}});if(typeof r.status_code!=='string'||!['FINISHED','IN_PROGRESS','PUBLISHED','ERROR','EXPIRED'].includes(r.status_code))throw new InstagramError('instagram_status_unconfirmed');return r.status_code as string;}

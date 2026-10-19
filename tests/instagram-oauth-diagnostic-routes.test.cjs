@@ -20,3 +20,15 @@ test('unauthenticated callback and status never disclose diagnostics or exchange
 test('verified owner sees only fixed failure codes through a secure HttpOnly cookie',async()=>{reset();exchangeStage='profile';exchangeError=Error('instagram_account_mismatch');const r=await callback.GET(callbackRequest()),cookie=r.cookies.get(diagnostics.OAUTH_DIAGNOSTIC_COOKIE);assert.deepEqual(JSON.parse(cookie.value),{stage:'profile',reason:'account_mismatch'});assert.equal(cookie.httpOnly,true);assert.equal(cookie.secure,true);assert.equal(cookie.maxAge,600);assert.equal(r.headers.get('location'),base+'/content?instagram=failed');assert.ok(!JSON.stringify([...r.headers]).includes('SYNTHETIC_CODE'));const visible=await status.GET(new NextRequest(base+'/api/instagram/status',{headers:{cookie:diagnostics.OAUTH_DIAGNOSTIC_COOKIE+'='+encodeURIComponent(cookie.value)}}));assert.deepEqual((await visible.json()).callbackFailure,{stage:'profile',reason:'account_mismatch'});});
 test('configuration and persistence errors retain stage but discard raw error text',async()=>{for(const phase of ['configuration','connection_storage']){reset();configError=phase==='configuration';storageError=phase==='connection_storage';const r=await callback.GET(callbackRequest()),failure=JSON.parse(r.cookies.get(diagnostics.OAUTH_DIAGNOSTIC_COOKIE).value);assert.equal(failure.stage,phase);assert.equal(failure.reason,phase==='configuration'?'unexpected_failure':'storage_unavailable');assert.ok(!JSON.stringify([...r.headers]).includes('SYNTHETIC_PRIVATE_ERROR'));}});
 test('successful connection and a fresh connect both clear stale diagnostic cookies',async()=>{reset();const r=await callback.GET(callbackRequest());assert.equal(r.headers.get('location'),base+'/content?instagram=connected');assert.equal(r.cookies.get(diagnostics.OAUTH_DIAGNOSTIC_COOKIE).maxAge,0);const fresh=await connect.POST(new NextRequest(base+'/api/instagram/connect',{method:'POST'}));assert.equal(fresh.status,200);assert.equal(fresh.cookies.get(diagnostics.OAUTH_DIAGNOSTIC_COOKIE).maxAge,0);});
+
+test('profile-specific diagnostics remain owner-only and contain no provider values',async()=>{
+ for(const reason of ['configured_account_mismatch','professional_id_missing','professional_id_invalid','professional_account_mismatch','profile_username_missing']){
+  reset();exchangeStage='profile';exchangeError=Error('instagram_'+reason);
+  const response=await callback.GET(callbackRequest());const cookie=response.cookies.get(diagnostics.OAUTH_DIAGNOSTIC_COOKIE);
+  assert.deepEqual(JSON.parse(cookie.value),{stage:'profile',reason});
+  const request=new NextRequest(base+'/api/instagram/status',{headers:{cookie:diagnostics.OAUTH_DIAGNOSTIC_COOKIE+'='+encodeURIComponent(cookie.value)}});
+  assert.deepEqual((await (await status.GET(request)).json()).callbackFailure,{stage:'profile',reason});
+  owner=false;const unsigned=await status.GET(request);assert.equal(unsigned.status,403);assert.ok(!(await unsigned.text()).includes(reason));
+  const denied=await callback.GET(callbackRequest());assert.equal(denied.cookies.get(diagnostics.OAUTH_DIAGNOSTIC_COOKIE),undefined);
+ }
+});
