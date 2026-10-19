@@ -266,3 +266,28 @@ Repeat the mocked diagnostic/route checks with:
 ./node_modules/.bin/tsc -p tests/instagram-oauth-diagnostics.tsconfig.json
 node --test /tmp/luun-instagram-diagnostic-tests/lib/instagram/*.test.js tests/instagram-oauth-diagnostic-routes.test.cjs
 ```
+
+## Scoped versus professional account identity correction
+
+Meta's Instagram Login token response `user_id` is app-scoped; token-bound
+`/me.id` is app-scoped and `/me.user_id` is the professional account ID. The
+callback now requests `id,user_id,username` with the short token, requires the
+professional ID to equal the pinned approved `1784147235520052`, and requires
+scoped-ID consistency before exchanging for a long token. It revalidates both
+identities with the long token before returning a connection for storage.
+The storage boundary independently rejects any other professional account.
+No returned identity silently replaces the configured or pinned account.
+
+IDs remain separate values. Positive safe numeric IDs normalize exactly; unsafe
+numbers, empty/missing/invalid IDs and contradictory profiles fail closed. Large
+decimal string IDs retain precision. Only one unambiguous record is accepted
+from a provider response. Existing state/session and exact scope checks remain.
+No schema change is needed: stored account IDs, encryption binding, media and
+message routes continue to use the professional account ID. Login-scoped IDs are
+used for handshake consistency only and are not persisted in the credential row.
+Publishing, webhook reception and outbound sending remain disabled. No OAuth
+request, credential mutation or live provider call was made by the test run.
+
+Official field definitions:
+- https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login
+- https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/get-started

@@ -6,7 +6,7 @@ import {canApproveContent} from '../content-permissions';
 import {inspectOperatorEnvironment} from '../operator-environment';
 import {instagramTransport} from './transport';
 import {InstagramClient,InstagramError} from './client';
-import {instagramConfig,openToken,sealToken,sha256,requireScopes,type ApprovedSnapshot,type InstagramConfig,type Media} from './core';
+import {instagramConfig,openToken,sealToken,sha256,requireScopes,INSTAGRAM_APPROVED_ACCOUNT_ID,type ApprovedSnapshot,type InstagramConfig,type Media} from './core';
 import type {ContentPost} from '../content';
 import type {JobPatch,PublishJob} from './worker';
 export const instagramHeaders={'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'};
@@ -21,11 +21,11 @@ export function instagramServer(){
   if(Date.parse(c.expires_at)-Date.now()<7*86400000&&Date.now()-Date.parse(c.refreshed_at)>=86400000){
    // Compare-and-swap a short refresh lease; simultaneous workers must not rotate twice.
    const claimed=await rpc<boolean>('claim_instagram_refresh',{p_account:config.accountId});if(!claimed)throw new InstagramError('instagram_refresh_pending');
-   try{const r=await api.refresh(t);await storeConnection({token:r.token,expiresIn:r.expiresIn,username:c.username,scopes:c.scopes});t=r.token;}finally{await db.from('instagram_connections').update({refresh_until:null}).eq('account_id',config.accountId);}
+   try{const r=await api.refresh(t);await storeConnection({token:r.token,expiresIn:r.expiresIn,username:c.username,scopes:c.scopes,accountId:c.account_id});t=r.token;}finally{await db.from('instagram_connections').update({refresh_until:null}).eq('account_id',config.accountId);}
    c=await connection();if(!c)throw new InstagramError('instagram_reconnect_required');
   }return t;
  }
- async function storeConnection(c:{token:string;expiresIn:number;username:string;scopes:string[]}){const {error}=await db.from('instagram_connections').upsert({account_id:config.accountId,app_id:config.appId,username:c.username,token_ciphertext:sealToken(c.token,config),expires_at:new Date(Date.now()+c.expiresIn*1000).toISOString(),refreshed_at:new Date().toISOString(),scopes:c.scopes});if(error)throw Error('instagram_storage_unavailable');}
+ async function storeConnection(c:{token:string;expiresIn:number;username:string;scopes:string[];accountId:string}){if(c.accountId!==config.accountId||c.accountId!==INSTAGRAM_APPROVED_ACCOUNT_ID)throw Error('instagram_account_mismatch');const {error}=await db.from('instagram_connections').upsert({account_id:config.accountId,app_id:config.appId,username:c.username,token_ciphertext:sealToken(c.token,config),expires_at:new Date(Date.now()+c.expiresIn*1000).toISOString(),refreshed_at:new Date().toISOString(),scopes:c.scopes});if(error)throw Error('instagram_storage_unavailable');}
  async function media(id:string):Promise<Media>{if(!/^[a-f0-9-]{36}$/.test(id))throw Error('instagram_media_required');const {data,error}=await db.from('instagram_media').select('id,path,sha256,mime,width,height,size').eq('id',id).single();if(error||!data)throw Error('instagram_media_required');return data as Media;}
  async function pinnedMedia(s:ApprovedSnapshot){const m=await media(s.media.id);if(m.path!==s.media.path||m.sha256!==s.media.sha256)throw new InstagramError('instagram_media_changed');
   const {data,error}=await db.storage.from('instagram-media').download(m.path);if(error||!data)throw new InstagramError('instagram_media_unavailable');const bytes=Buffer.from(await data.arrayBuffer());if(sha256(bytes)!==s.media.sha256)throw new InstagramError('instagram_media_changed');

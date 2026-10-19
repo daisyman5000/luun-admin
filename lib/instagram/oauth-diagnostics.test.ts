@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {oauthFailure,readOAuthFailure,type OAuthStage} from './oauth-diagnostics';
 import {InstagramClient} from './client';
-import {consumeOAuthCallback,INSTAGRAM_CALLBACK,INSTAGRAM_SCOPES,type InstagramConfig} from './core';
-const config:InstagramConfig={appId:'7001',accountId:'9001',appSecret:'synthetic-secret',key:Buffer.alloc(32,7).toString('base64'),apiVersion:'v24.0',redirectUri:INSTAGRAM_CALLBACK};
-const short={access_token:'synthetic-short',user_id:'9001',permissions:[...INSTAGRAM_SCOPES]},long={access_token:'synthetic-long',expires_in:3600},profile={user_id:'9001',username:'synthetic-account'};
+import {consumeOAuthCallback,INSTAGRAM_CALLBACK,INSTAGRAM_SCOPES,INSTAGRAM_APPROVED_ACCOUNT_ID,type InstagramConfig} from './core';
+const config:InstagramConfig={appId:'7001',accountId:INSTAGRAM_APPROVED_ACCOUNT_ID,appSecret:'synthetic-secret',key:Buffer.alloc(32,7).toString('base64'),apiVersion:'v24.0',redirectUri:INSTAGRAM_CALLBACK};
+const short={access_token:'synthetic-short',user_id:'9001',permissions:[...INSTAGRAM_SCOPES]},profile={id:'9001',user_id:config.accountId,username:'synthetic-account'};
 test('diagnostics discard arbitrary error messages, extra fields and malformed cookies',()=>{
  const secret='SYNTHETIC_PRIVATE_VALUE';assert.deepEqual(oauthFailure('profile',new Error(secret)),{stage:'profile',reason:'unexpected_failure'});
  assert.equal(readOAuthFailure(JSON.stringify({stage:'profile',reason:secret})),null);
@@ -19,10 +19,10 @@ test('mocked exchange failures identify the stage and fixed category without pro
   [[{data:[]}],'short_token','provider_response_unconfirmed'],
   [[{...short,access_token:undefined}],'short_token','provider_response_unconfirmed'],
   [[{...short,permissions:['instagram_business_basic']}],'permissions','permissions_incomplete'],
-  [[{...short,user_id:'9002'}],'account_match','account_mismatch'],
-  [[short,new Response('SYNTHETIC_PROVIDER_DETAIL',{status:401})],'long_token','provider_auth_rejected'],
-  [[short,{access_token:'synthetic-long',expires_in:0}],'long_token','token_response_unconfirmed'],
-  [[short,long,{...profile,user_id:'9002'}],'profile','account_mismatch']
+  [[{...short,user_id:'9002'},profile],'account_match','account_mismatch'],
+  [[short,profile,new Response('SYNTHETIC_PROVIDER_DETAIL',{status:401})],'long_token','provider_auth_rejected'],
+  [[short,profile,{access_token:'synthetic-long',expires_in:0}],'long_token','token_response_unconfirmed'],
+  [[short,{...profile,user_id:'9002'}],'profile','account_mismatch']
  ];
  for(const [responses,expectedStage,reason]of cases){let stage:OAuthStage='unknown';const send=(async()=>{const value=responses.shift();return value instanceof Response?value:Response.json(value);}) as typeof fetch;
   await assert.rejects(new InstagramClient(config,send).exchange('synthetic-code',s=>{stage=s;}),error=>{assert.deepEqual(oauthFailure(stage,error),{stage:expectedStage,reason});assert.ok(!JSON.stringify(oauthFailure(stage,error)).includes('SYNTHETIC_PROVIDER_DETAIL'));return true;});
