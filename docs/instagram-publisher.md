@@ -1,293 +1,176 @@
-# Luun Instagram publisher — LOCAL, NOT DEPLOYED
+# Luun Instagram connection and publisher
 
-The existing Content calendar now has a connection control, private JPEG upload,
-Schedule saved approval, and Draft / Scheduled / Published / Failed delivery
-labels. Existing review states and manual publication evidence remain separate.
-Single-image JPEG feed posts plus an Instagram inbox and approval-first text
-replies are implemented. Reels/carousels and automatic replies are not implemented. No Instagram account was connected, token generated,
-credentials configured, media uploaded, job activated or post/message sent here.
+## Current boundary
 
-## Connection and account
+The app and the two Instagram database migrations are deployed. Only the owner/
+admin connection flow is enabled. Publishing, live webhook reception and outbound
+sending remain disabled, and there is no Instagram cron or automatic reply flow.
+No live OAuth, Meta request, post, DM or subscription is executed by the tests.
+A successful mocked flow is not proof that the live account has connected.
 
-Only the new Luun Publisher-IG app is intended:
-- Instagram product App ID: `1820435792490081` (public identifier).
-- Expected Instagram account ID: `1784147235520052`, `luun_official`.
-- The tester invite and account link are already accepted; do not repeat them.
-- Callback implemented locally, not registered or deployed:
-  `https://luun-admin-et42.vercel.app/api/instagram/callback`.
-- Requested scopes are exactly `instagram_business_basic`,
-  `instagram_business_content_publish`, `instagram_business_manage_messages`.
-- Outbound sending defaults off and requires a separate explicit activation approval.
-  A manual, approved-reply endpoint exists; no automatic reply handler or live
-  webhook subscription exists.
+Only Luun Publisher-IG is intended. The Instagram product app ID is
+`1820435792490081`; the approved professional account ID is pinned in code to
+`1784147235520052` (`luun_official`). Existing tester/account acceptance is complete;
+do not repeat it or create a pre-generated token. The owner reports the dashboard
+shows the own-business developer exemption from App Review. Do not broaden app
+access or requested permissions as part of connection troubleshooting.
 
-`POST /api/instagram/connect` requires a signed-in owner/admin and same-origin
-JSON. A short-lived, secure HttpOnly cookie and a single-use hashed database
-nonce bind the callback to that session. Callback consumes the nonce before
-exchange, checks the expected account and exact granted permissions, exchanges
-for a long-lived token, then stores AES-256-GCM ciphertext bound to app/account.
-Only safe connection metadata reaches the browser. API requests use a server-only
-HTTPS transport, not Next fetch URL instrumentation. Do not enable URL/body query
-logging for the provider OAuth/token endpoints or callback in platform tracing.
+## Server configuration
 
-Tokens refresh only server-side near expiry, with a short database refresh lease.
-Expired/revoked/undecryptable credentials stop publication. The encryption key
-must remain available in protected server configuration; changing it without a
-reviewed key migration makes existing ciphertext unreadable. No production key
-was generated or stored by this task.
+Production credentials are entered by the owner in Vercel project settings.
+There is no credential-entry form in the app. Never request secret values or
+complete OAuth callback URLs in chat, logs, telemetry, source or Git.
 
-## Exact approval and publishing
+| Setting | Purpose |
+| --- | --- |
+| `INSTAGRAM_APP_ID` | Instagram product app ID above |
+| `INSTAGRAM_ACCOUNT_ID` | Must equal the pinned approved professional account |
+| `INSTAGRAM_REDIRECT_URI` | Exact HTTPS callback below |
+| `INSTAGRAM_GRAPH_API_VERSION` | Explicit supported version selected for the app; no guessed default |
+| `INSTAGRAM_APP_SECRET` | Correct product secret; Sensitive server-only Production variable |
+| `INSTAGRAM_TOKEN_ENCRYPTION_KEY` | Existing independent 32-byte base64 key; Sensitive server-only Production variable |
 
-Upload an explicitly selected JPEG using the calendar upload control; files stay
-in a private bucket and receive immutable UUID paths plus SHA-256 metadata. This
-is a separate action from choosing a Mac-only Creative Lab reference. Supported
-files: JPEG <=8 MB, width 320–1440 px, aspect ratio 4:5–1.91:1. Save/review the
-caption, uploaded media and device-local planned time, then save approval. Times
-are normalized to UTC. Editing time now invalidates approval, along with caption
-and media changes.
+Do not regenerate, rotate or overwrite the encryption key during troubleshooting.
+It is required to decrypt existing credentials. The existing Supabase URL/public
+key must match the confirmed project, and the existing server secret must permit
+server-only storage. No Supabase credential is exposed to the browser by this flow.
 
-Schedule saved approval pins account, post version, exact caption, UTC time,
-media ID/path and content hash. It creates one unique job per post revision;
-ordinary Save never schedules/publishes. Updating a queued post cancels its job.
-While publication is underway or outcome is uncertain, edits are blocked to
-avoid changing an in-flight approval. Published revisions require another draft.
+Current feature flags in `vercel.json`:
 
-The separately authorized worker endpoint is `/api/internal/instagram-publish`.
-It requires the existing protected `CRON_SECRET` and
-`INSTAGRAM_PUBLISHING_ENABLED=1`; it is disabled otherwise. No cron entry was
-added or activated. A production scheduler needs a cadence adequate for the
-selected time (normally once per minute, subject to the hosting plan).
+- `INSTAGRAM_CONNECTION_ENABLED=1`
+- `INSTAGRAM_PUBLISHING_ENABLED=0`
+- `INSTAGRAM_WEBHOOK_ENABLED=0`
+- `INSTAGRAM_OUTBOUND_MESSAGES_ENABLED=0`
 
-Each worker claims one due job with an expiring lease. Creation/publishing stages
-are durable BEFORE sending those requests. Bytes are checked against the approved
-hash before Meta receives a signed media URL. The container is polled until ready;
-only then is the approved container published. A job missed by >15 minutes fails
-rather than unexpectedly posting old content after downtime. Definite failures
-are Failed; change the time, save Needs review, approve, then explicitly schedule
-a new revision after correcting the cause.
+Connection and status require a signed-in owner/admin. Missing or invalid settings
+are shown by name only, behind that authorization check. Vercel environment,
+settings and runtime-log reads have been denied with 403; do not retry or bypass
+those denials. No secret value was retrieved for verification.
 
-If a create response is lost with no container ID, creation is NOT retried.
-If publication is uncertain, the same known container is reconciled. PUBLISHED
-confirms success; FINISHED is NOT treated as permission to resend. Unknown states
-remain Scheduled / checking confirmation with editing/resend blocked. Human
-reconciliation is required if Meta cannot establish the result; there is no
-unsafe force-retry button or caption-based guessing. A successful publication
-stays Published even if permalink metadata cannot be retrieved.
+## Reviewed Instagram Login flow
 
-## Database scope for approval — NOT APPLIED
+Implemented callback:
+`https://luun-admin-et42.vercel.app/api/instagram/callback`
 
-`docs/instagram-publishing.sql` is an unapplied migration DRAFT, not an installed
-migration. The Supabase CLI is not installed in this workspace; generate the
-versioned migration from this reviewed file using `supabase migration new` before
-application. Do not execute it as part of local tests.
+1. Same-origin JSON `POST /api/instagram/connect` verifies the signed-in role and
+   server configuration. It stores a hashed, actor-bound, ten-minute nonce and sets
+   a Secure HttpOnly SameSite=Lax state cookie before returning the official
+   `https://www.instagram.com/oauth/authorize` destination.
+2. Requested scopes remain exactly `instagram_business_basic`,
+   `instagram_business_content_publish`, `instagram_business_manage_messages`.
+   No Facebook-login fallback or Ads permission is requested.
+3. Callback verifies owner/admin, exact callback origin, unique parameters,
+   browser state and a single-use unexpired actor-bound database nonce. Denial,
+   replay, missing code or changed browser state cannot exchange tokens.
+4. The server posts the authorization code, app ID/secret and exact redirect URI
+   to `https://api.instagram.com/oauth/access_token`. HTTP and parser errors are
+   replaced by fixed error codes, never raw provider diagnostics.
+5. The raw response is parsed with pinned `lossless-json@4.3.2`, with no native
+   `Response.json()` numeric conversion and no unsafe fallback. Numeric `id`,
+   `user_id`, `recipient_id` and `message_id` literals become exact decimal strings.
+   Expiry stays numeric. Invalid numeric IDs, conflicting duplicate fields,
+   malformed/oversized JSON and ambiguous records are rejected. The library has
+   no runtime dependencies and does not depend on new JSON reviver runtime support.
+6. Flat records and one-record `data` arrays are supported. Short-token fields
+   must include a nonempty token, valid scoped `user_id` and all three permissions.
+   Permission arrays and comma-separated strings are supported; whitespace is
+   normalized, but missing or additional permissions still fail. Any provided
+   `token_type` must be Bearer.
+7. Token-bound `GET https://graph.instagram.com/<version>/me` requests
+   `id,user_id,username` using the short token in the Authorization header.
+   Token `user_id` and profile `id` are app-scoped; profile `user_id` is the
+   professional account ID. Scoped IDs must agree, and the professional ID must
+   equal the configured and pinned approved account. No returned ID replaces it.
+8. Only after that identity check does the server request
+   `https://graph.instagram.com/access_token` with `grant_type=ig_exchange_token`.
+   The long token must have valid positive integral expiry metadata and a valid
+   Bearer type if supplied. The long token's profile is checked again for the same
+   scoped and professional identities before credentials may be stored.
+9. The storage boundary independently checks the pinned professional ID. The token
+   is encrypted with AES-256-GCM, a random IV and app/account-bound authenticated
+   data, then upserted into the server-only connection table. Only safe metadata
+   reaches the browser. The callback clears state and redirects with a fixed
+   success/failure indicator; it sets no-referrer and no-store headers.
 
-It adds four tables: `instagram_connections` (encrypted credentials),
-`instagram_oauth_attempts` (hashed expiring state), `instagram_media` (immutable
-media metadata), `instagram_publish_jobs` (snapshot, durable stages, provider IDs,
-lease, safe diagnostics). RLS is enabled; anonymous/authenticated table access is
-revoked. Scoped RPCs are SECURITY INVOKER and callable only by service_role.
-A private `instagram-media` bucket has no new browser grants/policies. An invoker
-trigger on existing content posts invalidates queued jobs and rejects changes
-while a publication is active/unknown/confirmed. Existing business-plan rules,
-permissions, records and other panels are unchanged. No schema/security changes
-were applied. SQL has not been run against PostgreSQL: migration application,
-RLS/role execution and real concurrency still require isolated database testing
-before production approval.
+The server uses fixed Meta HTTPS hosts, timeouts, a bounded response body and no
+redirect following. It avoids Next fetch URL instrumentation for token requests.
+Application code logs no callback parameters, token bodies, signed media URLs or
+provider diagnostics. Platform logging/redaction cannot be confirmed through the
+currently denied Vercel settings/log connection.
 
-## Production setup still required, in order
+Expired/revoked/unreadable credentials fail closed. Refresh uses the documented
+`ig_refresh_token` endpoint under a database lease when a separately authorized
+server operation needs it; there is no newly activated refresh scheduler.
 
-1. Review the exact database/bucket/trigger scope above, generate the versioned
-   migration and validate it against an isolated database. Obtain approval before
-   applying any production migration/security changes.
-2. Configure only this app's Instagram product App Secret and an independent
-   32-byte base64 token-encryption key in protected server settings. Never put
-   tokens, secrets or full OAuth callback URLs containing codes in chat/logs.
-   `.env.example` lists names only. Pin `INSTAGRAM_GRAPH_API_VERSION` to the
-   supported version selected for this app; the test fixture version is not a
-   production recommendation. Keep the publishing flag off.
-3. Approve deployment of this bounded change, register the exact callback in the
-   Luun Publisher-IG app, and complete required privacy/data-deletion setup in the
-   Meta dashboard. Data-deletion/deauthorization callbacks are NOT implemented in
-   this first slice; use a valid reviewed deletion-instructions URL if supported,
-   or add those handlers before a release requiring them. Confirm granted access
-   for all three scopes. Standard access is limited to the applicable owned/
-   managed role/tester scope; wider use requires Advanced Access/App Review and
-   any dashboard verification requirements. Existing acceptance is not proof
-   that every requested permission is granted.
-4. Only after approval, enable the connection flag and let the owner click
-   Connect Instagram on the official consent screen. No pre-generated token is
-   needed. Verify the returned account ID matches the configured expected ID;
-   a mismatch fails closed, rather than silently switching accounts.
-5. Obtain explicit approval before enabling the live worker/scheduler or making
-   any test post. No test publication was authorized or performed here.
-6. Review `docs/instagram-messaging.sql`: two additional server-only tables for
-   incoming DMs and versioned reply approvals, with account/message deduplication,
-   RLS and service-only operations. No existing inquiry/email records are merged.
-   Validate/apply only after separate migration approval. Configure the webhook
-   verification token and the correct Luun Publisher-IG Meta app signing secret
-   privately. The locally implemented GET/POST webhook URL is
-   `https://luun-admin-et42.vercel.app/api/instagram/webhook`.
-   Register/subscribe only after explicit approval, with only message events needed
-   for this inbox. Keep webhook and outbound-message flags off until then.
-7. Manual reply sending is a separate activation boundary. Only after explicit
-   approval may `INSTAGRAM_OUTBOUND_MESSAGES_ENABLED=1` be configured. Every
-   response still requires a saved draft, approval and explicit Send. There is no
-   auto-response switch or scheduled DM sender.
+## Safe failure details and owner acceptance
 
-Official API use does not guarantee freedom from account restrictions. Respect
-Meta's policies and returned limits; no browser automation, scraping, Ads API,
-DM automation or engagement automation is included.
+Only a fixed stage/reason pair is retained for ten minutes in a Secure HttpOnly
+SameSite=Lax cookie scoped to `/api/instagram`. No IDs, state, code, token, secret,
+provider response or personal data is included. Status checks authorize owner/
+admin before reading it; malformed/non-allowlisted values are discarded. Success
+or a fresh connection start clears stale diagnostics. Nothing is added to logs
+or a diagnostic table.
 
-## Instagram inbox and replies
+After a verified release, the owner refreshes `/content` and starts one fresh
+**Connect Instagram** attempt. Do not replay an old callback/code. Successful
+acceptance means the page shows the expected account connected, a server-only
+connection exists with valid expiry/permissions, and outbound flags remain off.
+If it fails, share only the displayed two `Connection check` codes. Earlier generic
+failures cannot be reconstructed; do not ask for credentials or repeated blind
+retries. Live success awaits this final owner-controlled step.
 
-Customers → Instagram (`/ticketing?view=instagram`) is limited to owner/admin.
-The inbox loads only this configured Instagram account's stored inbound messages;
-plaintext is rendered as text, never HTML or instructions to an agent. Peer IDs
-are scoped to this account. It does not invent Shopify/email matches.
+## Database and downstream scope
 
-Webhook verification checks the exact challenge token. POST checks HMAC-SHA256
-against bounded raw bytes before parsing. Both the entry account and recipient
-must match. Echoes/own messages are excluded; duplicate delivery is ignored by the
-composite account/message primary key. Receiving never triggers a send or AI.
-Attachments are represented by a placeholder; no external attachment URLs are
-fetched, displayed or scraped.
+Applied migrations are `20261019205456_instagram_publishing` and
+`20261019205505_instagram_messaging`. Versioned copies match the reviewed SQL drafts;
+do not reapply them. They add six RLS-protected server-only tables, scoped invoker
+RPCs, one content approval trigger and the private JPEG bucket. Browser-role
+access is revoked, and existing grants were not broadened.
 
-Replies pin the account, recipient, incoming message, exact text and version.
-Editing requires another approval. Send is owner/admin-only, same-origin and
-explicit, and claims the approved revision atomically before calling Meta.
-Replies are limited to 1000 text characters and the conservative 24-hour window
-from the selected inbound message, with no message tags or marketing extensions.
-A lost response remains unknown with resending blocked; an interrupted sending
-state is also blocked until human confirmation. No guessed delivery/retry occurs.
-Sent/unknown replies cannot be edited; the owner must resolve uncertain outcomes.
-No live messages have been received, read or sent in this task.
+Credential rows, encryption binding, approved snapshots, media/publish/message
+paths and inbox/reply filters continue to use the canonical professional account
+ID. Login-scoped IDs are used for handshake consistency only, not persisted as
+an alternate account or substituted into downstream routes.
 
-## Local verification (no provider calls)
+JPEG uploads and scheduling require explicit owner actions and saved approvals.
+Media/caption/time/revision changes invalidate approval; in-flight or unknown
+publications cannot be blindly retried. Existing manual calendar evidence remains
+separate. Supported media is one JPEG <=8 MB, width 320–1440px and ratio 4:5–1.91:1;
+Reels/carousels and automatic replies are not implemented.
+
+The worker endpoint `/api/internal/instagram-publish` remains protected by the
+existing server scheduler secret and its disabled publishing flag. There is no
+Instagram cron. Reception uses implemented GET/POST
+`https://luun-admin-et42.vercel.app/api/instagram/webhook`, but remains disabled and
+unsubscribed. Its future setup needs separately approved protected verification
+and signing secrets, registration and message-event subscription. Sending also
+requires separate activation; each reply still needs a saved draft, approval and
+explicit Send within the response window. No automatic reply switch exists.
+Privacy/deletion setup must follow Meta's requirements; dedicated deletion and
+deauthorization handlers are not implemented. Do not claim platform registration,
+external-user eligibility or freedom from account restrictions from local tests.
+
+## Repeatable verification
 
 ```sh
-./node_modules/.bin/tsc lib/content-database.test.ts lib/content-calendar.test.ts lib/instagram/instagram.test.ts lib/instagram/messages.test.ts --module commonjs --target es2022 --esModuleInterop --outDir /tmp/luun-instagram-tests --skipLibCheck
-node --test /tmp/luun-instagram-tests/content-database.test.js /tmp/luun-instagram-tests/content-calendar.test.js /tmp/luun-instagram-tests/instagram/*.test.js
-npm run test:content
+npm run test:instagram
+npm run test:operator
+npm run test:planning
+npm run test:checkout
 npm run typecheck
-LUUN_VERIFY_BUILD=1 npm run build
+npm run build
 ```
 
-The tests inject mock transport/repository ports. They do not connect to Meta,
-Supabase, private storage or the existing Instagram account.
+The Instagram suite covers raw wire JSON through the actual callback, transport,
+client, identity, encryption and storage code with synthetic HTTP/database ports;
+there are no live provider calls. Separate PostgreSQL tests use a fresh private
+Unix-socket database and synthetic roles/data, then stop and remove it. Supabase
+Auth/Storage schemas in that fixture are stubs; platform interoperability still
+needs approved owner verification. The legacy operator SQL suite supports an
+isolated PGlite test runtime via `LUUN_TEST_PGLITE_MODULE`.
 
-References:
-- https://www.postman.com/meta/instagram/folder/6raa77c/instagram-api-with-instagram-login
-- https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login
-- https://developers.facebook.com/documentation/instagram-platform/content-publishing
-
-## Focused integration review — production gate remains closed
-
-Local review corrected the publishing start lock order to match the content-save
-trigger (post row before job row), added explicit null/shape guards to service
-RPC inputs, preserved the first event when a batch contains conflicting duplicate
-message IDs, and retained positive provider acknowledgements after a failed
-storage response. Recovery repeats persistence only, never a provider mutation.
-OAuth callback checks are factored for mocked testing of browser state, verified
-actor binding, duplicate parameters, denial and single-use consumption.
-
-With the owner's approval, PostgreSQL 17.10 was installed only in the ignored
-`.local-content/instagram-postgres-runtime` folder. Exact isolated dependencies:
-`@embedded-postgres/darwin-arm64@17.10.0-beta.17` and `pg@8.23.1`.
-No global install, lifecycle scripts, startup service or TCP listener was used.
-The package wrapper has a beta suffix; the binary reports PostgreSQL 17.10.
-
-Run `node tests/instagram-postgres.test.cjs` from this repository to repeat the
-real database tests. Each run creates a fresh private temporary database and Unix
-socket using synthetic data, applies the existing operator-workspace migration
-and both SQL drafts, and stops the server afterward. Successful runs delete their
-temporary database. The isolated runtime remains available for reruns.
-
-All 18 real PostgreSQL checks pass: table/RPC permission denials, existing
-viewer/logistics content permissions, single-use OAuth state, exact approved
-account/media/time/revision, concurrent scheduling, publish/edit lock ordering,
-stale/expired leases, refresh serialization, webhook message deduplication,
-account-isolated replies, concurrent send claims and blocked unknown outcomes.
-The added identity test exposed missing container-ID requirements and permitted
-provider-ID replacement. The draft now requires a container in ready publication
-stages and makes provider IDs write-once, while allowing same-ID persistence retries.
-
-This fixture stubs Supabase Auth and Storage schemas. It tests PostgreSQL grants,
-RLS flags, transactions, triggers and RPC execution, but does not validate the
-Supabase API gateway, production grants/configuration, real storage uploads or
-actual Meta interoperability. Production migrations were applied after owner approval on October 19, 2026; the isolated test fixture itself never touches production.
-
-Meta app access levels, Live/published-mode eligibility, all three permission
-grants, App Review and any business-verification requirements remain unverified.
-The existing accepted tester and linked professional account must not be repeated
-as a setup task, but do not prove that external production use is permitted.
-Provider-specific response shapes/account identifiers also require approved
-connection verification. Platform query/body log redaction must be checked before
-real OAuth. The local application never intentionally logs codes, token payloads,
-signed media URLs or raw provider diagnostics.
-
-## Approved production release — October 19, 2026
-
-The owner approved only these database changes and the application deployment,
-with all Instagram capabilities disabled. Applied migration history:
-`20261019205456_instagram_publishing` and
-`20261019205505_instagram_messaging`. Copies match the tested SQL drafts.
-Production inspection confirms six empty tables with RLS and no PUBLIC/anon/
-authenticated access, eleven service-role-only public invoker RPCs, the private
-trigger and private JPEG bucket. No existing content grants were expanded.
-
-`vercel.json` explicitly pins connection, publishing, webhook reception and
-outbound messaging flags to `0`. The existing source-sync cron is unchanged;
-there is no Instagram cron. No secrets, OAuth attempts, subscriptions, provider
-connections, posts or messages were created. Credentials and live account setup
-require a separate approved step. Existing accepted tester/account linking remains
-valid; do not repeat that setup.
-
-## Private callback diagnostics
-
-Connection remains enabled; publishing, webhook reception and outbound sending
-remain disabled, with no Instagram cron. The callback now records only a fixed
-stage/reason pair in a Secure, HttpOnly, SameSite=Lax cookie scoped to
-`/api/instagram`, expiring after ten minutes. It records no provider response,
-state, code, token, secret, account/actor identifier or personal data and adds no
-server logging or schema. The status route authorizes owner/admin before reading
-the cookie. Malformed, extra-field and non-allowlisted values are discarded.
-Only the signed-in connection control displays the two codes. They identify
-state/session, provider authorization, short-token response, permissions, account,
-long-token, profile or storage failures without assuming missing permissions.
-A fresh owner connect or successful connection clears the old diagnostic.
-
-Past failures cannot be reconstructed. After deployment, the owner may start one
-new Connect Instagram attempt from `/content`; never replay a prior callback or
-code. If it fails, share only the displayed stage/reason codes, not the callback
-URL or credentials. No authorization was initiated by the diagnostic tests.
-
-Repeat the mocked diagnostic/route checks with:
-```sh
-./node_modules/.bin/tsc -p tests/instagram-oauth-diagnostics.tsconfig.json
-node --test /tmp/luun-instagram-diagnostic-tests/lib/instagram/*.test.js tests/instagram-oauth-diagnostic-routes.test.cjs
-```
-
-## Scoped versus professional account identity correction
-
-Meta's Instagram Login token response `user_id` is app-scoped; token-bound
-`/me.id` is app-scoped and `/me.user_id` is the professional account ID. The
-callback now requests `id,user_id,username` with the short token, requires the
-professional ID to equal the pinned approved `1784147235520052`, and requires
-scoped-ID consistency before exchanging for a long token. It revalidates both
-identities with the long token before returning a connection for storage.
-The storage boundary independently rejects any other professional account.
-No returned identity silently replaces the configured or pinned account.
-
-IDs remain separate values. Positive safe numeric IDs normalize exactly; unsafe
-numbers, empty/missing/invalid IDs and contradictory profiles fail closed. Large
-decimal string IDs retain precision. Only one unambiguous record is accepted
-from a provider response. Existing state/session and exact scope checks remain.
-No schema change is needed: stored account IDs, encryption binding, media and
-message routes continue to use the professional account ID. Login-scoped IDs are
-used for handshake consistency only and are not persisted in the credential row.
-Publishing, webhook reception and outbound sending remain disabled. No OAuth
-request, credential mutation or live provider call was made by the test run.
-
-Official field definitions:
+Reviewed references:
 - https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login
 - https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/get-started
+- https://developers.facebook.com/documentation/instagram-platform/reference/access_token
+- https://github.com/josdejong/lossless-json

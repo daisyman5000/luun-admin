@@ -23,11 +23,11 @@ test('a configured alternate account cannot replace the pinned approved professi
 test('contradictory scoped or professional identities cannot survive either profile check',async()=>{
  for(const responses of [[short,{...profile,id:'1020000000000002'}],[short,profile,long,{...profile,id:'1020000000000002'}],[short,profile,long,{...profile,user_id:'1784147235520053'}]])await assert.rejects(mocked(responses).api.exchange('SYNTHETIC_CODE'),/account_mismatch/);
 });
-test('missing, empty, negative, fractional and unsafe numeric identifiers fail closed',async()=>{
- for(const id of [undefined,null,'',0,-1,1.5,Number.MAX_SAFE_INTEGER+1,' 1020000000000001','00123']){
-  await assert.rejects(mocked([{...short,user_id:id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid/);
-  await assert.rejects(mocked([short,{...profile,id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid/);
-  await assert.rejects(mocked([short,{...profile,user_id:id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid/);
+test('missing, empty, negative, fractional and malformed identifiers fail closed',async()=>{
+ for(const id of [undefined,null,'',0,-1,1.5,' 1020000000000001','00123']){
+  await assert.rejects(mocked([{...short,user_id:id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid|response_unconfirmed/);
+  await assert.rejects(mocked([short,{...profile,id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid|response_unconfirmed/);
+  await assert.rejects(mocked([short,{...profile,user_id:id}]).api.exchange('SYNTHETIC_CODE'),/identifier_invalid|response_unconfirmed/);
  }
  for(const username of [undefined,''])await assert.rejects(mocked([short,{...profile,username}]).api.exchange('SYNTHETIC_CODE'),/account_mismatch/);
 });
