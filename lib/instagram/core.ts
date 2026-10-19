@@ -2,7 +2,7 @@ import {createCipheriv,createDecipheriv,createHash,randomBytes,timingSafeEqual} 
 import type {ContentPost} from '../content';
 export const INSTAGRAM_SCOPES=['instagram_business_basic','instagram_business_content_publish','instagram_business_manage_messages'] as const;
 export const INSTAGRAM_CALLBACK='https://luun-admin-et42.vercel.app/api/instagram/callback';
-export const INSTAGRAM_APPROVED_ACCOUNT_ID='1784147235520052';
+export const INSTAGRAM_APPROVED_ACCOUNT_ID='17841472352520052';
 export type InstagramConfig={appId:string;appSecret:string;redirectUri:string;key:string;apiVersion:string;accountId:string};
 export function instagramSetupIssues(env:Record<string,string|undefined>){
  const issues:string[]=[];

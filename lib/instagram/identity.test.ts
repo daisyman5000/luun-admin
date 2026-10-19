@@ -33,7 +33,7 @@ test('missing, empty, negative, fractional and malformed identifiers fail closed
 });
 test('safe numeric IDs normalize exactly and large decimal string IDs retain precision',async()=>{
  for(const id of [Number(scoped),'9007199254740993']){const p={...profile,id};const r=await mocked([{...short,user_id:id},p,long,p]).api.exchange('SYNTHETIC_CODE');assert.equal(r.scopedId,String(id));assert.equal(r.accountId,config.accountId);}
- const numeric={...profile,id:Number(scoped),user_id:Number(config.accountId)};assert.equal((await mocked([{...short,user_id:Number(scoped)},numeric,long,numeric]).api.exchange('SYNTHETIC_CODE')).accountId,config.accountId);
+ const numeric={...profile,id:Number(scoped),user_id:config.accountId};assert.equal((await mocked([{...short,user_id:Number(scoped)},numeric,long,numeric]).api.exchange('SYNTHETIC_CODE')).accountId,config.accountId);
 });
 test('single-record envelopes are supported while ambiguous or multi-account payloads are rejected',async()=>{
  assert.equal((await mocked([{data:[short]},{data:[profile]},long,{data:[profile]}]).api.exchange('SYNTHETIC_CODE')).accountId,config.accountId);
@@ -46,4 +46,15 @@ test('publishing and reply routes retain the canonical professional ID, never th
  const f=mocked([short,profile,long,profile,{id:'SYNTHETIC_CONTAINER'},{id:'SYNTHETIC_MEDIA'},{message_id:'SYNTHETIC_MESSAGE',recipient_id:'8001'}]);const c=await f.api.exchange('SYNTHETIC_CODE');
  await f.api.create(c.token,'https://example.invalid/synthetic.jpg','Synthetic');await f.api.publish(c.token,'SYNTHETIC_CONTAINER');await f.api.sendReply(c.token,'8001','Synthetic');
  assert.deepEqual(f.seen.slice(4).map(x=>x.url.pathname),[`/v24.0/${config.accountId}/media`,`/v24.0/${config.accountId}/media_publish`,`/v24.0/${config.accountId}/messages`]);
+});
+
+test('corrected owner-confirmed account is accepted while old and foreign pins remain rejected',async()=>{
+ const env={INSTAGRAM_CONNECTION_ENABLED:'1',INSTAGRAM_APP_SECRET:config.appSecret,INSTAGRAM_TOKEN_ENCRYPTION_KEY:config.key,INSTAGRAM_GRAPH_API_VERSION:'v24.0'};
+ assert.equal(INSTAGRAM_APPROVED_ACCOUNT_ID,'17841472352520052');
+ assert.equal(instagramConfig({...env,INSTAGRAM_ACCOUNT_ID:'17841472352520052'}).accountId,'17841472352520052');
+ for(const other of ['1784147235520052','17841472352520053']){
+  assert.throws(()=>instagramConfig({...env,INSTAGRAM_ACCOUNT_ID:other}),/setup_required/);
+  await assert.rejects(mocked([short,{...profile,user_id:other}]).api.exchange('SYNTHETIC_CODE'),/professional_account_mismatch/);
+  await assert.rejects(mocked([short,profile],{...config,accountId:other}).api.exchange('SYNTHETIC_CODE'),/configured_account_mismatch/);
+ }
 });

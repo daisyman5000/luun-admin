@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createHmac} from 'node:crypto';
 import {instagramInbound,verifyInstagramWebhook,webhookChallenge,replyHash,replyWindow,approvedReplySend,type Reply} from './messages';
 import {InstagramError} from './client';
-const account='1784147235520052',peer='123456789',secret='mock-signing-secret-only',now=Date.now();
+const account='17841472352520052',peer='123456789',secret='mock-signing-secret-only',now=Date.now();
 const event=(mid='mock-mid')=>({object:'instagram',entry:[{id:account,messaging:[{sender:{id:peer},recipient:{id:account},timestamp:now,message:{mid,text:'Mock inbound text'}}]}]});
 const reply=():Reply=>{const r:Reply={id:'mock-reply',account_id:account,peer_id:peer,inbound_id:'mock-mid',body:'Approved mock response',version:2,state:'approved',approval_hash:null};r.approval_hash=replyHash(r);return r;};
 test('webhook challenge requires enabled caller-provided token, exact mode and constant-time match',()=>{const p=new URLSearchParams({'hub.mode':'subscribe','hub.verify_token':secret,'hub.challenge':'mock-challenge'});assert.equal(webhookChallenge(p,secret),'mock-challenge');assert.throws(()=>webhookChallenge(p,'wrong-verification-token'));assert.throws(()=>webhookChallenge(p,undefined));p.set('hub.mode','other');assert.throws(()=>webhookChallenge(p,secret));});

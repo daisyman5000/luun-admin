@@ -46,3 +46,13 @@ test('cross-origin connect is denied before state insertion or any provider requ
   ];
   for(const [raw,reason] of cases){for(const afterLong of [false,true]){reset(afterLong?[short(),profile(),long,raw]:[short(),raw]);await failed('profile',reason);assert.equal(fixture.calls.length,afterLong?4:2);assert.equal(fixture.writes.length,0);}}
  });
+
+test('corrected 17-digit account completes callback from raw and quoted profile IDs; old pin cannot store',async()=>{
+ assert.equal(account,'17841472352520052');
+ for(const quoted of [false,true]){
+  const body=quoted?profile().replace('"user_id":'+account,'"user_id":"'+account+'"'):profile();
+  reset([short(),body,long,body]);const r=await callback.GET(incoming());
+  assert.equal(r.headers.get('location'),base+'/content?instagram=connected');assert.equal(fixture.writes.length,1);assert.equal(fixture.writes[0].account_id,'17841472352520052');
+ }
+ for(const wrong of ['1784147235520052','17841472352520053']){reset([short(),profile(large,wrong)]);await failed('profile','professional_account_mismatch');assert.equal(fixture.writes.length,0);assert.equal(fixture.calls.length,2);}
+});

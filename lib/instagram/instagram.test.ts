@@ -4,7 +4,7 @@ import {emptyPost,type ContentPost,validatePost} from '../content';
 import {consumeOAuthCallback,INSTAGRAM_CALLBACK,INSTAGRAM_SCOPES,authorizeUrl,instagramConfig,instagramSetupIssues,sealToken,openToken,newOAuthState,validOAuthState,requireScopes,sha256,publicationSnapshot,snapshotHash,inspectJpeg,deliveryStatus,type InstagramConfig} from './core';
 import {InstagramClient,InstagramError} from './client';
 import {runInstagramJob,type PublishJob,type WorkerPorts,type JobPatch} from './worker';
-const config:InstagramConfig={appId:'1820435792490081',accountId:'1784147235520052',redirectUri:INSTAGRAM_CALLBACK,appSecret:'mock-app-secret',key:Buffer.alloc(32,7).toString('base64'),apiVersion:'v24.0'};
+const config:InstagramConfig={appId:'1820435792490081',accountId:'17841472352520052',redirectUri:INSTAGRAM_CALLBACK,appSecret:'mock-app-secret',key:Buffer.alloc(32,7).toString('base64'),apiVersion:'v24.0'};
 const env={INSTAGRAM_CONNECTION_ENABLED:'1',INSTAGRAM_APP_SECRET:config.appSecret,INSTAGRAM_TOKEN_ENCRYPTION_KEY:config.key,INSTAGRAM_GRAPH_API_VERSION:config.apiVersion};
 const media={id:'11111111-1111-4111-8111-111111111111',path:'fixture.jpg',sha256:sha256(Buffer.from('mock-image')),mime:'image/jpeg' as const,width:1000,height:1000,size:10};
 function fixture(state:PublishJob['state']='queued'){

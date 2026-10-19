@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {instagramProviderJSON} from './provider-json';
 test('raw numeric identifiers retain every digit in flat/nested responses while expiry stays numeric',()=>{
- for(const literal of ['9001','10200000000000001','9007199254740993','9999999999999999999999999999999999999999']){
+ for(const literal of ['9001','17841472352520052','10200000000000001','9007199254740993','9999999999999999999999999999999999999999']){
   const raw=`{"id":${literal},"user_id":${literal},"message_id":${literal},"recipient_id":${literal},"expires_in":5183944}`;
   const parsed=instagramProviderJSON(raw);for(const key of ['id','user_id','message_id','recipient_id'])assert.equal(parsed[key],literal);assert.equal(parsed.expires_in,5183944);
   const nested=instagramProviderJSON(`{"data":[${raw}]}`) as {data:Record<string,unknown>[]};assert.equal(nested.data[0].user_id,literal);
@@ -16,4 +16,9 @@ test('bad numeric ID syntax, conflicting duplicates, invalid JSON and excessive 
 });
 test('ordinary objects cannot impersonate the lossless numeric class or pollute prototypes',()=>{
  const p=instagramProviderJSON('{"user_id":{"isLosslessNumber":true,"value":"10200000000000001"},"__proto__":{"polluted":true}}');assert.equal(typeof p.user_id,'object');assert.equal(Object.hasOwn(Object.prototype,'polluted'),false);
+});
+
+test('owner-confirmed professional ID preserves exact digits in raw and quoted profile fields',()=>{
+ const expected='17841472352520052';
+ for(const value of [expected,JSON.stringify(expected)])assert.equal(instagramProviderJSON('{"user_id":'+value+'}').user_id,expected);
 });

@@ -7,3 +7,7 @@ const original=Module._load;Module._load=function(name,...args){if(name==='serve
 const {instagramServer}=require(path.join(out,'server.js'));Module._load=original;
 test('credential persistence independently rejects a foreign professional account before database access',async()=>{writes.length=0;const s=instagramServer();await assert.rejects(s.storeConnection({token:'SYNTHETIC_TOKEN',expiresIn:3600,username:'luun_official',scopes:[...core.INSTAGRAM_SCOPES],accountId:'1784147235520053'}),/account_mismatch/);assert.equal(writes.length,0);});
 test('encrypted storage stays pinned to the professional account and excludes the login-scoped identifier',async()=>{writes.length=0;const s=instagramServer();await s.storeConnection({token:'SYNTHETIC_TOKEN',expiresIn:3600,username:'luun_official',scopes:[...core.INSTAGRAM_SCOPES],accountId:config.accountId,scopedId:'1020000000000001'});assert.equal(writes.length,1);assert.equal(writes[0].account_id,config.accountId);assert.equal(writes[0].scopedId,undefined);assert.equal(writes[0].token,undefined);assert.ok(!writes[0].token_ciphertext.includes('SYNTHETIC_TOKEN'));assert.equal(core.openToken(writes[0].token_ciphertext,config),'SYNTHETIC_TOKEN');});
+
+test('credential storage rejects the previously mistyped account ID',async()=>{
+ writes.length=0;await assert.rejects(instagramServer().storeConnection({token:'SYNTHETIC_TOKEN',expiresIn:3600,username:'luun_official',scopes:[...core.INSTAGRAM_SCOPES],accountId:'1784147235520052'}),/account_mismatch/);assert.equal(writes.length,0);
+});

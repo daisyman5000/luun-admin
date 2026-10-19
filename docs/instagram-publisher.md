@@ -10,7 +10,7 @@ A successful mocked flow is not proof that the live account has connected.
 
 Only Luun Publisher-IG is intended. The Instagram product app ID is
 `1820435792490081`; the approved professional account ID is pinned in code to
-`1784147235520052` (`luun_official`). Existing tester/account acceptance is complete;
+`17841472352520052` (`luun_official`). Existing tester/account acceptance is complete;
 do not repeat it or create a pre-generated token. The owner reports the dashboard
 shows the own-business developer exemption from App Review. Do not broaden app
 access or requested permissions as part of connection troubleshooting.
