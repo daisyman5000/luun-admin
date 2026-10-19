@@ -27,7 +27,7 @@ test('calendar labels never imply scheduling just because a time or approval exi
 
 test('Publish now uses explicit today action; future days never acquire an invented publication hour',()=>{
  const now=new Date(2026,9,19,17,0).getTime(),today=localDateKey(new Date(now));
- assert.equal(publishNowPlacement({...draft,plannedAt:'',dueDate:today},now).plannedAt,new Date(now+60000).toISOString());
+ assert.equal(publishNowPlacement({...draft,plannedAt:'',dueDate:today},now).plannedAt,new Date(now+30000).toISOString());
  assert.throws(()=>publishNowPlacement({...draft,plannedAt:'',dueDate:'2027-04-12'},now));
  assert.equal(publishNowPlacement(draft,now).plannedAt,draft.plannedAt);
  const midnight=new Date(2026,9,19,23,59,30).getTime();assert.throws(()=>publishNowPlacement({...draft,plannedAt:'',dueDate:localDateKey(new Date(midnight))},midnight));

@@ -17,14 +17,15 @@ export function composerLabel(post:ContentPost,publishingReady:boolean){
  if(post.delivery?.state==='published'||post.status==='published')return 'Published';
  if(post.delivery?.state==='failed')return 'Failed';
  if(post.delivery?.state==='reconciling')return 'Checking confirmation';
- if(post.delivery&&['queued','creating','processing','publishing'].includes(post.delivery.state))return publishingReady?'Scheduled':'Paused';
+ if(post.delivery&&['creating','processing','publishing'].includes(post.delivery.state))return 'Publishing';
+ if(post.delivery?.state==='queued')return publishingReady?'Scheduled':'Paused';
  return 'Draft';
 }
 
 export function publishNowPlacement(draft:PostDraft,now=Date.now()):PostDraft{
  if(draft.plannedAt)return draft;
- const next=now+60000;
+ const next=now+30000;
  if(draft.dueDate!==localDateKey(new Date(now))||draft.dueDate!==localDateKey(new Date(next)))throw Error('Choose a calendar placement before scheduling.');
- // Explicit Publish now starts at the next worker opportunity; it is never a future-day default.
+ // Explicit Publish now starts within this owner-requested invocation; never a future-day default.
  return {...draft,plannedAt:new Date(next).toISOString()};
 }

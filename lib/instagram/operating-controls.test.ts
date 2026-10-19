@@ -15,8 +15,8 @@ test('expired or foreign account and missing permissions block actions',()=>{
  const on={...row,publishing:true,receive:true,send:true};
  for(const c of [null,{...connection,account_id:'wrong'},{...connection,expires_at:new Date(now-1).toISOString()},{...connection,scopes:[]}])assert.deepEqual(operatingStatus(on,c,account,env,now).enabled,{publishing:false,receive:false,send:false});
 });
-test('publishing requires recent authenticated worker; verified challenge is independent from unknown subscription',()=>{
- for(const worker_seen_at of [null,new Date(now-5*60000).toISOString(),new Date(now+1000).toISOString()])assert.equal(operatingStatus({...row,publishing:true,worker_seen_at},connection,account,env,now).enabled.publishing,false);
+test('scheduled publishing requires a worker while direct publishing does not; subscription remains unknown',()=>{
+ for(const worker_seen_at of [null,new Date(now-5*60000).toISOString(),new Date(now+1000).toISOString()])assert.equal(operatingStatus({...row,publishing:true,worker_seen_at},connection,account,env,now).scheduledPublishingReady,false);
  const s=operatingStatus({...row,receive:true,webhook_verified_at:null},connection,account,env,now);assert.equal(s.enabled.receive,false);assert.equal(s.subscriptionStatus,'not_verified');
  assert.equal(operatingStatus({...row,receive:false,send:true},connection,account,env,now).enabled.send,true);
 });
@@ -34,3 +34,8 @@ test('off is always available for an existing setting even when dependencies fai
 });
 test('storage errors and unavailable status cannot authorize an operation',async()=>{const f=fixture({...row,send:true});await f.ops.requireEnabled('send');f.fail();await assert.rejects(f.ops.requireEnabled('send'));await assert.rejects(f.ops.change('actor','send',false,0));});
 test('readiness and saved settings never disclose secrets or connection ciphertext',()=>{const s=operatingStatus({...row,send:true},connection,account,env,now);for(const secret of Object.values(env).filter(v=>v.startsWith('SYNTHETIC')))assert.ok(!JSON.stringify(s).includes(secret));assert.ok(!JSON.stringify(s).includes('token_ciphertext'));});
+
+test('Publish now can be ready without CRON_SECRET or scheduler; future scheduling remains blocked',()=>{
+ const directEnv={INSTAGRAM_PUBLISHING_ENABLED:'1'};
+ const s=operatingStatus({...row,publishing:true,worker_seen_at:null},connection,account,directEnv,now);assert.equal(s.enabled.publishing,true);assert.equal(s.schedulerReady,false);assert.equal(s.scheduledPublishingReady,false);assert.equal(s.readiness.publishing.ready,true);
+});
