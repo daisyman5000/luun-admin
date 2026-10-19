@@ -3,8 +3,18 @@ import type {ContentPost} from '../content';
 export const INSTAGRAM_SCOPES=['instagram_business_basic','instagram_business_content_publish','instagram_business_manage_messages'] as const;
 export const INSTAGRAM_CALLBACK='https://luun-admin-et42.vercel.app/api/instagram/callback';
 export type InstagramConfig={appId:string;appSecret:string;redirectUri:string;key:string;apiVersion:string;accountId:string};
+export function instagramSetupIssues(env:Record<string,string|undefined>){
+ const issues:string[]=[];
+ if(env.INSTAGRAM_CONNECTION_ENABLED!=='1')issues.push('INSTAGRAM_CONNECTION_ENABLED (disabled)');
+ for(const name of ['INSTAGRAM_APP_SECRET','INSTAGRAM_TOKEN_ENCRYPTION_KEY','INSTAGRAM_GRAPH_API_VERSION'])if(!env[name])issues.push(name+' (missing)');
+ if(env.INSTAGRAM_TOKEN_ENCRYPTION_KEY&&!validKey(env.INSTAGRAM_TOKEN_ENCRYPTION_KEY))issues.push('INSTAGRAM_TOKEN_ENCRYPTION_KEY (invalid format)');
+ if(env.INSTAGRAM_GRAPH_API_VERSION&&!/^v\d+\.\d+$/.test(env.INSTAGRAM_GRAPH_API_VERSION))issues.push('INSTAGRAM_GRAPH_API_VERSION (invalid format)');
+ for(const name of ['INSTAGRAM_APP_ID','INSTAGRAM_ACCOUNT_ID'])if(env[name]&&!/^\d+$/.test(env[name]))issues.push(name+' (invalid format)');
+ try{const u=new URL(env.INSTAGRAM_REDIRECT_URI||INSTAGRAM_CALLBACK);if(u.protocol!=='https:'||u.pathname!=='/api/instagram/callback'||u.search||u.hash||u.username||u.password)throw Error();}catch{issues.push('INSTAGRAM_REDIRECT_URI (invalid format)');}
+ return issues;
+}
 export function instagramConfig(env:Record<string,string|undefined>):InstagramConfig{
- if(env.INSTAGRAM_CONNECTION_ENABLED!=='1')throw Error('instagram_setup_required');
+ if(instagramSetupIssues(env).length)throw Error('instagram_setup_required');
  const c={appId:env.INSTAGRAM_APP_ID||'1820435792490081',appSecret:env.INSTAGRAM_APP_SECRET||'',redirectUri:env.INSTAGRAM_REDIRECT_URI||INSTAGRAM_CALLBACK,key:env.INSTAGRAM_TOKEN_ENCRYPTION_KEY||'',apiVersion:env.INSTAGRAM_GRAPH_API_VERSION||'',accountId:env.INSTAGRAM_ACCOUNT_ID||'1784147235520052'};
  const u=new URL(c.redirectUri);if(u.protocol!=='https:'||u.pathname!=='/api/instagram/callback'||u.search||u.hash||u.username||u.password||!/^\d+$/.test(c.appId)||!/^\d+$/.test(c.accountId)||!c.appSecret||!/^v\d+\.\d+$/.test(c.apiVersion)||!validKey(c.key))throw Error('instagram_setup_required');return c;
 }
