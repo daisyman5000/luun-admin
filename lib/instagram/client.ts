@@ -1,4 +1,5 @@
 import {type InstagramConfig,requireScopes} from './core';
+import type {OAuthStage} from './oauth-diagnostics';
 export class InstagramError extends Error{constructor(public code:string,public uncertain=false){super(code);}}
 export class InstagramClient{
  constructor(private c:InstagramConfig,private send:typeof fetch=fetch){}
@@ -8,12 +9,19 @@ export class InstagramClient{
   try{return await r.json();}catch{throw new InstagramError('instagram_response_unconfirmed',mutating);}
  }
  private graph(path:string){return new URL('https://graph.instagram.com/'+this.c.apiVersion+'/'+path);}
- async exchange(code:string){
+ async exchange(code:string,onStage?:(stage:OAuthStage)=>void){
+  onStage?.('short_token');
   const short=await this.request(new URL('https://api.instagram.com/oauth/access_token'),{method:'POST',body:new URLSearchParams({client_id:this.c.appId,client_secret:this.c.appSecret,grant_type:'authorization_code',redirect_uri:this.c.redirectUri,code})});
-  const t=Array.isArray(short.data)?short.data[0]:short,scopes=Array.isArray(t.permissions)?t.permissions:typeof t.permissions==='string'?t.permissions.split(','):[];requireScopes(scopes);
+  const t=Array.isArray(short?.data)?short.data[0]:short;
+  if(!t||typeof t!=='object'||typeof t.access_token!=='string'||!['string','number'].includes(typeof t.user_id))throw new InstagramError('instagram_response_unconfirmed');
+  onStage?.('permissions');
+  const scopes=Array.isArray(t.permissions)?t.permissions:typeof t.permissions==='string'?t.permissions.split(','):[];requireScopes(scopes);
+  onStage?.('account_match');
   if(String(t.user_id)!==this.c.accountId||typeof t.access_token!=='string')throw new InstagramError('instagram_account_mismatch');
+  onStage?.('long_token');
   const u=new URL('https://graph.instagram.com/access_token');u.search=new URLSearchParams({grant_type:'ig_exchange_token',client_secret:this.c.appSecret,access_token:t.access_token}).toString();
-  const long=await this.request(u);if(typeof long.access_token!=='string'||!Number.isFinite(long.expires_in)||long.expires_in<=0)throw new InstagramError('instagram_token_unconfirmed');
+  const long=await this.request(u);if(!long||typeof long.access_token!=='string'||!Number.isFinite(long.expires_in)||long.expires_in<=0)throw new InstagramError('instagram_token_unconfirmed');
+  onStage?.('profile');
   const me=await this.profile(long.access_token);return {token:long.access_token as string,expiresIn:Number(long.expires_in),scopes,username:me.username};
  }
  async profile(token:string){const u=this.graph('me');u.searchParams.set('fields','user_id,username');const me=await this.request(u,{headers:{Authorization:'Bearer '+token}});if(String(me.user_id)!==this.c.accountId||typeof me.username!=='string')throw new InstagramError('instagram_account_mismatch');return {username:me.username as string};}

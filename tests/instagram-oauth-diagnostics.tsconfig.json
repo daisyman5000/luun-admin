@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "incremental": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "rootDir": "..",
+    "outDir": "/tmp/luun-instagram-diagnostic-tests",
+    "plugins": []
+  },
+  "include": [
+    "../lib/instagram/*.test.ts",
+    "../lib/content-database.test.ts",
+    "../lib/content-calendar.test.ts",
+    "../lib/inquiry-tickets.test.ts",
+    "../lib/webflow-inquiries.test.ts",
+    "../app/api/instagram/callback/route.ts",
+    "../app/api/instagram/status/route.ts",
+    "../app/api/instagram/connect/route.ts"
+  ]
+}

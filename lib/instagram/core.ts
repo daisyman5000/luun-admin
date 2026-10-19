@@ -26,7 +26,9 @@ export function newOAuthState(){return randomBytes(32).toString('hex');}
 export function validOAuthState(returned:string|null,cookie:string|undefined){return !!returned&&!!cookie&&/^[a-f0-9]{64}$/.test(returned)&&/^[a-f0-9]{64}$/.test(cookie)&&timingSafeEqual(Buffer.from(returned),Buffer.from(cookie));}
 export async function consumeOAuthCallback(params:URLSearchParams,cookie:string|undefined,actor:string,consume:(hash:string,actor:string)=>Promise<boolean>){
  const names=[...params.keys()];if(!actor||new Set(names).size!==names.length||!validOAuthState(params.get('state'),cookie))throw Error('instagram_state_invalid');
- if(!await consume(sha256(params.get('state')!),actor)||params.has('error')||!params.get('code')||params.get('code')!.length>4096)throw Error('instagram_callback_rejected');return params.get('code')!;
+ if(!await consume(sha256(params.get('state')!),actor))throw Error('instagram_state_unavailable');
+ if(params.has('error'))throw Error('instagram_authorization_denied');
+ if(!params.get('code')||params.get('code')!.length>4096)throw Error('instagram_code_invalid');return params.get('code')!;
 }
 export function authorizeUrl(c:InstagramConfig,state:string){if(!/^[a-f0-9]{64}$/.test(state))throw Error('instagram_state_invalid');const u=new URL('https://www.instagram.com/oauth/authorize');u.search=new URLSearchParams({client_id:c.appId,redirect_uri:c.redirectUri,response_type:'code',scope:INSTAGRAM_SCOPES.join(','),state,enable_fb_login:'0',force_authentication:'1'}).toString();return u.toString();}
 export function requireScopes(scopes:string[]){if(INSTAGRAM_SCOPES.some(s=>!scopes.includes(s))||scopes.some(s=>!INSTAGRAM_SCOPES.includes(s as typeof INSTAGRAM_SCOPES[number])))throw Error('instagram_permissions_incomplete');}

@@ -241,3 +241,28 @@ there is no Instagram cron. No secrets, OAuth attempts, subscriptions, provider
 connections, posts or messages were created. Credentials and live account setup
 require a separate approved step. Existing accepted tester/account linking remains
 valid; do not repeat that setup.
+
+## Private callback diagnostics
+
+Connection remains enabled; publishing, webhook reception and outbound sending
+remain disabled, with no Instagram cron. The callback now records only a fixed
+stage/reason pair in a Secure, HttpOnly, SameSite=Lax cookie scoped to
+`/api/instagram`, expiring after ten minutes. It records no provider response,
+state, code, token, secret, account/actor identifier or personal data and adds no
+server logging or schema. The status route authorizes owner/admin before reading
+the cookie. Malformed, extra-field and non-allowlisted values are discarded.
+Only the signed-in connection control displays the two codes. They identify
+state/session, provider authorization, short-token response, permissions, account,
+long-token, profile or storage failures without assuming missing permissions.
+A fresh owner connect or successful connection clears the old diagnostic.
+
+Past failures cannot be reconstructed. After deployment, the owner may start one
+new Connect Instagram attempt from `/content`; never replay a prior callback or
+code. If it fails, share only the displayed stage/reason codes, not the callback
+URL or credentials. No authorization was initiated by the diagnostic tests.
+
+Repeat the mocked diagnostic/route checks with:
+```sh
+./node_modules/.bin/tsc -p tests/instagram-oauth-diagnostics.tsconfig.json
+node --test /tmp/luun-instagram-diagnostic-tests/lib/instagram/*.test.js tests/instagram-oauth-diagnostic-routes.test.cjs
+```
