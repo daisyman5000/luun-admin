@@ -3,6 +3,7 @@ export type ContentStatus = typeof contentStatuses[number];
 export const statusLabels: Record<ContentStatus, string> = { draft: "Draft", needs_review: "Needs review", approved: "Approved", planned: "Planned", published: "Published" };
 export type ContentPost = {
  planVersion?:number; planObjective?:string;
+ delivery?:{status:'Draft'|'Scheduled'|'Published'|'Failed';state:string;permalink:string|null;errorCode:string|null};
  id: string; version: number; title: string; objective: string; brief: string; caption: string;
  channel: "Instagram"; assetReference: string; dueDate: string; plannedAt: string;
  status: ContentStatus; completionEvidence: string; approvedAt: string | null; createdAt: string; updatedAt: string;
@@ -22,7 +23,7 @@ export function validatePost(body: Record<string, unknown>, previous?: ContentPo
  const status=body.status as ContentStatus;
  if (dueDate && (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || new Date(dueDate+"T12:00:00Z").toISOString().slice(0,10)!==dueDate)) throw new Error("Choose a valid due date.");
  if (plannedAt && !Number.isFinite(Date.parse(plannedAt))) throw new Error("Choose a valid planned publication time.");
- const editorialChanged=previous && ["title","objective","brief","caption","assetReference","channel"].some(key=>body[key]!==previous[key as keyof ContentPost]);
+ const editorialChanged=previous && ["title","objective","brief","caption","assetReference","channel","plannedAt"].some(key=>key==='plannedAt'?(plannedAt&&previous.plannedAt?Date.parse(plannedAt)!==Date.parse(previous.plannedAt):plannedAt!==previous.plannedAt):body[key]!==previous[key as keyof ContentPost]);
  if (editorialChanged && ["approved","planned","published"].includes(status)) throw new Error("Content changed. Save as Needs review before approving again.");
  if (["approved","planned","published"].includes(status) && (!objective || !caption || !assetReference)) throw new Error("Approval needs an objective, caption and asset reference.");
  if (["planned","published"].includes(status) && (!previous?.approvedAt || !["approved","planned","published"].includes(previous.status))) throw new Error("Save approval before planning or recording publication.");

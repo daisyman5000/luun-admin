@@ -24,6 +24,6 @@ test('changed shared objective requires fresh content review; old records remain
  const next=plans.save({...plan,objective:'Changed test objective'});
  assert.throws(()=>posts.save({...post,status:'planned',plannedAt:'2026-11-01T10:00:00Z'},next),/shared plan changed/);
  post=posts.save({...post,status:'needs_review'},next);assert.equal(post.approvedAt,null);assert.equal(post.planVersion,next.version);
- post=posts.save({...post,objective:next.objective,status:'needs_review'},next);post=posts.save({...post,status:'approved'},next);
+ post=posts.save({...post,objective:next.objective,plannedAt:'2026-11-01T10:00:00.000Z',status:'needs_review'},next);post=posts.save({...post,status:'approved'},next);
  assert.equal(posts.save({...post,status:'planned',plannedAt:'2026-11-01T10:00:00Z'},next).status,'planned');
 });

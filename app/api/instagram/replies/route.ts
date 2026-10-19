@@ -1,0 +1,15 @@
+import {validOperatorOrigin} from '@/lib/content-access';
+import {InstagramError} from '@/lib/instagram/client';
+import {approvedReplySend,replyHash,type Reply} from '@/lib/instagram/messages';
+import {instagramHeaders,instagramOwner,instagramServer} from '@/lib/instagram/server';
+export const runtime='nodejs';
+export async function POST(request:Request){if(!validOperatorOrigin(request))return Response.json({error:'Use the signed-in inbox.'},{status:403,headers:instagramHeaders});try{
+ const actor=await instagramOwner(),s=instagramServer(),text=await request.text();if(text.length>5000)throw Error();const b=JSON.parse(text);if(!['draft','approve','send'].includes(b.action))throw Error();
+ if(b.action==='draft'){if(typeof b.inboundId!=='string'||b.inboundId.length>500||typeof b.body!=='string'||!b.body.trim()||b.body.length>1000||b.id&&(!/^[a-f0-9-]{36}$/.test(b.id)||!Number.isInteger(b.version)||b.version<1))throw Error();const reply=await s.rpc('save_instagram_reply',{p_actor:actor,p_account:s.config.accountId,p_inbound:b.inboundId,p_id:b.id||null,p_version:b.version||0,p_body:b.body});return Response.json({reply},{headers:instagramHeaders});}
+ if(typeof b.id!=='string'||!/^[a-f0-9-]{36}$/.test(b.id)||!Number.isInteger(b.version))throw Error();const result=await s.db.from('instagram_replies').select('*').eq('account_id',s.config.accountId).eq('id',b.id).single();if(result.error||!result.data)throw Error();const r=result.data as Reply;if(r.version!==b.version)throw Error();
+ if(b.action==='approve'){const reply=await s.rpc('approve_instagram_reply',{p_actor:actor,p_id:r.id,p_version:r.version,p_hash:replyHash(r),p_account:s.config.accountId});return Response.json({reply},{headers:instagramHeaders});}
+ if(process.env.INSTAGRAM_OUTBOUND_MESSAGES_ENABLED!=='1')return Response.json({error:'Sending is disabled. No reply was sent.'},{status:409,headers:instagramHeaders});
+ const inbound=await s.db.from('instagram_inbox_messages').select('received_at').eq('account_id',s.config.accountId).eq('provider_message_id',r.inbound_id).eq('peer_id',r.peer_id).single();if(inbound.error||!inbound.data)throw Error();const token=await s.token();
+ const status=await approvedReplySend(true,r,inbound.data.received_at,{claim:async()=>{await s.rpc('claim_instagram_reply',{p_actor:actor,p_id:r.id,p_version:r.version,p_hash:replyHash(r),p_account:s.config.accountId});},send:()=>s.api.sendReply(token,r.peer_id,r.body),save:async(state,id)=>{const patch={state,provider_message_id:id||null,error_code:state==='unknown'?'instagram_reply_outcome_unknown':state==='failed'?'instagram_reply_rejected':null};const {error}=await s.db.from('instagram_replies').update(patch).eq('account_id',s.config.accountId).eq('id',r.id).in('state',['sending']);if(error)throw new InstagramError('instagram_reply_storage_unavailable',true);}});
+ return Response.json({status},{headers:instagramHeaders});
+ }catch{return Response.json({error:'Reply was not confirmed. Reopen the inbox and check its saved status before retrying.'},{status:409,headers:instagramHeaders});}}

@@ -21,11 +21,11 @@ test('draft survives reopening store; update increments version; stale tab canno
  assert.equal(fs.statSync(path.join(directory,'posts.json')).mode & 0o777,0o600);
 });
 test('review, approval, planning and manual publication require evidence', () => {
- let post = store.save({...draft, status:'needs_review'});
+ let post = store.save({...draft,plannedAt:'2026-11-01T10:00:00.000Z',status:'needs_review'});
  assert.throws(() => store.save({...post,status:'planned',plannedAt:'2026-11-01T10:00:00Z'}), /Save approval/);
  post = store.save({...post,status:'approved'});
  assert.ok(post.approvedAt);
- assert.throws(() => store.save({...post,status:'planned'}), /planned publication time/);
+ assert.throws(() => validatePost({...draft,status:'planned',plannedAt:''},{...post,plannedAt:''}), /planned publication time/);
  post = store.save({...post,status:'planned',plannedAt:'2026-11-01T10:00:00Z'});
  assert.throws(() => store.save({...post,status:'published'}), /live Instagram/);
  post = store.save({...post,status:'published',completionEvidence:'https://www.instagram.com/p/manual-evidence/'});

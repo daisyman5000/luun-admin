@@ -2,13 +2,15 @@ import { operatorAccess, validOperatorOrigin } from '@/lib/content-access';
 import { canEditContent, canApproveContent } from '@/lib/content-permissions';
 import { localContentStore } from '@/lib/content-store';
 import { localBusinessPlanStore } from '@/lib/business-plan';
+import {instagramServer} from '@/lib/instagram/server';
+import {deliveryStatus,type JobState} from '@/lib/instagram/core';
 import { installedCreativeLibrary } from '@/lib/creative-library';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export async function GET(request:Request){
  const access=await operatorAccess(request);
  if(access.kind==='denied')return Response.json({error:'Authenticated workspace access or configuration is required.'},{status:access.status});
- try{const [posts,plan]=access.kind==='local'?[localContentStore().list(),localBusinessPlanStore().read()]:await Promise.all([access.store.listPosts(),access.store.readPlan()]);return Response.json({posts,plan,storage:access.kind,canEdit:access.kind==='local'||canEditContent(access.role),canApprove:access.kind==='local'||canApproveContent(access.role),publishingConnected:false},{headers:{'Cache-Control':'private, no-store'}});}catch{return Response.json({error:'Content storage is unavailable. The operator-workspace migration must be applied in the confirmed environment; no local fallback is used.'},{status:503});}
+ try{const [posts,plan]=access.kind==='local'?[localContentStore().list(),localBusinessPlanStore().read()]:await Promise.all([access.store.listPosts(),access.store.readPlan()]);let calendarPosts=posts,publishingConnected=false;if(access.kind==='database')try{const s=instagramServer(),connection=await s.connection();publishingConnected=!!connection&&Date.parse(connection.expires_at)>Date.now();const result=await s.db.rpc('instagram_calendar_statuses',{p_ids:posts.map(p=>p.id),p_account:s.config.accountId});if(!result.error){const jobs=new Map<string,{state:JobState;permalink:string|null;error_code:string|null}>();for(const j of result.data||[])if(!jobs.has(j.post_id))jobs.set(j.post_id,j);calendarPosts=posts.map(p=>{const j=jobs.get(p.id);return j&&!(p.status==='published'&&j.state!=='published')?{...p,delivery:{status:deliveryStatus(j.state),state:j.state,permalink:j.permalink,errorCode:j.error_code}}:p;});}}catch{/* Calendar remains usable before Instagram setup. */}return Response.json({posts:calendarPosts,plan,storage:access.kind,canEdit:access.kind==='local'||canEditContent(access.role),canApprove:access.kind==='local'||canApproveContent(access.role),publishingConnected},{headers:{'Cache-Control':'private, no-store'}});}catch{return Response.json({error:'Content storage is unavailable. The operator-workspace migration must be applied in the confirmed environment; no local fallback is used.'},{status:503});}
 }
 export async function POST(request:Request){
  const access=await operatorAccess(request);
