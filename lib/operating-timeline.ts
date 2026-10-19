@@ -14,7 +14,7 @@ export function operatingTimeline(b:Baseline,choice:OperatingChoice){
  if(choice.cashReserve!==undefined&&choice.includeNext&&choice.ownerContainerCosts)return reinvestmentTimeline(b,choice);
  return buildOperatingTimeline(b,choice);
 }
-function buildOperatingTimeline(b:Baseline,choice:OperatingChoice){
+function buildOperatingTimeline(b:Baseline,choice:OperatingChoice,regionCache?:Map<string,ReturnType<typeof forecastInventoryValue>>){
  const readiness=incomingReadiness(b,0);
  const start=b.read_at.slice(0,10),fx=b.fx?.rate||0,opening=cashSnapshot(b,true),events:CashEvent[]=[],cad=(amount:number,currency:string|null)=>roundCash(currency==='CAD'?amount:currency==='USD'?amount*fx:0);
  const owner=choice.ownerContainerCosts?{...OWNER_CONTAINER_COSTS,inventoryUsd:choice.inventoryUsd??OWNER_CONTAINER_COSTS.inventoryUsd,adsCad:choice.sharedAdBudget&&choice.collectAtArrival&&b.orderSize?.modulesPerOrder?moduleAcquisitionBudget(([...b.containers].filter(c=>c.manifest_json?.length).sort((a,c)=>c.container_number.localeCompare(a.container_number))[0]?.manifest_json||[]).filter(m=>['corner','armless','ottoman'].includes(m.module)).reduce((n,m)=>n+m.quantity,0)||144,b.orderSize.modulesPerOrder):OWNER_CONTAINER_COSTS.adsCad,delgateCad:choice.delgateCad??OWNER_CONTAINER_COSTS.delgateCad}:null,freight=b.expenses.find(e=>/freight|shipping/i.test(e.label)),shippingEstimate=owner?owner.freightUsd*fx:freight?cad(Number(freight.amount),freight.currency):null,dockCost=owner?.delgateCad||15000,freightUsd=owner?.freightUsd||Number(freight?.amount||0),freightCurrency=owner?'USD':freight?.currency||null,original=(amount:number,currency:string|null)=>currency==='USD'?{amount:roundCash(amount),currency,rate:fx}:undefined;
@@ -29,7 +29,16 @@ function buildOperatingTimeline(b:Baseline,choice:OperatingChoice){
  const runForecast=(input:Baseline)=>{
   const options=forecastOptions,caps=choice.geoAds?geoAdCaps(choice.geoAds,fx):null;
   if(!caps)return forecastInventoryValue(input,choice.programmed?start:choice.saleStart,choice.dailyAds,0,saleWindows,options);
-  const region=(geo:ForecastGeo)=>forecastInventoryValue({...input,inventory:geo==='canada'?input.inventory:[],containers:input.containers.filter(c=>(c.forecastGeo||'canada')===geo)},choice.programmed?start:choice.saleStart,caps[geo],0,saleWindows,{...options,maxDailyBudget:caps[geo]});
+  const region=(geo:ForecastGeo)=>{
+   const regionalInput={...input,inventory:geo==='canada'?input.inventory:[],containers:input.containers.filter(c=>(c.forecastGeo||'canada')===geo)},regionalOptions={...options,maxDailyBudget:caps[geo]},saleFrom=choice.programmed?start:choice.saleStart;
+   // Candidate POs repeatedly rebuild unchanged regions and the original stock.
+   // Reuse exact inputs only within this one calculation; never across users.
+   const key=regionCache?JSON.stringify([regionalInput,saleFrom,caps[geo],saleWindows,regionalOptions]):undefined,hit=key?regionCache?.get(key):undefined;
+   if(hit)return hit;
+   const result=forecastInventoryValue(regionalInput,saleFrom,caps[geo],0,saleWindows,regionalOptions);
+   if(key&&regionCache){regionCache.set(key,result);if(regionCache.size>8)regionCache.delete(regionCache.keys().next().value!);}
+   return result;
+  };
   const ca=region('canada'),us=region('usa');
   return {...ca,points:ca.points.map((p,i)=>{const q=us.points[i];return {...p,geo:{canada:{ads:p.ads,soldModules:p.soldModules,availableModules:p.availableModules},usa:{ads:q.ads,soldModules:q.soldModules,availableModules:q.availableModules}},remaining:p.remaining+q.remaining,availableModules:p.availableModules+q.availableModules,soldValue:p.soldValue+q.soldValue,soldModules:p.soldModules+q.soldModules,ads:p.ads+q.ads,cashReceipts:(p.cashReceipts||0)+(q.cashReceipts||0)};}),salesLedger:[...ca.salesLedger.map(s=>({...s,geo:'canada' as const})),...us.salesLedger.map(s=>({...s,geo:'usa' as const}))],adLedger:[...ca.adLedger.map(a=>({...a,geo:'canada' as const})),...us.adLedger.map(a=>({...a,geo:'usa' as const}))],cycles:[...ca.cycles.map(c=>({...c,geo:'canada' as const})),...us.cycles.map(c=>({...c,geo:'usa' as const}))],arrivals:[...ca.arrivals,...us.arrivals],scenarioIssues:[...ca.scenarioIssues,...us.scenarioIssues],currentValue:ca.currentValue+us.currentValue,incomingValue:ca.incomingValue+us.incomingValue,totalValue:ca.totalValue+us.totalValue,soldValue:ca.soldValue+us.soldValue,ads:ca.ads+us.ads,clearDate:ca.clearDate&&us.clearDate?[ca.clearDate,us.clearDate].sort().at(-1)!:null};
  };
@@ -127,7 +136,8 @@ function reinvestmentTimeline(b:Baseline,choice:OperatingChoice){
 }
 
 function netAssetTimeline(b:Baseline,choice:OperatingChoice){
- const floor=choice.netCurrentAssetFloor??0,netCashFloor=choice.netCashFloor??0,days=choice.simulationDays||(choice.annualPlan?365:180),planningDays=choice.geoAds?Math.max(days,Math.round((Date.parse('2029-01-01T12:00:00Z')-Date.parse(b.read_at.slice(0,10)+'T12:00:00Z'))/86400000)):days,internal={...choice,netCurrentAssetFloor:undefined,netCashFloor:undefined,cashReserve:undefined,loan:0,inventoryUsd:b.netAssetsInputs?.inventoryUsdPer144,simulationDays:planningDays+(choice.datedCashPurchases?180:100),fixedOrderDates:[] as string[],fixedOrderGeos:[] as ForecastGeo[]},base=buildOperatingTimeline(b,internal),capital=netAssetForecast(b,base,floor),cash=base.points.map(p=>p.cash),assets=capital.points.map(p=>p.value??-Infinity),dates:string[]=[],geos:ForecastGeo[]=[],caps=choice.geoAds?geoAdCaps(choice.geoAds,b.fx?.rate||0):null;
+ const regionCache=new Map<string,ReturnType<typeof forecastInventoryValue>>();
+ const floor=choice.netCurrentAssetFloor??0,netCashFloor=choice.netCashFloor??0,days=choice.simulationDays||(choice.annualPlan?365:180),planningDays=choice.geoAds?Math.max(days,Math.round((Date.parse('2029-01-01T12:00:00Z')-Date.parse(b.read_at.slice(0,10)+'T12:00:00Z'))/86400000)):days,internal={...choice,netCurrentAssetFloor:undefined,netCashFloor:undefined,cashReserve:undefined,loan:0,inventoryUsd:b.netAssetsInputs?.inventoryUsdPer144,simulationDays:planningDays+(choice.datedCashPurchases?180:100),fixedOrderDates:[] as string[],fixedOrderGeos:[] as ForecastGeo[]},base=buildOperatingTimeline(b,internal,regionCache),capital=netAssetForecast(b,base,floor),cash=base.points.map(p=>p.cash),assets=capital.points.map(p=>p.value??-Infinity),dates:string[]=[],geos:ForecastGeo[]=[],caps=choice.geoAds?geoAdCaps(choice.geoAds,b.fx?.rate||0):null;
  const purchaseGate=choice.existingContainerSellThrough?existingContainerPurchaseGate(b,base.forecast.salesLedger,base.events,choice.existingContainerSellThrough):undefined;
  let purchasingPlan=base;
  const outstandingAds=(plan:typeof base)=>{if(!choice.sharedAdBudget)return 0;const spent=new Map<string,number>();for(const a of plan.forecast.adLedger)spent.set(a.containerId,(spent.get(a.containerId)||0)+a.amount);return plan.forecast.cycles.reduce((n,c)=>n+Math.max(0,c.budget-(spent.get(c.id)||0)),0);};
@@ -138,7 +148,7 @@ function netAssetTimeline(b:Baseline,choice:OperatingChoice){
  if(choice.includeNext&&choice.scheduledPurchaseDates?.length&&!base.missing){
   dates.push(...choice.scheduledPurchaseDates.filter(date=>date>=base.start&&date<=base.end).sort());
   geos.push(...dates.map(()=> 'canada' as ForecastGeo));
-  purchasingPlan=buildOperatingTimeline(b,{...internal,fixedOrderDates:dates,fixedOrderGeos:geos});
+  purchasingPlan=buildOperatingTimeline(b,{...internal,fixedOrderDates:dates,fixedOrderGeos:geos},regionCache);
   purchasingCosts=futureCosts(purchasingPlan);
   const scheduledAssets=choice.netCurrentAssetFloor!==undefined?netAssetForecast(b,purchasingPlan,floor):null;
   for(let i=0;i<cash.length;i++){cash[i]=purchasingPlan.points[i].cash;committed[i]=roundCash(purchasingCosts[i]+taxReserve+unverifiedReserve);if(scheduledAssets)assets[i]=scheduledAssets.points[i].value??-Infinity;}
@@ -176,7 +186,7 @@ function netAssetTimeline(b:Baseline,choice:OperatingChoice){
   // operating cost must remain funded through that interval, including loan debits.
   if(choice.hypotheticalLoan&&!choice.datedCashPurchases&&choice.netCashFloor!==undefined){const arrival=addMonths(addMonths(date,1),1);if(cash.some((value,i)=>i>=day&&base.points[i].date<arrival&&value-committed[i]-netCashFloor<fullCost-.000001))continue;}
   if(choice.datedCashPurchases&&base.ownerCosts){const landing=addMonths(addMonths(date,1),1),paymentDate=saleDateAt(landing,-(choice.arrivalPaymentLeadDays??0)),balanceAndFreight=(base.ownerCosts.inventoryUsd*.7+base.ownerCosts.freightUsd)*base.fx;let unfunded=false;for(let i=day;i<cash.length&&base.points[i].date<landing;i++){const mandatory=requiredCash+(base.points[i].date>=paymentDate?balanceAndFreight:0);if(cash[i]-taxReserve-unverifiedReserve-mandatory<netCashFloor-.000001){unfunded=true;break;}}if(unfunded)continue;}
-  const shared=!!choice.sharedAdBudget,single=buildOperatingTimeline(b,{...internal,fixedOrderDates:shared?[...dates,date]:[date],fixedOrderGeos:shared?[...geos,market]:[market]}),singleAssets=choice.netCurrentAssetFloor!==undefined?netAssetForecast(b,single,floor):null,dc=single.points.map((p,i)=>p.cash-(shared?cash[i]:base.points[i].cash)),dn=singleAssets?singleAssets.points.map((p,i)=>p.value!-(shared?assets[i]:capital.points[i].value!)):single.points.map(()=>0);
+  const shared=!!choice.sharedAdBudget,single=buildOperatingTimeline(b,{...internal,fixedOrderDates:shared?[...dates,date]:[date],fixedOrderGeos:shared?[...geos,market]:[market]},regionCache),singleAssets=choice.netCurrentAssetFloor!==undefined?netAssetForecast(b,single,floor):null,dc=single.points.map((p,i)=>p.cash-(shared?cash[i]:base.points[i].cash)),dn=singleAssets?singleAssets.points.map((p,i)=>p.value!-(shared?assets[i]:capital.points[i].value!)):single.points.map(()=>0);
   if(choice.demandMatchedPurchases&&choice.sharedAdBudget&&b.orderSize?.modulesPerOrder){
    const arrival=single.plannedOrders.at(-1)!.landing,landed=single.points.find(p=>p.date===arrival),units=(single.plannedOrders.at(-1)!.container.manifest_json||[]).filter(m=>['corner','armless','ottoman'].includes(m.module)).reduce((n,m)=>n+m.quantity,0);
    // The smallest possible arrival remainder respects the presale window and
@@ -197,7 +207,7 @@ function netAssetTimeline(b:Baseline,choice:OperatingChoice){
   }
  }
  const chronological=dates.map((date,i)=>({date,geo:geos[i],index:i})).sort((a,b)=>a.date.localeCompare(b.date)||a.index-b.index).filter(o=>o.date<=saleDateAt(base.start,days-1));
- const result=buildOperatingTimeline(b,{...internal,simulationDays:days,fixedOrderDates:chronological.map(o=>o.date),fixedOrderGeos:chronological.map(o=>o.geo)}),final=netAssetForecast(b,result,floor);
+ const result=buildOperatingTimeline(b,{...internal,simulationDays:days,fixedOrderDates:chronological.map(o=>o.date),fixedOrderGeos:chronological.map(o=>o.geo)},regionCache),final=netAssetForecast(b,result,floor);
  const cashPositionPoints=result.points.map((p,i)=>{const netCash=roundCash(p.cash-committed[i]),protectedCash=roundCash(p.cash-taxReserve-unverifiedReserve),bufferCash=choice.datedCashPurchases?protectedCash:netCash;return {date:p.date,bankCash:p.cash,committed:roundCash(committed[i]),available:Math.max(0,bufferCash),netCash,protectedCash,floorShortfall:Math.max(0,roundCash(netCashFloor-bufferCash)),fundingGap:choice.datedCashPurchases?Math.max(0,roundCash(netCashFloor-protectedCash)):Math.max(0,-netCash)};});
  return {...result,purchaseGate,afterYearCommitments:-result.events.filter(e=>e.date>result.end&&e.amount<0).reduce((n,e)=>n+e.amount,0)+outstandingAds(result)+result.remainingOnHandDelgate+result.remainingContainerDelgate+taxReserve+unverifiedReserve,capitalConstraint:final.snapshot,netAssetPoints:final.points,cashPositionPoints,reinvestment:true};
 }
