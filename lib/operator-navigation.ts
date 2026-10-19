@@ -1,6 +1,7 @@
 export const operatorLinks = [
   { href: "/content", label: "Content" },
-  { href: "/demand", label: "Demand & Sales" },
+  { href: "/demand", label: "Sales" },
+  { href: "/financing", label: "Forecasting" },
   { href: "/ticketing", label: "Customers" }
 ];
 export const backOfficeLinks = [

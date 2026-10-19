@@ -1,5 +1,3 @@
-import {OperatorContextPlacement} from '@/components/operator-context-placement';
-import { OperatorWorkLoop } from '@/components/operator-work-loop';
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ReactNode } from "react";
@@ -9,7 +7,6 @@ import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 import { headers } from "next/headers";
 import { localContentEnabled } from "@/lib/local-content";
-import { SharedBusinessPlan } from "@/components/shared-business-plan";
 import { operatorLinks } from "@/lib/operator-navigation";
 
 export const metadata: Metadata = {
@@ -62,7 +59,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                     <Link href="/back-office" className="shrink-0 px-4 py-2.5 text-slate-500">Back office / Settings</Link>
                   </nav>
                 </header>
-                <OperatorContextPlacement context={<><SharedBusinessPlan /><OperatorWorkLoop/></>}>{children}</OperatorContextPlacement>
+                {children}
               </div>
             </div>
           ) : (
