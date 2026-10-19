@@ -1,4 +1,5 @@
 import 'server-only';
+import {instagramOperations} from './operations';
 import {randomUUID} from 'node:crypto';
 import {createAdminClient} from '../supabase/admin';
 import {getUserContext} from '../auth';
@@ -17,6 +18,7 @@ export function instagramServer(){
  async function rpc<T>(name:string,args:Record<string,unknown>):Promise<T>{const {data,error}=await db.rpc(name,args);if(error)throw Error('instagram_storage_unavailable');return data as T;}
  async function currentPost(id:string){const {data,error}=await db.from('operator_content_posts').select('package').eq('id',id).single();if(error||!data)throw Error('instagram_post_unavailable');return data.package as ContentPost;}
  async function connection(){const {data,error}=await db.from('instagram_connections').select('*').eq('account_id',config.accountId).maybeSingle();if(error)throw Error('instagram_storage_unavailable');return data as null|{account_id:string;username:string;token_ciphertext:string;expires_at:string;refreshed_at:string;scopes:string[]};}
+ async function connectionMetadata(){const {data,error}=await db.from('instagram_connections').select('account_id,username,expires_at,scopes').eq('account_id',config.accountId).maybeSingle();if(error)throw Error('instagram_storage_unavailable');return data as null|{account_id:string;username:string;expires_at:string;scopes:string[]};}
  async function token(){let c=await connection();if(!c||Date.parse(c.expires_at)<=Date.now())throw new InstagramError('instagram_reconnect_required');requireScopes(c.scopes);let t=openToken(c.token_ciphertext,config);
   if(Date.parse(c.expires_at)-Date.now()<7*86400000&&Date.now()-Date.parse(c.refreshed_at)>=86400000){
    // Compare-and-swap a short refresh lease; simultaneous workers must not rotate twice.
@@ -31,12 +33,13 @@ export function instagramServer(){
   const {data,error}=await db.storage.from('instagram-media').download(m.path);if(error||!data)throw new InstagramError('instagram_media_unavailable');const bytes=Buffer.from(await data.arrayBuffer());if(sha256(bytes)!==s.media.sha256)throw new InstagramError('instagram_media_changed');
   const signed=await db.storage.from('instagram-media').createSignedUrl(m.path,86400);if(signed.error||!signed.data)throw new InstagramError('instagram_media_unavailable');return {bytes,url:signed.data.signedUrl};
  }
- return {config,db,api,rpc,currentPost,connection,token,storeConnection,media,pinnedMedia};
+ const operations=instagramOperations(db,config.accountId,connectionMetadata);
+ return {config,db,api,rpc,currentPost,connection,connectionMetadata,token,storeConnection,media,pinnedMedia,operations};
 }
 export function jobPorts(s:ReturnType<typeof instagramServer>){let claimed:PublishJob|null=null;return {ports:{
  claim:async()=>{claimed=await s.rpc<PublishJob|null>('claim_instagram_publish_job',{p_account:s.config.accountId,p_lease:randomUUID()});return claimed;},
  save:async(j:PublishJob,p:JobPatch)=>{await s.rpc('save_instagram_publish_job',{p_id:j.id,p_lease:j.lease_id,p_patch:p});},
  begin:async(j:PublishJob)=>{await s.rpc('begin_instagram_publish_job',{p_id:j.id,p_lease:j.lease_id});},
- post:s.currentPost,token:s.token,media:s.pinnedMedia,api:s.api},release:async()=>{if(claimed)await s.rpc('release_instagram_publish_job',{p_id:claimed.id,p_lease:claimed.lease_id});}};
+ post:s.currentPost,token:s.token,media:s.pinnedMedia,api:{create:async(...args:Parameters<typeof s.api.create>)=>{await s.operations.requireEnabled('publishing');return s.api.create(...args);},publish:async(...args:Parameters<typeof s.api.publish>)=>{await s.operations.requireEnabled('publishing');return s.api.publish(...args);},status:s.api.status.bind(s.api),permalink:s.api.permalink.bind(s.api)}},release:async()=>{if(claimed)await s.rpc('release_instagram_publish_job',{p_id:claimed.id,p_lease:claimed.lease_id});}};
 }
 export function configuredInstagramMetadata(c:InstagramConfig){return {configured:true,accountId:c.accountId,messagesSendingEnabled:process.env.INSTAGRAM_OUTBOUND_MESSAGES_ENABLED==='1',publishingEnabled:process.env.INSTAGRAM_PUBLISHING_ENABLED==='1'};}

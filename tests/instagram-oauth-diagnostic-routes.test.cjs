@@ -7,7 +7,7 @@ const diagnostics=require(path.join(out,'lib/instagram/oauth-diagnostics.js')),c
 let owner=true,configError=false,storageError=false,exchangeError=null,exchangeStage='short_token',exchanges=0;
 const server={instagramHeaders:{'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'},instagramOwner:async()=>{if(!owner)throw Error('instagram_owner_required');return 'synthetic-owner';},configuredInstagramMetadata:()=>({configured:true,publishingEnabled:false,messagesSendingEnabled:false}),instagramServer:()=>{
  if(configError)throw Error('SYNTHETIC_PRIVATE_ERROR');
- return {config:{appId:'7001',accountId:'9001',redirectUri:core.INSTAGRAM_CALLBACK},connection:async()=>null,db:{from:()=>({insert:async()=>({error:null})})},rpc:async()=>true,api:{exchange:async(_code,onStage)=>{exchanges++;onStage(exchangeStage);if(exchangeError)throw exchangeError;return {token:'SYNTHETIC_TOKEN'};}},storeConnection:async()=>{if(storageError)throw Error('instagram_storage_unavailable');}};
+ return {config:{appId:'7001',accountId:'9001',redirectUri:core.INSTAGRAM_CALLBACK},connection:async()=>null,connectionMetadata:async()=>({account_id:core.INSTAGRAM_APPROVED_ACCOUNT_ID,username:'luun_official',expires_at:new Date(Date.now()+86400000).toISOString(),scopes:[...core.INSTAGRAM_SCOPES]}),operations:{status:async()=>({available:false,enabled:{publishing:false,receive:false,send:false}})},db:{from:()=>({insert:async()=>({error:null})})},rpc:async()=>true,api:{exchange:async(_code,onStage)=>{exchanges++;onStage(exchangeStage);if(exchangeError)throw exchangeError;return {token:'SYNTHETIC_TOKEN'};}},storeConnection:async()=>{if(storageError)throw Error('instagram_storage_unavailable');}};
 }};
 const original=Module._load;
 Module._load=function(name,...args){if(name==='@/lib/instagram/server')return server;if(name==='@/lib/instagram/core')return core;if(name==='@/lib/instagram/oauth-diagnostics')return diagnostics;if(name==='@/lib/content-access')return {validOperatorOrigin:()=>true};if(name==='next/server')return require(path.join(repo,'node_modules/next/server'));return original.call(this,name,...args);};
@@ -31,4 +31,8 @@ test('profile-specific diagnostics remain owner-only and contain no provider val
   owner=false;const unsigned=await status.GET(request);assert.equal(unsigned.status,403);assert.ok(!(await unsigned.text()).includes(reason));
   const denied=await callback.GET(callbackRequest());assert.equal(denied.cookies.get(diagnostics.OAUTH_DIAGNOSTIC_COOKIE),undefined);
  }
+});
+
+test('a missing controls migration preserves connected account metadata while actions remain off',async()=>{
+ reset();const r=await status.GET(new NextRequest(base+'/api/instagram/status'));assert.equal(r.status,200);const body=await r.json();assert.equal(body.connected,true);assert.equal(body.username,'luun_official');assert.equal(body.operations.available,false);assert.equal(body.publishingEnabled,false);assert.equal(body.messagesSendingEnabled,false);assert.equal(body.token_ciphertext,undefined);
 });

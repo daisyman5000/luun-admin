@@ -18,6 +18,10 @@
     "../lib/webflow-inquiries.test.ts",
     "../app/api/instagram/callback/route.ts",
     "../app/api/instagram/status/route.ts",
-    "../app/api/instagram/connect/route.ts"
+    "../app/api/instagram/connect/route.ts",
+    "../app/api/instagram/controls/route.ts",
+    "../app/api/instagram/webhook/route.ts",
+    "../app/api/internal/instagram-publish/route.ts",
+    "../app/api/instagram/replies/route.ts"
   ]
 }

@@ -1,0 +1,14 @@
+{
+  "proposedCronOnly": {
+    "path": "/api/internal/instagram-publish",
+    "schedule": "* * * * *"
+  },
+  "applied": false,
+  "requirements": [
+    "Merge this entry with existing crons only after approval; this file is documentation and is not deployed scheduler configuration.",
+    "Scheduler must support one-minute cadence and send the existing protected CRON_SECRET as Bearer authorization.",
+    "Never put the secret in source, browser requests, or query parameters.",
+    "Keep Admin publishing off during scheduler verification; an authenticated check-in records readiness without processing jobs.",
+    "Review existing queued jobs before enabling Admin publishing. Only explicitly approved and scheduled jobs are eligible."
+  ]
+}
