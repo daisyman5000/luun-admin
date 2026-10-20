@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {instagramImageSize} from './prepare-image';
+test('large landscape and portrait JPEGs resize proportionally within Instagram width gate',()=>{assert.deepEqual(instagramImageSize(1536,1024),{width:1440,height:960});assert.deepEqual(instagramImageSize(4000,5000),{width:1440,height:1800});assert.deepEqual(instagramImageSize(1080,1080),{width:1080,height:1080});});
+test('unsupported crop and tiny images explain the actual dimensions rather than claiming sign-in failed',()=>{for(const [w,h] of [[200,200],[1000,2000],[4000,1000]])assert.throws(()=>instagramImageSize(w,h),new RegExp(`${w} × ${h}`));});
