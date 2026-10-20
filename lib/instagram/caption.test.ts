@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {captionLimiter,generateCaption} from './caption';
+const env={OPENAI_API_KEY:'synthetic-test-key'};
+const response=(caption:string)=>Response.json({output:[{type:'message',content:[{type:'output_text',text:caption}]}]});
+test('caption sends only image and fixed voice to existing OpenAI with storage disabled',async()=>{let calls=0;const caption=await generateCaption(Buffer.from('synthetic-image'),env,async(url,init)=>{calls++;assert.equal(url,'https://api.openai.com/v1/responses');const body=JSON.parse(init!.body as string);assert.equal(body.store,false);assert.equal(body.model,'gpt-4.1-mini');assert.equal(body.input[0].content[1].image_url,'data:image/jpeg;base64,c3ludGhldGljLWltYWdl');assert.match(body.instructions,/Do not invent/);assert.equal(body.tools,undefined);return response('Soft light. A quiet corner.');});assert.equal(caption,'Soft light. A quiet corner.');assert.equal(calls,1);});
+test('missing credentials makes no provider call',async()=>{await assert.rejects(generateCaption(Buffer.from('x'),{},async()=>{throw Error('must not send');}),/not configured/);});
+test('provider failures are sanitized and not retried',async()=>{let calls=0;await assert.rejects(generateCaption(Buffer.from('x'),env,async()=>{calls++;return new Response('secret provider details',{status:401});}),/unavailable/);assert.equal(calls,1);await assert.rejects(generateCaption(Buffer.from('x'),env,async()=>new Response('',{status:429})),/usage limit/);});
+test('refusal and oversized copy fail instead of replacing an owner caption',async()=>{for(const value of ['', 'word '.repeat(26)])await assert.rejects(generateCaption(Buffer.from('x'),env,async()=>response(value)),/not brief/);});
+test('burst limiter prevents repeat generations and allows deliberate retry after a minute',()=>{let now=0;const limit=captionLimiter(()=>now);limit('owner');assert.throws(()=>limit('owner'),/one minute/);now=60000;assert.doesNotThrow(()=>limit('owner'));});
