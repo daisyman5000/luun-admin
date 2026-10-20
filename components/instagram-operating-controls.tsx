@@ -2,14 +2,16 @@
 import {useState} from 'react';
 import {instagramCapabilities,type InstagramCapability,type InstagramOperatingStatus} from '@/lib/instagram/operating-controls';
 const labels={publishing:'Publishing',receive:'Receive messages',send:'Send approved replies'};
-export function InstagramOperatingControls({operations,local,onChange}:{operations:InstagramOperatingStatus|undefined;local:boolean;onChange:(s:InstagramOperatingStatus)=>void}){
+export function InstagramOperatingControls({operations,local,onChange,compact=false}:{compact?:boolean;operations:InstagramOperatingStatus|undefined;local:boolean;onChange:(s:InstagramOperatingStatus)=>void}){
  const [busy,setBusy]=useState<InstagramCapability|null>(null),[error,setError]=useState('');
  async function change(capability:InstagramCapability){
-  if(!operations)return;setBusy(capability);setError('');
+
+ if(!operations)return;setBusy(capability);setError('');
   try{const r=await fetch('/api/instagram/controls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({capability,enabled:!operations.requested[capability],version:operations.version})}),body=await r.json();if(!r.ok)throw Error(body.error||'Control was not saved.');onChange(body.operations);}
   catch(e){setError(e instanceof Error?e.message:'Control was not saved.');}finally{setBusy(null);}
  }
  async function refresh(){setError('');try{const r=await fetch('/api/instagram/status',{cache:'no-store'}),body=await r.json();if(!r.ok||!body.operations)throw Error();onChange(body.operations);}catch{setError('Readiness could not be refreshed.');}}
+  if(compact){if(!operations)return null;return <div className="text-sm"><button type="button" role="switch" aria-checked={operations.requested.publishing} aria-label="Publishing" disabled={local||busy!==null} onClick={()=>{if(!operations.requested.publishing&&!operations.readiness.publishing.ready){setError(operations.readiness.publishing.blockers[0]||'Reconnect Instagram to enable publishing.');return;}void change('publishing');}} className="rounded-lg border px-3 py-2 text-xs disabled:opacity-50">{busy?'Saving…':'Publishing '+(operations.enabled.publishing?'on':'off')}</button>{error&&<p role="alert" className="mt-2 text-xs text-red-800">{error}</p>}</div>;}
  if(!operations)return <p className="mt-3 text-xs">Operational controls unavailable. All actions stay off until readiness can be checked.</p>;
  return <section className="mt-4 border-t border-amber-200 pt-3" aria-label="Instagram operating controls">
   <div className="mb-3 flex items-center justify-between"><strong>Instagram controls</strong><a href="/ticketing?view=instagram" className="underline">Open inbox</a><button type="button" disabled={local||busy!==null} onClick={()=>void refresh()} className="rounded border border-amber-300 px-3 py-1 text-xs disabled:opacity-50">Refresh status</button></div>
