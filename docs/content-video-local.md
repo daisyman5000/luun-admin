@@ -22,8 +22,8 @@ The API requires development mode, both local flags, loopback Host, and same-ori
 
 ## Verification
 
-- `node --test tests/content-video.test.cjs`: six integration/security tests, including a real 15-second silent MP4, selected real frame, both gates, revision invalidation, replay, production/cross-origin denial, credential isolation and safe download paths.
-- Existing `npm run test:content`: six passing tests. Current `npm run test:instagram`: 187 passing tests, including calendar, composer, publishing, inbox, controls and results regression coverage. Total: 199 tests.
+- `node --test tests/content-video.test.cjs`: eleven integration/security tests, including a real 15-second silent MP4, selected real frame, both gates, revision invalidation, replay, production/cross-origin denial, credential isolation and safe download paths.
+- Existing `npm run test:content`: six passing tests. Current `npm run test:instagram`: 187 passing tests, including calendar, composer, publishing, inbox, controls and results regression coverage. Total: 204 tests.
 - TypeScript, scoped ESLint and `LUUN_VERIFY_BUILD=1 npm run build`: passed.
 - Native browser verification uses an explicitly labeled integration project, not owner-approved advertising. Calendar and Video views were browser-verified. Image Studio renders its unchanged connection-unavailable state because the installed desktop service is unavailable; no generation was attempted. Image Studio/creative components and all other existing files except the additive Content navigation change match current main exactly. Microphone capture and a real owner narration upload have not been exercised; provider/Drive/hosted flows were not exercised.
 
@@ -40,3 +40,17 @@ The smallest separate production change would need:
 Separate approval is needed for the exact schema/migrations, private media uploads/storage and retention/costs, worker credentials/runtime, production integration and deployment. None were performed. No provider connection or paid generation is needed for the current silent rough-cut path. Transcription/presenter automation remains paused. No calendar scheduling or Instagram video publishing is added.
 
 Reference: [Supabase storage access control](https://supabase.com/docs/guides/storage/security/access-control), [private downloads](https://supabase.com/docs/guides/storage/serving/downloads), [database RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).
+
+## Audio upload verification and remaining workflow gaps
+
+The audio fix reproduces Chrome M4A uploads rejecting `audio/x-m4a` with HTTP 400. The intake now normalizes supported browser MIME aliases and handles missing/generic MIME using known filename extensions; actual bytes still require bounded audio decoding. Supported containers: M4A/MP4 audio, MP3, WAV, WebM and Ogg. Unsupported formats are rejected; no transcription is invented. The saved note has a same-origin, hash-checked audio stream and playable control, persisting across reload. Failed validation preserves the previous project and audio. Original files stay local.
+
+Verified via actual browser file chooser: two-second generated M4A uploaded, played, then reloaded with duration 2 seconds and no media error. Actual local HTTP multipart tests: M4A (`audio/x-m4a`), WAV, MP3, Ogg and WebM returned 200 and byte-identical GET audio; generic/empty M4A MIME also returned 200. Corrupt bytes returned 400 with unchanged project. All verification-only projects remain on disk and are hidden from normal lists.
+
+Remaining gaps:
+- Automatic audio→transcript→script is absent from this provider-free Content path. The separate engine has OpenAI transcription and Claude script adapters, but Content intentionally does not invoke them or inherit credentials. Existing OpenAI access was previously validated read-only; no paid transcription was authorized or run. Offline speech recognition is not implemented or installed by this task.
+- Assistant script/storyboard handoff, both approval gates, actual locally owned frame selection, and deterministic silent/owner-narrated MP4 rendering are implemented. Script and board preparation currently require the conversation assistant; there is no automatic assistant trigger from an upload.
+- Selected-root read-only Drive ingestion, version/hash caching, proxies and coverage reporting are implemented in the separate engine, but Drive setup is paused and the native Content bridge has no Drive sync route. The two folders are not automatically available. No OAuth, download or Drive transmission ran.
+- Generated narration/presenter and Claude direction remain paused/unconnected. Local deterministic edit/render works without them. No generated talking head is available in this mode.
+
+Smallest path with no new providers: assistant prepares script and board in conversation using existing local assets, then hands them to Content for the same two approvals and local render. A typed/available transcript is needed unless a separately approved existing OpenAI transcription call is added. To use the selected Drive folders, separately authorize read-only connection/download and wire the existing importer into Content; no manual mixing is necessary. Fully automatic, provider-free voice→script requires a new local ASR implementation/runtime, which is currently absent. No setup or paid-call approval was requested or granted here.

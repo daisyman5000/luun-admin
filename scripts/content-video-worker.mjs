@@ -10,6 +10,7 @@ try{
  if(b.action==='list')result={projects:core.list().filter(p=>p.mode==='rough-cut'&&(b.includeHidden===true||(!p.demoLabel&&!p.hiddenFromList&&p.id!=='3fa17f94-e84d-459f-af85-a691ad04dac4'))),capabilities:{localOnly:true,providerCalls:false,hostedPersistence:false}};
  else if(b.action==='create')result=rough.createRough();
  else if(b.action==='frame'){const jpeg=await core.frame(b.sourceId,Number(b.offset||0));result={jpeg:jpeg.toString('base64')};}
+ else if(b.action==='audio'){const p=core.load(b.id);if(p.mode!=='rough-cut'||!p.voice||!fs.existsSync(core.localFile(p.voice.file))||core.bufferHash(fs.readFileSync(core.localFile(p.voice.file)))!==p.voice.hash)throw Error('Saved idea note is unavailable or changed');result={file:p.voice.file,type:p.voice.type};}
  else if(b.action==='preview'){const p=core.load(b.id),shot=p.shots.find(s=>s.preview===b.preview);if(!shot)throw Error('Preview is not part of this storyboard');result={jpeg:fs.readFileSync(core.localFile(shot.preview)).toString('base64')};}
  else if(b.action==='download'){const p=core.load(b.id);if(p.mode!=='rough-cut'||!p.output||!fs.existsSync(core.localFile(p.output))||core.bufferHash(fs.readFileSync(core.localFile(p.output)))!==p.outputHash)throw Error('Local render is unavailable or changed');result={file:p.output,hash:p.outputHash};}
  else if(b.action==='context'){const p=core.load(b.id);if(p.mode!=='rough-cut')throw Error('Not a local video project');const samples=await core.sourceSamples({mode:p.sourceMode,selectedIds:p.sourceIds,query:p.script||p.idea||''});result={project:p,candidates:samples.map(({jpeg,...s})=>({...s,preview:core.saveBlob(jpeg,'jpg').file})),coverage:samples.coverage};}
@@ -24,7 +25,7 @@ try{
   if(b.action==='approve-board'){await core.preflight(p);return rough.approveRoughBoard(p);}
   if(b.action==='render')return rough.renderRough(p,b.key);
   if(b.action==='silent')return rough.silent(p);
-  if(b.action==='voice'){p.idea='';p.finalNarration=null;await core.importVoice(p,Buffer.from(b.audio,'base64'),b.type);p.stage='awaiting-script';p.ideaNoteStatus='Idea note stored locally; not automatically transcribed.';return rough.ideaVoiceSaved(p);}
+  if(b.action==='voice'){await core.importVoice(p,Buffer.from(b.audio,'base64'),b.type);p.idea='';p.finalNarration=null;p.stage='awaiting-script';p.ideaNoteStatus='Idea note stored locally; not automatically transcribed.';return rough.ideaVoiceSaved(p);}
   if(b.action==='narration')return rough.finalNarration(p,Buffer.from(b.audio,'base64'),b.type,b.confirmed===true);
   throw Error('Unsupported local video action');
  });
