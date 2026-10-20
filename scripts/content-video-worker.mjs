@@ -7,7 +7,7 @@ try{
  const root=process.env.LUUN_STORYBOARD_ENGINE_ROOT;
  if(!root||!path.isAbsolute(root)||!fs.existsSync(path.join(root,'lib/video-rough-cut.mjs'))||!fs.existsSync(path.join(root,'data/library.json')))throw Error('Configure the existing local video engine and owned media library.');
  const core=await import(pathToFileURL(path.join(root,'lib/video-creator.mjs')).href),rough=await import(pathToFileURL(path.join(root,'lib/video-rough-cut.mjs')).href);const b=JSON.parse(input||'{}');let result;
- if(b.action==='list')result={projects:core.list().filter(p=>p.mode==='rough-cut'),capabilities:{localOnly:true,providerCalls:false,hostedPersistence:false}};
+ if(b.action==='list')result={projects:core.list().filter(p=>p.mode==='rough-cut'&&(b.includeHidden===true||(!p.demoLabel&&!p.hiddenFromList&&p.id!=='3fa17f94-e84d-459f-af85-a691ad04dac4'))),capabilities:{localOnly:true,providerCalls:false,hostedPersistence:false}};
  else if(b.action==='create')result=rough.createRough();
  else if(b.action==='frame'){const jpeg=await core.frame(b.sourceId,Number(b.offset||0));result={jpeg:jpeg.toString('base64')};}
  else if(b.action==='preview'){const p=core.load(b.id),shot=p.shots.find(s=>s.preview===b.preview);if(!shot)throw Error('Preview is not part of this storyboard');result={jpeg:fs.readFileSync(core.localFile(shot.preview)).toString('base64')};}
