@@ -27,6 +27,8 @@ export function instagramServer(){
    c=await connection();if(!c)throw new InstagramError('instagram_reconnect_required');
   }return t;
  }
+ // Analytics reads never refresh/rotate credentials or mutate connection state.
+ async function analyticsCredentials(){const c=await connection();if(!c||Date.parse(c.expires_at)<=Date.now())throw new InstagramError('instagram_reconnect_required');requireScopes(c.scopes);return {token:openToken(c.token_ciphertext,config),scopes:c.scopes};}
  async function storeConnection(c:{token:string;expiresIn:number;username:string;scopes:string[];accountId:string}){if(c.accountId!==config.accountId||c.accountId!==INSTAGRAM_APPROVED_ACCOUNT_ID)throw Error('instagram_account_mismatch');const {error}=await db.from('instagram_connections').upsert({account_id:config.accountId,app_id:config.appId,username:c.username,token_ciphertext:sealToken(c.token,config),expires_at:new Date(Date.now()+c.expiresIn*1000).toISOString(),refreshed_at:new Date().toISOString(),scopes:c.scopes});if(error)throw Error('instagram_storage_unavailable');}
  async function media(id:string):Promise<Media>{if(!/^[a-f0-9-]{36}$/.test(id))throw Error('instagram_media_required');const {data,error}=await db.from('instagram_media').select('id,path,sha256,mime,width,height,size').eq('id',id).single();if(error||!data)throw Error('instagram_media_required');return data as Media;}
  async function pinnedMedia(s:ApprovedSnapshot){const m=await media(s.media.id);if(m.path!==s.media.path||m.sha256!==s.media.sha256)throw new InstagramError('instagram_media_changed');
@@ -34,7 +36,7 @@ export function instagramServer(){
   const signed=await db.storage.from('instagram-media').createSignedUrl(m.path,86400);if(signed.error||!signed.data)throw new InstagramError('instagram_media_unavailable');return {bytes,url:signed.data.signedUrl};
  }
  const operations=instagramOperations(db,config.accountId,connectionMetadata);
- return {config,db,api,rpc,currentPost,connection,connectionMetadata,token,storeConnection,media,pinnedMedia,operations};
+ return {config,db,api,rpc,currentPost,connection,connectionMetadata,token,analyticsCredentials,storeConnection,media,pinnedMedia,operations};
 }
 export function jobPorts(s:ReturnType<typeof instagramServer>){let claimed:PublishJob|null=null;return {ports:{
  claim:async()=>{claimed=await s.rpc<PublishJob|null>('claim_instagram_publish_job',{p_account:s.config.accountId,p_lease:randomUUID()});return claimed;},

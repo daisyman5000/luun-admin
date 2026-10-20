@@ -26,6 +26,7 @@
     "../app/api/content/instagram-schedule/route.ts",
     "../app/api/instagram/media/route.ts",
     "../app/api/instagram/caption/route.ts",
+    "../app/api/instagram/analytics/route.ts",
     "../app/api/content/instagram-publish-now/route.ts"
   ]
 }

@@ -2,6 +2,7 @@
 'use client';
 import {useCallback,useEffect,useState,useRef} from 'react';
 import {InstagramConnection,type InstagramConnectionState} from '@/components/instagram-connection';
+import {InstagramPostResults} from '@/components/instagram-post-results';
 import {prepareInstagramImage} from '@/lib/instagram/prepare-image';
 import {ContentCalendar} from '@/components/content-calendar';
 import {emptyPost,type ContentPost,type PostDraft} from '@/lib/content';
@@ -58,7 +59,7 @@ export function ContentPlanner({local}:{local:boolean}){
 
      <div aria-label="Post preview" className="rounded-xl bg-slate-50 p-4"><p className="text-xs font-medium text-slate-500">Preview · @luun_official</p><p className="mt-2 whitespace-pre-wrap break-words text-sm">{draft.caption||'Your caption appears here.'}</p><p className="mt-3 text-xs text-slate-500">{draft.plannedAt?new Date(draft.plannedAt).toLocaleString():draft.dueDate?new Date(draft.dueDate+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}):'Choose a day on the calendar.'}</p></div>
      <div className="flex gap-3"><button type="submit" className="rounded-xl border px-4 py-3 text-sm">{busy&&!publishingNow&&!generating?'Saving…':'Save draft'}</button><button type="button" disabled={!canApprove||local||!uploaded||!draft.caption.trim()||!hasPlacement} onClick={()=>void save(true)} className="rounded-xl bg-slate-950 px-4 py-3 text-sm text-white disabled:opacity-40">{busy&&publishingNow?'Publishing…':today?'Publish now':'Schedule'}</button></div>
-    </fieldset>{busy&&publishingNow&&<p role="status" className="text-xs text-slate-500">Publishing this approved post… Keep this page open.</p>}{selected?.delivery&&['queued','creating','processing','publishing','reconciling'].includes(selected.delivery.state)&&<button type="button" disabled={busy||!ready} onClick={()=>void continuePublishing()} className="rounded-xl border px-4 py-3 text-sm disabled:opacity-40">{selected.delivery.state==='reconciling'?'Check Instagram confirmation':'Continue publishing'}</button>}{locked&&<p className="text-xs text-slate-500">This post is publishing or already published. Create a new draft to change it.</p>}</form>
+    </fieldset>{busy&&publishingNow&&<p role="status" className="text-xs text-slate-500">Publishing this approved post… Keep this page open.</p>}{selected?.delivery&&['queued','creating','processing','publishing','reconciling'].includes(selected.delivery.state)&&<button type="button" disabled={busy||!ready} onClick={()=>void continuePublishing()} className="rounded-xl border px-4 py-3 text-sm disabled:opacity-40">{selected.delivery.state==='reconciling'?'Check Instagram confirmation':'Continue publishing'}</button>}{locked&&<p className="text-xs text-slate-500">This post is publishing or already published. Create a new draft to change it.</p>}</form>{selected?.delivery?.state==='published'&&<InstagramPostResults key={selected.id} postId={selected.id}/>}
    </section>}
   </div>
  </main>;

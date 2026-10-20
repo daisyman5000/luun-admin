@@ -1,6 +1,7 @@
 import {createCipheriv,createDecipheriv,createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import type {ContentPost} from '../content';
 export const INSTAGRAM_SCOPES=['instagram_business_basic','instagram_business_content_publish','instagram_business_manage_messages'] as const;
+export const INSTAGRAM_INSIGHTS_SCOPE='instagram_business_manage_insights';
 export const INSTAGRAM_CALLBACK='https://luun-admin-et42.vercel.app/api/instagram/callback';
 export const INSTAGRAM_APPROVED_ACCOUNT_ID='17841472352520052';
 export type InstagramConfig={appId:string;appSecret:string;redirectUri:string;key:string;apiVersion:string;accountId:string};
@@ -32,8 +33,8 @@ export async function consumeOAuthCallback(params:URLSearchParams,cookie:string|
  if(params.has('error'))throw Error('instagram_authorization_denied');
  if(!params.get('code')||params.get('code')!.length>4096)throw Error('instagram_code_invalid');return params.get('code')!;
 }
-export function authorizeUrl(c:InstagramConfig,state:string){if(!/^[a-f0-9]{64}$/.test(state))throw Error('instagram_state_invalid');const u=new URL('https://www.instagram.com/oauth/authorize');u.search=new URLSearchParams({client_id:c.appId,redirect_uri:c.redirectUri,response_type:'code',scope:INSTAGRAM_SCOPES.join(','),state,enable_fb_login:'0',force_authentication:'1'}).toString();return u.toString();}
-export function requireScopes(scopes:string[]){if(INSTAGRAM_SCOPES.some(s=>!scopes.includes(s))||scopes.some(s=>!INSTAGRAM_SCOPES.includes(s as typeof INSTAGRAM_SCOPES[number])))throw Error('instagram_permissions_incomplete');}
+export function authorizeUrl(c:InstagramConfig,state:string,analytics=false){if(!/^[a-f0-9]{64}$/.test(state))throw Error('instagram_state_invalid');const u=new URL('https://www.instagram.com/oauth/authorize');u.search=new URLSearchParams({client_id:c.appId,redirect_uri:c.redirectUri,response_type:'code',scope:[...INSTAGRAM_SCOPES,...(analytics?[INSTAGRAM_INSIGHTS_SCOPE]:[])].join(','),state,enable_fb_login:'0',force_authentication:'1'}).toString();return u.toString();}
+export function requireScopes(scopes:string[]){if(INSTAGRAM_SCOPES.some(s=>!scopes.includes(s))||scopes.some(s=>![...INSTAGRAM_SCOPES,INSTAGRAM_INSIGHTS_SCOPE].includes(s)))throw Error('instagram_permissions_incomplete');}
 export type Media={id:string;path:string;sha256:string;mime:'image/jpeg';width:number;height:number;size:number};
 export type ApprovedSnapshot={accountId:string;postId:string;postVersion:number;caption:string;scheduledAt:string;media:Media};
 export function publicationSnapshot(post:ContentPost,media:Media,accountId:string,now=Date.now()):ApprovedSnapshot{
