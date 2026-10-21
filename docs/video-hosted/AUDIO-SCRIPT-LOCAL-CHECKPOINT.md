@@ -23,3 +23,9 @@ Rendering remains in the browser; tab/device must remain open. No cloud backgrou
 ## Owner prompt replacement
 
 The later owner-supplied spoken-ramble specification replaces the five-stage framework for all new native requests. Its full wording is stored in content-video-script-prompt.ts. Source JSON is separately delimited and untrusted. OpenAI returns exactly three distinct idea options, selected idea/reason and finished dialogue; script-only requests display dialogue only. New projects default60seconds, with approximately130–160words requested. No Luun, product, forced belief change or sales framing is assumed. Existing framework records remain readable for compatibility; no saved data deleted. Cached idea transcription, approval, narration separation and Claude editing remain unchanged. All release/setup locks above remain in force.
+
+## Recording correction
+
+Added click-only MediaRecorder Record → Stop → local playback/Record again → Upload for idea audio and separately final narration. MIME negotiation prefers Opus/WebM then MP4, WebM, Ogg;120-second and25MiB bounds. Tracks are released on stop, cancel, unmount, constructor/start errors; object URLs revoked. File selection remains secondary. Extra notes removed. Audio duration fallback decodes bounded browser recordings with absent/infinite container metadata. No owner microphone activated by verification.
+
+69 Video tests passed, including recording lifecycle, MIME negotiation, permission rejection and cancellation. Synthetic Chrome oscillator stream (not microphone) produced decodable3.06-second49,459-byte Opus/WebM; Record→Stop→playback/Record again→Upload callback and reset verified. Fixture upload endpoint was loopback only; production upload/persistence and physical phone not tested. Existing private upload path is reused. Paid AI/Drive remain compiled off.
