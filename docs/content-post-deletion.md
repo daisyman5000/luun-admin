@@ -1,0 +1,9 @@
+# Recoverable calendar deletion
+
+Delete is available in an existing post popup to owner/admin, with explicit confirmation. No Delete control is shown for published or in-flight posts. It calls same-origin authenticated DELETE /api/content with only id/version. A successful response removes that exact item from the normal calendar. Failure leaves it visible. Duplicate clicks share a latch; already-deleted requests are idempotent.
+
+No new schema or access changes. The package JSON keeps deletedAt, original caption/media/date and the saved record; status becomes draft and approval is invalidated. Existing save_operator_content_post locks the post, checks expected version, writes the new package and audit event, and invokes instagram_content_approval_guard. That guard cancels queued jobs and rejects updates if creation/processing/publication/reconciliation has begun. Worker begin uses the same post→job lock order and checks job state, post version and approval; deletion and publication cannot both win. No media or job history is removed. Recovery requires an authorized administrative restore; no restore UI added.
+
+Read-only production introspection confirmed the save function preserves unlisted JSON fields and has its row lock, the approval guard cancels queues/blocks in-flight jobs, and its trigger is enabled. No user record was changed. Tests simulate queue cancellation and race outcomes and assert the existing SQL lock ordering; they are not live deletion tests.
+
+Normal listing hides deletedAt records and regular save rejects attempts to resurrect them. Local filesystem calendar deletion is disabled; deployed database calendar is the supported path. PNG/JPEG popup drops and the previous publishing workflow are unchanged. The cancelled Publish now feature was not restored.

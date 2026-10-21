@@ -2,6 +2,7 @@ export const contentStatuses = ["draft", "needs_review", "approved", "planned", 
 export type ContentStatus = typeof contentStatuses[number];
 export const statusLabels: Record<ContentStatus, string> = { draft: "Draft", needs_review: "Needs review", approved: "Approved", planned: "Planned", published: "Published" };
 export type ContentPost = {
+ deletedAt?:string;
  planVersion?:number; planObjective?:string;
  delivery?:{status:'Draft'|'Scheduled'|'Published'|'Failed';state:string;permalink:string|null;errorCode:string|null};
  id: string; version: number; title: string; objective: string; brief: string; caption: string;

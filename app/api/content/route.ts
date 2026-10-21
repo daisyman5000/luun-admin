@@ -23,3 +23,9 @@ export async function POST(request:Request){
  return Response.json({post});
  }catch(error){return Response.json({error:error instanceof Error?error.message:'Unable to save.'},{status:400});}
 }
+
+export async function DELETE(request:Request){
+ const headers={'Cache-Control':'private, no-store'};if(!validOperatorOrigin(request))return Response.json({error:'Use the signed-in calendar.'},{status:403,headers});const access=await operatorAccess(request);if(access.kind==='denied')return Response.json({error:'Authenticated workspace access required.'},{status:access.status,headers});if(access.kind!=='database')return Response.json({error:'Deletion requires the private database calendar.'},{status:503,headers});if(!canApproveContent(access.role))return Response.json({error:'Owner/admin access required.'},{status:403,headers});
+ let body:{id:string;version:number};try{const raw=await request.text();if(raw.length>500)throw Error();const value=JSON.parse(raw);if(!value||Object.keys(value).sort().join(',')!=='id,version'||typeof value.id!=='string'||!/^[a-f0-9-]{36}$/.test(value.id)||!Number.isSafeInteger(value.version)||value.version<1)throw Error();body=value;}catch{return Response.json({error:'Choose the saved post version.'},{status:400,headers});}
+ try{const post=await access.store.archivePost(body.id,body.version,access.role);return Response.json({id:post.id,deleted:true},{headers});}catch(e){return Response.json({error:e instanceof Error?e.message:'Deletion was not confirmed. Refresh the calendar.'},{status:409,headers});}
+}
