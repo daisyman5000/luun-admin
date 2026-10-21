@@ -4,6 +4,7 @@ import {Readable} from 'node:stream';
 import {contentVideoAllowed,localVideoCall,videoDownloadPath,videoAudioType,videoAudioPath} from '@/lib/content-video';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
+export const maxDuration=300;
 const headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'};
 async function bounded(request:Request,limit:number){const reader=request.body?.getReader();if(!reader)return Buffer.alloc(0);let size=0;const chunks:Buffer[]=[];try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw Error('Local video request exceeds size bound');chunks.push(Buffer.from(value));}}catch(e){await reader.cancel().catch(()=>{});throw e;}return Buffer.concat(chunks);}
 export async function GET(request:Request){

@@ -8,3 +8,27 @@ async function mediaInfo(file:File){if(file.type.startsWith('image/')){const ima
 export async function uploadHostedVideo(file:File,kind:string,project:VideoProject,extra:Record<string,unknown>={}){const info=await mediaInfo(file),sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');const reservation=await videoJSON({action:'upload-intent',id:project.id,revision:project.revision,kind,mime:file.type,size:file.size,sha256,name:file.name,...info,...extra});const {error}=await createClient().storage.from('content-video').uploadToSignedUrl(reservation.path,reservation.token,new Blob([file],{type:reservation.mime}),{contentType:reservation.mime,upsert:false});if(error)throw Error('Upload failed. Your saved project is unchanged; retry the file.');return videoJSON({action:'upload-complete',id:project.id,mediaId:reservation.id});}
 export async function finishBrowserRender(project:VideoProject&{browserRender?:{shots:BrowserShot[];captions:BrowserCaption[];narration?:string;approval:string}},key:string){const plan=project.browserRender;if(!plan)return project;const blob=await renderBrowserVideo(plan.shots,plan.captions,plan.narration);return uploadHostedVideo(new File([blob],'Luun-video.mp4',{type:'video/mp4'}),'export',project,{approval:plan.approval,renderKey:key});}
 export async function uploadOwnedVideoMedia(file:File,project:VideoProject){if(!['image/jpeg','image/png','image/webp','video/mp4','video/webm'].includes(file.type))throw Error('Choose JPEG, PNG, WebP, MP4 or WebM');const p=await uploadHostedVideo(file,'source',project,{owned:true});if(!file.type.startsWith('video/'))return p;const sourceId=p.sources[p.sources.length-1],v=document.createElement('video'),url=URL.createObjectURL(file);v.muted=true;try{await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Source preview could not be decoded')),15000);v.onloadeddata=()=>{clearTimeout(timer);resolve();};v.onerror=()=>{clearTimeout(timer);reject(Error('Source preview could not be decoded'));};v.src=url;v.preload='auto';v.load();});const canvas=document.createElement('canvas');canvas.width=360;canvas.height=Math.max(1,Math.round(360*v.videoHeight/v.videoWidth));canvas.getContext('2d')!.drawImage(v,0,0,canvas.width,canvas.height);const preview=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',.85));if(!preview)throw Error('Source preview unavailable');return uploadHostedVideo(new File([preview],'source-frame.jpg',{type:'image/jpeg'}),'preview',p,{sourceId,offset:0});}finally{v.removeAttribute('src');v.load();URL.revokeObjectURL(url);}}
+export async function uploadCreatorRecording(file:File,project:VideoProject){
+ const {extractOwnerAudio}=await import('./content-video-creator-render');
+ if(file.size>100*1024*1024)throw Error('Recording must be under 100 MB');
+ const audio=await extractOwnerAudio(file); // Decode first; never upload an unusable recording.
+ const original=await uploadHostedVideo(file,'narration',project,{creatorRecording:true,part:'original'});
+ return uploadHostedVideo(audio,'narration',original,{creatorRecording:true,part:'audio',recordingId:original.performance.id});
+}
+export async function generateCreatorVideo(project:VideoProject,key:string){
+ const {creatorImageFrame,creatorVideoFrame,renderCreatorVideo}=await import('./content-video-creator-render');
+ if((project as VideoProject&{renderApproval?:string}).renderApproval){const ready=await videoJSON({action:'resume-render',id:project.id});if(ready.output)return ready;const blob=await renderCreatorVideo(ready.creatorRenderPlan);return uploadHostedVideo(new File([blob],'Luun-video.mp4',{type:'video/mp4'}),'export',ready,{approval:ready.renderApproval,renderKey:key});}
+ const prepared=await videoJSON({action:'prepare-generate',id:project.id,revision:project.revision});
+ const previewIds:string[]=[];
+ for(const file of prepared.driveCandidates){for(const offset of file.offsets){
+  const blob=file.mimeType.startsWith('video/')?await creatorVideoFrame(file.url,offset):await creatorImageFrame(file.url);
+  // Preview attachment does not revise the project; retrieve its reserved media ID from context.
+  await uploadHostedVideo(new File([blob],'drive-frame.jpg',{type:'image/jpeg'}),'preview',prepared,{sourceType:'drive',sourceId:file.id,version:file.version,md5:file.md5Checksum,offset});
+  const r=await fetch(`/api/content/video?context=${project.id}`,{cache:'no-store'}),context=await r.json();if(!r.ok)throw Error(context.error||'Frame retrieval failed');
+  const found=context.media.find((m:{kind:string;metadata:Record<string,unknown>})=>m.kind==='preview'&&m.metadata.sourceId===file.id&&m.metadata.offset===offset&&m.metadata.version===file.version);if(!found)throw Error('Selected frame was not saved');previewIds.push(found.id);
+ }}
+ const edited=await videoJSON({action:'generate',id:project.id,revision:prepared.revision,key,previewIds});
+ if(edited.output)return edited;
+ const blob=await renderCreatorVideo(edited.creatorRenderPlan);
+ return uploadHostedVideo(new File([blob],'Luun-video.mp4',{type:'video/mp4'}),'export',edited,{approval:edited.renderApproval,renderKey:key});
+}
