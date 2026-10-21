@@ -1,3 +1,5 @@
+> Historical local-mode notes. Hosted integration and applied persistence are documented in [video-hosted/README.md](video-hosted/README.md).
+
 # Content: additive local Video tab
 
 Local-only implementation on branch `codex/content-video-current`, based on current production/main `3fcbbcb`. `app/content/page.tsx` adds the Video link and separate view. The shared layout is unchanged from current production/main, which already has no shared business plan or operator work/agent brief mounts. Its Image Studio link and rendering branch are unchanged byte-for-byte. Calendar components, image generation/assets, publishing, database schema and access controls are unchanged. Concurrent edits in the original checkout were not copied or overwritten.
