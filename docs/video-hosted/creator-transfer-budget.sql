@@ -22,5 +22,4 @@ revoke all on function public.reset_content_video_drive_budget(uuid,text) from p
 revoke all on function public.reserve_content_video_drive_bytes(uuid,text,bigint) from public,anon,authenticated;
 grant execute on function public.reset_content_video_drive_budget(uuid,text) to service_role;
 grant execute on function public.reserve_content_video_drive_bytes(uuid,text,bigint) to service_role;
--- MOV recording uploads additionally need video/quicktime on the EXISTING private
--- content-video bucket's allowed_mime_types. Keep public=false, limits and RLS.
+-- Audio-only scope needs no MOV upload allowance or bucket permission change.

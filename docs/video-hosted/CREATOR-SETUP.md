@@ -4,7 +4,7 @@ Prepared locally on `codex/content-video-current`, based on production/main `6ed
 
 ## Implemented workflow
 
-Idea → Claude script → editable script approval → owner uploads a real audio/video recording → Generate. Generate reads only the two selected Drive roots, extracts actual candidate frames, transcribes the owner recording for word timing, asks Claude for structured cuts/layouts, validates exact approved spoken-word coverage and source references, and exports an MP4 in the browser. No automatic publication, generated imagery, voice or presenter. The previous separate storyboard approval is superseded by this workflow.
+Idea → Claude script → editable script approval → owner uploads real audio narration → Generate. Generate reads only the two selected Drive roots, extracts actual candidate frames, transcribes the owner recording for word timing, asks Claude for structured cuts/layouts, validates exact approved spoken-word coverage and source references, and exports an MP4 in the browser. No automatic publication, generated imagery, voice or presenter. The previous separate storyboard approval is superseded by this workflow.
 
 Private Supabase storage keeps original recording bytes, a derived 48 kHz mono WAV, preview JPEGs and finished MP4 separately. Original recording is never overwritten. Claude gets the approved script, word timings and up to 12 selected JPEGs; OpenAI gets only derived owner audio; Drive sources are read through authenticated bounded range requests. No raw Drive credentials reach the browser. Edit JSON accepts fixed layout/motion enums, never executable model code.
 
@@ -23,7 +23,7 @@ Google Drive plugin access is a connector-managed connection, not credentials av
 
 ## Small hosted prerequisites (drafts, not applied)
 
-Apply reviewed `creator-transfer-budget.sql`: two counters and two service-role-only atomic functions on the existing private Video project table. A generation gets at most 500 MiB of source transfer; the same generation key cannot reset the allowance. Add `video/quicktime` to the existing private `content-video` bucket's allowed MIME types for MOV uploads, retaining its 100 MiB limit and existing private/RLS policies. No new bucket, public object access, broad storage policy, account or paid rendering service is needed. The existing server owner/admin + same-origin checks remain required.
+Apply reviewed `creator-transfer-budget.sql`: two counters and two service-role-only atomic functions on the existing private Video project table. A generation gets at most 500 MiB of source transfer; the same generation key cannot reset the allowance. The audio-only workflow needs no MOV upload allowance or bucket permission change. No new bucket, public object access, broad storage policy, account or paid rendering service is needed. The existing server owner/admin + same-origin checks remain required.
 
 ## Test approval and costs
 
@@ -73,12 +73,23 @@ This is an app-level conservative provider-usage allowance, not an account-wide 
 
 1. Privately check existing Vercel `OPENAI_API_KEY` availability rather than requesting a replacement. The approved existing local reference can now be used by local code through `LUUN_VIDEO_OPENAI_CREDENTIALS`: explicit absolute path only, owner-owned/private regular file, no symlinks, no copying, no permission changes. This fallback is refused in production/Vercel; cloud still needs its existing runtime secret. No real credential file was read by these new tests; only synthetic fixture files.
 2. In Vercel's private environment editor enter only missing Claude key/model and existing suitable Drive OAuth credentials. Plugin-managed Drive tokens cannot be extracted/reused. New OAuth client/scope or key creation still requires specific approval. Keep paid/Drive enable switches OFF while checking prerequisites.
-3. Review/apply the existing transfer-budget schema draft and private-bucket MOV MIME allowance separately; neither has been applied.
+3. Review/apply the existing transfer-budget schema draft separately. The previously proposed MOV allowance is no longer needed; no bucket change should be applied.
 4. Identify one test project privately; only after a bounded spend approval set its project ID and allowance server-side. Agent can set nonsecret flags/IDs after authorization; owner need not paste a list of variables or any secrets into chat.
 5. Obtain renewed approval for the previously cancelled production test upload and provider transmissions, then enable only the approved operations for that one test. No upload retry or paid call has happened.
 
 ### Evidence so far
 
 - 41 Video tests passed, including cost reservation, actual WAV duration, safe credential reference, stale job reconciliation/transcription reuse, short-word boundaries, excluded ancestors, failed candidate replenishment, renewed private range reads and missing MP4 sample bytes. Content/Instagram suites previously passed 6/187; latest full rerun/build status is reported in the task checkpoint.
-- Browser: missing chosen footage and missing speaker frames rejected; unsupported AAC configuration rejected. A real 76-second export from a 49,888,262-byte synthetic recording (larger than the 32 MiB decoder cache) produced 1,824 video frames, exactly 76 video seconds, 76.0747 audio seconds including AAC padding, and a 19,284,751-byte MP4; FFmpeg decoding exited 0 without warnings. This remains fixture evidence, not live Claude/Drive validation. A repeat using 4 MiB fixture range responses is still pending at this checkpoint.
+- Browser: missing chosen footage and missing speaker frames rejected; unsupported AAC configuration rejected. A real 76-second export from a 49,888,262-byte synthetic recording (larger than the 32 MiB decoder cache) produced 1,824 video frames, exactly 76 video seconds, 76.0747 audio seconds including AAC padding, and a 19,284,751-byte MP4; FFmpeg decoding exited 0 without warnings. This remains fixture evidence, not live Claude/Drive validation. A repeat using 4 MiB fixture range responses subsequently passed: 25 requests, maximum 4,194,304 bytes, 94,448,670 bytes total, farthest offset 49,888,261.
 - Rendering remains browser-only with the tab/device open. Real mobile device verification, live account access, authenticated production upload/reload and full live workflow remain outstanding. No release, credential setup, OAuth change, migration, new service purchase or paid call was performed.
+
+
+## Audio-only + final focused-review checkpoint
+
+Latest owner scope: script approval → audio narration upload → Generate → existing Drive footage, captions and animation. New uploads accept audio only (25 MiB); paid Generate rejects a speaker-video recording. New Claude plans allow only B-roll/concept layouts and explicitly prohibit a talking head. Existing archived video records/exports are preserved, including their legacy rendering support. No MOV bucket allowance is needed.
+
+The two follow-up review defects are fixed in code: provider invocation and persistence have separate error handling; a successful result is checkpointed with storage-only retries and read-after-write reconciliation. If confirmation remains unavailable, the operation/job stays pending or uncertain and a new job cannot dispatch it again. Failure injection covers transient pre-write failure, a committed write with lost response and persistent checkpoint failure. Cut padding now uses up to 20 ms of available silence, splitting small gaps at their midpoint; 30-second continuous transcripts with zero and 10 ms gaps validate without truncating words.
+
+Current Video suite: 46 passed. Content/Instagram suites passed 6/187; TypeScript, targeted lint and the audio-only production build pass. Long capped-range browser export passed; a narrow 390×844 viewport also exported successfully. Viewport was reset afterward. This is desktop Chrome emulation, not physical mobile codec verification.
+
+A separate script-generator Debug tab is newly requested and not implemented in this checkpoint. Current generator has no brand-guide/product-facts retrieval; it uses the owner's idea, previous script, length and optional API revision feedback with fixed anti-invention instructions. Debug must expose sourced context honestly and save candidates without overwriting approved scripts.

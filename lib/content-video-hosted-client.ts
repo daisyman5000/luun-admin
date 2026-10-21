@@ -10,7 +10,7 @@ export async function finishBrowserRender(project:VideoProject&{browserRender?:{
 export async function uploadOwnedVideoMedia(file:File,project:VideoProject){if(!['image/jpeg','image/png','image/webp','video/mp4','video/webm'].includes(file.type))throw Error('Choose JPEG, PNG, WebP, MP4 or WebM');const p=await uploadHostedVideo(file,'source',project,{owned:true});if(!file.type.startsWith('video/'))return p;const sourceId=p.sources[p.sources.length-1],v=document.createElement('video'),url=URL.createObjectURL(file);v.muted=true;try{await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Source preview could not be decoded')),15000);v.onloadeddata=()=>{clearTimeout(timer);resolve();};v.onerror=()=>{clearTimeout(timer);reject(Error('Source preview could not be decoded'));};v.src=url;v.preload='auto';v.load();});const canvas=document.createElement('canvas');canvas.width=360;canvas.height=Math.max(1,Math.round(360*v.videoHeight/v.videoWidth));canvas.getContext('2d')!.drawImage(v,0,0,canvas.width,canvas.height);const preview=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',.85));if(!preview)throw Error('Source preview unavailable');return uploadHostedVideo(new File([preview],'source-frame.jpg',{type:'image/jpeg'}),'preview',p,{sourceId,offset:0});}finally{v.removeAttribute('src');v.load();URL.revokeObjectURL(url);}}
 export async function uploadCreatorRecording(file:File,project:VideoProject){
  const {extractOwnerAudio}=await import('./content-video-creator-render');
- if(file.size>100*1024*1024)throw Error('Recording must be under 100 MB');
+ if(!(file.type.startsWith('audio/')||['','application/octet-stream'].includes(file.type)&&/\.(m4a|mp3|wav|webm|ogg)$/i.test(file.name)))throw Error('Choose an audio narration file');if(file.size>25*1024*1024)throw Error('Audio must be under 25 MB');
  const audio=await extractOwnerAudio(file); // Decode first; never upload an unusable recording.
  const original=await uploadHostedVideo(file,'narration',project,{creatorRecording:true,part:'original'});
  return uploadHostedVideo(audio,'narration',original,{creatorRecording:true,part:'audio',recordingId:original.performance.id});
@@ -18,8 +18,8 @@ export async function uploadCreatorRecording(file:File,project:VideoProject){
 export async function generateCreatorVideo(project:VideoProject,key:string){
  const {creatorImageFrame,creatorVideoFrame,renderCreatorVideo,probeCreatorEncoders,probeCreatorOwner}=await import('./content-video-creator-render');
  const {collectCreatorFrames}=await import('./content-video-creator-candidates');
- await probeCreatorEncoders();const current=project as VideoProject&{renderApproval?:string;performance?:{mime:string}};
- await probeCreatorOwner(`/api/content/video?recording=${project.id}`,!!current.performance?.mime.startsWith('video/'));
+ const current=project as VideoProject&{renderApproval?:string;performance?:{mime:string}};
+ if(!current.renderApproval&&!current.performance?.mime.startsWith('audio/'))throw Error('Upload audio narration for this video');await probeCreatorEncoders();await probeCreatorOwner(`/api/content/video?recording=${project.id}`,!!current.renderApproval&&!!current.performance?.mime.startsWith('video/'));
  if(current.renderApproval){const ready=await videoJSON({action:'resume-render',id:project.id});if(ready.output)return ready;const blob=await renderCreatorVideo(ready.creatorRenderPlan);return uploadHostedVideo(new File([blob],'Luun-video.mp4',{type:'video/mp4'}),'export',ready,{approval:ready.renderApproval,renderKey:key});}
  const prepared=await videoJSON({action:'prepare-generate',id:project.id,revision:project.revision});
  const selected=await collectCreatorFrames<string>(prepared.driveCandidates,async(file,offset)=>{
