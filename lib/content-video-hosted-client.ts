@@ -16,18 +16,19 @@ export async function uploadCreatorRecording(file:File,project:VideoProject){
  return uploadHostedVideo(audio,'narration',original,{creatorRecording:true,part:'audio',recordingId:original.performance.id});
 }
 export async function generateCreatorVideo(project:VideoProject,key:string){
- const {creatorImageFrame,creatorVideoFrame,renderCreatorVideo}=await import('./content-video-creator-render');
- if((project as VideoProject&{renderApproval?:string}).renderApproval){const ready=await videoJSON({action:'resume-render',id:project.id});if(ready.output)return ready;const blob=await renderCreatorVideo(ready.creatorRenderPlan);return uploadHostedVideo(new File([blob],'Luun-video.mp4',{type:'video/mp4'}),'export',ready,{approval:ready.renderApproval,renderKey:key});}
+ const {creatorImageFrame,creatorVideoFrame,renderCreatorVideo,probeCreatorEncoders,probeCreatorOwner}=await import('./content-video-creator-render');
+ const {collectCreatorFrames}=await import('./content-video-creator-candidates');
+ await probeCreatorEncoders();const current=project as VideoProject&{renderApproval?:string;performance?:{mime:string}};
+ await probeCreatorOwner(`/api/content/video?recording=${project.id}`,!!current.performance?.mime.startsWith('video/'));
+ if(current.renderApproval){const ready=await videoJSON({action:'resume-render',id:project.id});if(ready.output)return ready;const blob=await renderCreatorVideo(ready.creatorRenderPlan);return uploadHostedVideo(new File([blob],'Luun-video.mp4',{type:'video/mp4'}),'export',ready,{approval:ready.renderApproval,renderKey:key});}
  const prepared=await videoJSON({action:'prepare-generate',id:project.id,revision:project.revision});
- const previewIds:string[]=[];
- for(const file of prepared.driveCandidates){for(const offset of file.offsets){
+ const selected=await collectCreatorFrames<string>(prepared.driveCandidates,async(file,offset)=>{
   const blob=file.mimeType.startsWith('video/')?await creatorVideoFrame(file.url,offset):await creatorImageFrame(file.url);
-  // Preview attachment does not revise the project; retrieve its reserved media ID from context.
   await uploadHostedVideo(new File([blob],'drive-frame.jpg',{type:'image/jpeg'}),'preview',prepared,{sourceType:'drive',sourceId:file.id,version:file.version,md5:file.md5Checksum,offset});
   const r=await fetch(`/api/content/video?context=${project.id}`,{cache:'no-store'}),context=await r.json();if(!r.ok)throw Error(context.error||'Frame retrieval failed');
-  const found=context.media.find((m:{kind:string;metadata:Record<string,unknown>})=>m.kind==='preview'&&m.metadata.sourceId===file.id&&m.metadata.offset===offset&&m.metadata.version===file.version);if(!found)throw Error('Selected frame was not saved');previewIds.push(found.id);
- }}
- const edited=await videoJSON({action:'generate',id:project.id,revision:prepared.revision,key,previewIds});
+  const found=context.media.find((m:{kind:string;metadata:Record<string,unknown>})=>m.kind==='preview'&&m.metadata.sourceId===file.id&&m.metadata.offset===offset&&m.metadata.version===file.version);if(!found)throw Error('Selected frame was not saved');return found.id;
+ });
+ const edited=await videoJSON({action:'generate',id:project.id,revision:prepared.revision,key,previewIds:selected.frames,previewFailures:selected.failures});
  if(edited.output)return edited;
  const blob=await renderCreatorVideo(edited.creatorRenderPlan);
  return uploadHostedVideo(new File([blob],'Luun-video.mp4',{type:'video/mp4'}),'export',edited,{approval:edited.renderApproval,renderKey:key});

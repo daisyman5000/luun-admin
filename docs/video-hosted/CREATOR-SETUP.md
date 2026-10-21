@@ -33,11 +33,11 @@ The previous browser upload to `https://luun-admin-et42.vercel.app` of `/tmp/luu
 
 ## Limits and readiness
 
-Browser export uses timestamped AVC/AAC WebCodecs via Mediabunny and trusted GSAP templates at 720×1280/24fps. Tested on the connected Chrome browser; not a Mac FFmpeg daemon and not a Vercel FFmpeg claim. The browser/device must stay open during frame selection and export. Unsupported codecs fail explicitly before upload/render; 100 MiB recording/output, 120 seconds, 25 MiB audio/image decode, 40 MP image, six ranked source files/12 frames, 200-file/20-folder/two-level catalogue bounds. Coverage/skips are saved internally; missing usable footage errors before any paid edit. Large Drive videos can be range-read up to 16 GiB source size without downloading the whole original. Some codecs/range layouts may exceed the transfer budget and fail honestly.
+Browser export uses timestamped AVC/AAC WebCodecs via Mediabunny and trusted GSAP templates at 720×1280/24fps. Tested on the connected Chrome browser; not a Mac FFmpeg daemon and not a Vercel FFmpeg claim. The browser/device must stay open during frame selection and export. Unsupported codecs fail explicitly before upload/render; 100 MiB recording/output, 120 seconds, 25 MiB audio/image decode, 40 MP image, 24 ranked candidates, up to six usable source files/12 frames, 200-file/20-folder/two-level catalogue bounds. Coverage/skips are saved internally; missing usable footage errors before any paid edit. Large Drive videos can be range-read up to 16 GiB source size without downloading the whole original. Some codecs/range layouts may exceed the transfer budget and fail honestly.
 
 Script/recording changes invalidate prior edits/exports. Strict transcript matching rejects changed spoken claims rather than rewriting approved words. Finished edits are resumable without new provider calls. In-flight/uncertain provider requests block retry pending inspection; there is no automatic paid retry. Fixtures verify adapter contracts, not live provider quality, Drive account permissions or authenticated production upload/reload.
 
-## Verification at this checkpoint
+## Initial 913d15c verification (historical)
 
 - `npm run test:video`: 31 passed (12 new creator contracts, eight hosted persistence/legacy contracts, 11 local/image invariance contracts). Legacy two-gate fixture tests intentionally describe the preserved historical engine, not the new UI.
 - `npm run test:content`: six passed; `npm run test:instagram`: 187 passed. Total 224.
@@ -45,3 +45,40 @@ Script/recording changes invalidate prior edits/exports. Strict transcript match
 - Actual Chrome fixture render: 574,862-byte MP4, 720×1280 H.264, 48 kHz mono AAC. Planned cuts total 3.6 seconds; encoded container 3.67 seconds including AAC/frame padding. Original test sources unchanged. Actual output/frame copied to `../outputs/creator-checkpoint/FIXTURE-browser-*`; never uploaded to production or listed as an owner's real project.
 - Local Video minimal list loads on isolated port 4338. Calendar UI loads unchanged. Image Studio component is byte-identical to production; local image service is unavailable, so no image generation was exercised. Existing port 4335 showed a Next render error during inspection; it was not used as evidence of the hosted flow or repaired by killing an unverified process.
 - Fresh read-only remote main check remains `6ede52adad6c10ec55caab023ce1da1816737154`. No deployment, migration, OAuth grant, new credential or paid provider call performed in this checkpoint.
+
+
+## Review hardening checkpoint — 2026-10-21
+
+The seven review findings have code fixes pending independent re-review:
+
+1. Cuts must contain full spoken-word intervals plus 20 ms outward padding. Truncated 10 ms reproductions fail.
+2. Missing/expired decoded source or required speaker samples fail export; sample generators close on failure. Both browser and server inspect actual MP4 frame/sample counts, timing, sample byte sizes and duration against the cut plan, not just track headers.
+3. Every logical provider operation is persisted before invocation and its result immediately afterward. Completed transcription is reused after an edit failure. After a six-minute lease, interrupted jobs reconcile to explicit failed/uncertain states. Uncertain operations and legacy pending requests block replay; no automatic paid retry. Reconciliation happens on the next action, not a new background worker.
+4. Owner video/WAV use stable same-origin authenticated range endpoints; the server obtains a fresh private storage URL for each bounded read and never redirects the decoder to an expiring token. Unit tests advance beyond 60 seconds and read beyond a 32 MiB cache boundary.
+5. Before Generate's paid calls, probe exact 720×1280/24fps AVC and 48 kHz mono AAC configurations, owner decoding at distributed times and actual candidate decoding. Real mobile hardware remains unverified; unsupported AAC was simulated and correctly rejected in browser before generation.
+6. Excluded folder names block traversal; ancestor checks reject pinned files moved into Swipes/Competitor/Reference-only folders.
+7. Up to 24 ranked candidates replenish failed decodes. Up to four distributed offsets are attempted per file, retaining two usable frames from up to six files, at most 12 frames total. Decode failures and coverage are saved internally; no usable frames stops before paid generation.
+
+### Verified cost envelope (still OFF)
+
+Official sources checked 2026-10-21: https://platform.claude.com/docs/en/models/sonnet-4-6/overview ($3/MTok input, $15/MTok output); https://developers.openai.com/api/docs/models/whisper-1 ($0.006/minute). Current Sonnet 5.5 rejects forced tool selection: https://platform.claude.com/docs/en/models/sonnet-5-5/overview. This adapter therefore fails closed for models other than explicitly configured `claude-sonnet-4-6`; there is no implicit model default. Account availability is checked via Models API before a paid request. A future model needs a reviewed contract/rate profile, not a guessed ID.
+
+`creatorCostQuote` requires one exact `LUUN_VIDEO_TEST_PROJECT_ID` and an explicitly approved `LUUN_VIDEO_PROVIDER_BUDGET_USD` greater than zero and at most 2. No values were configured. Script reserves USD 0.24; Generate reserves USD 0.56. Reservations persist in the same project CAS write as the generation key and never refund failed/uncertain work. Unpriced legacy operations block use of an allowance. New project IDs cannot use this test authorization. One full script + Generate reserves USD 0.80.
+
+Bounds: 32,000 script input tokens/1,400 output; 64,000 edit input/5,000 output; text/tool/schema UTF-8 byte limits of 12,000/22,000; 12 JPEGs with each side at most 640; verified canonical PCM audio at most 120 seconds. Free Claude token-count preflight rejects larger prompts before Messages creation. Thinking is disabled; no server tools, caching writes, fast mode or regional pricing modifiers are requested. Quote uses twice maximum standard-price usage, rounded upward to whole cents. Static rate verification expires after seven days and must be reviewed again.
+
+This is an app-level conservative provider-usage allowance, not an account-wide billing guarantee: unrelated key usage, taxes, provider pricing changes and account billing controls remain outside it. No provider-side monetary limit was created or verified. No paid calls were made.
+
+### Minimal secure setup sequence
+
+1. Privately check existing Vercel `OPENAI_API_KEY` availability rather than requesting a replacement. The approved existing local reference can now be used by local code through `LUUN_VIDEO_OPENAI_CREDENTIALS`: explicit absolute path only, owner-owned/private regular file, no symlinks, no copying, no permission changes. This fallback is refused in production/Vercel; cloud still needs its existing runtime secret. No real credential file was read by these new tests; only synthetic fixture files.
+2. In Vercel's private environment editor enter only missing Claude key/model and existing suitable Drive OAuth credentials. Plugin-managed Drive tokens cannot be extracted/reused. New OAuth client/scope or key creation still requires specific approval. Keep paid/Drive enable switches OFF while checking prerequisites.
+3. Review/apply the existing transfer-budget schema draft and private-bucket MOV MIME allowance separately; neither has been applied.
+4. Identify one test project privately; only after a bounded spend approval set its project ID and allowance server-side. Agent can set nonsecret flags/IDs after authorization; owner need not paste a list of variables or any secrets into chat.
+5. Obtain renewed approval for the previously cancelled production test upload and provider transmissions, then enable only the approved operations for that one test. No upload retry or paid call has happened.
+
+### Evidence so far
+
+- 41 Video tests passed, including cost reservation, actual WAV duration, safe credential reference, stale job reconciliation/transcription reuse, short-word boundaries, excluded ancestors, failed candidate replenishment, renewed private range reads and missing MP4 sample bytes. Content/Instagram suites previously passed 6/187; latest full rerun/build status is reported in the task checkpoint.
+- Browser: missing chosen footage and missing speaker frames rejected; unsupported AAC configuration rejected. A real 76-second export from a 49,888,262-byte synthetic recording (larger than the 32 MiB decoder cache) produced 1,824 video frames, exactly 76 video seconds, 76.0747 audio seconds including AAC padding, and a 19,284,751-byte MP4; FFmpeg decoding exited 0 without warnings. This remains fixture evidence, not live Claude/Drive validation. A repeat using 4 MiB fixture range responses is still pending at this checkpoint.
+- Rendering remains browser-only with the tab/device open. Real mobile device verification, live account access, authenticated production upload/reload and full live workflow remain outstanding. No release, credential setup, OAuth change, migration, new service purchase or paid call was performed.
