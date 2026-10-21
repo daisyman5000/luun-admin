@@ -1,3 +1,4 @@
+import {scriptModelDisplay} from './content-video-script-state';
 import 'server-only';
 import {creatorMp4Coverage} from './content-video-mp4';
 import {getUserContext} from './auth';
@@ -21,7 +22,7 @@ export async function hostedVideoGET(request:Request){try{const s=await access(r
  if(q.has('preview')){const m=await s.media(q.get('preview')||'');if(m.project_id!==q.get('id')||!m.mime.startsWith('image/'))throw Error('Preview is not part of this video');return privateRedirect((await s.readUrl(m.id)).url);}
  if(q.has('download')){const p=(await s.project(q.get('download')||'')).package as HostedProject;if((p as CreatorProject).creatorVersion===2)requireCreatorRender(p as CreatorProject);else requireHostedApprovals(p);if(!p.output)throw Error('Render is not ready');return privateRedirect((await s.readUrl(p.output)).url);}
  if(q.has('context')){const id=q.get('context')||'',p=(await s.project(id)).package;return Response.json({project:p,media:await s.listMedia(id)},{headers});}
- return Response.json({projects:(await s.list()).filter(p=>!p.hiddenFromList&&!p.demoLabel),hosted:true,capabilities:{...creatorProviderReadiness(),browserRender:true}},{headers});
+ return Response.json({projects:(await s.list()).filter(p=>!p.hiddenFromList&&!p.demoLabel),hosted:true,capabilities:{...creatorProviderReadiness(),scriptModel:scriptModelDisplay(process.env.LUUN_VIDEO_SCRIPT_MODEL),browserRender:true}},{headers});
  }catch(e){return error(e);}}
 export async function hostedVideoPOST(request:Request){try{const s=await access(request),b=await body(request);if(b.action==='create')return Response.json(await s.create(),{headers});const row=await s.project(String(b.id||'')),p=row.package as CreatorProject;
  if(creatorActions.includes(String(b.action)))return Response.json(await creatorAction(s,p,b),{headers});

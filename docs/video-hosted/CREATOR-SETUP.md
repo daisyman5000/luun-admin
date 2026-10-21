@@ -1,3 +1,5 @@
+> Current audio-only/OpenAI Script Debug release: see [RELEASE-OPENAI-DEBUG.md](./RELEASE-OPENAI-DEBUG.md). Historical Claude-script/provider setup below is superseded.
+
 # Hosted Video creator: release checkpoint
 
 Prepared locally on `codex/content-video-current`, based on production/main `6ede52adad6c10ec55caab023ce1da1816737154`. Not deployed. Existing Image Studio, calendar, publishing, customer and Sales components are unchanged.
