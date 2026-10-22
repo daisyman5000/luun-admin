@@ -36,17 +36,25 @@ export async function generateCreatorVideo(project:VideoProject,key:string){
 }
 
 export async function uploadIdeaAudio(file:File,project:VideoProject){if(!file.type.startsWith('audio/')||file.size>IDEA_RECORDING_BYTES)throw Error('Idea audio exceeds the90MiB recording bound');const measured=recordedAudioSeconds.get(file);if(measured&&measured>115)return uploadHostedVideo(file,'voice',project,{creatorIdea:true,part:'original',longRecording:true});const {extractOwnerAudio}=await import('./content-video-creator-render'),audio=await extractOwnerAudio(file),original=await uploadHostedVideo(file,'voice',project,{creatorIdea:true,part:'original'});return uploadHostedVideo(audio,'voice',original,{creatorIdea:true,part:'audio',recordingId:original.ideaVoice.id});}
-export async function generateScriptFromIdea(project:VideoProject&import('./content-video-script').ScriptDebugProject&{longIdea?:import('./content-video-long-note').LongIdea},idea:string,onProgress?:(p:typeof project)=>void){
+type IdeaProject=VideoProject&import('./content-video-script').ScriptDebugProject&{longIdea?:import('./content-video-long-note').LongIdea};
+// This action only reads retained audio and uploads derived PCM. It cannot call a provider.
+export async function prepareSavedIdea(project:IdeaProject,onProgress?:(p:IdeaProject)=>void){
+ const {prepareIdeaChunks}=await import('./content-video-long-note'),{savedIdeaChunk}=await import('./content-video-long-note-client');
+ const response=await fetch(`/api/content/video?context=${project.id}`,{cache:'no-store'}),body=await response.json();if(!response.ok)throw Error(body.error||'Saved note is unavailable');
+ const current=body.project as IdeaProject;if(current.ideaVoice?.audioHash!==project.ideaVoice?.audioHash)throw Error('Saved idea changed; reload before preparing');
+ return prepareIdeaChunks(current,async(p,spec)=>{const voice=p.ideaVoice!,file=await savedIdeaChunk(`/api/content/video?ideaAudio=${p.id}`,spec.start,spec.seconds,voice.seconds);return uploadHostedVideo(file,'voice',p,{creatorIdea:true,part:'chunk',recordingId:voice.id,audioHash:voice.audioHash,chunk:spec.index});},onProgress);
+}
+export async function generateScriptFromIdea(project:IdeaProject,idea:string,onProgress?:(p:typeof project)=>void){
  let current=project;
  if(current.ideaVoice&&current.ideaTranscript?.audioHash!==current.ideaVoice.audioHash){
   if(current.ideaVoice.seconds>120){
-   const {ideaChunkPlan}=await import('./content-video-long-note'),{savedIdeaChunk}=await import('./content-video-long-note-client'),plan=ideaChunkPlan(current.ideaVoice.seconds);
+   current=await prepareSavedIdea(current,onProgress);
+   const {ideaChunkPlan}=await import('./content-video-long-note'),plan=ideaChunkPlan(current.ideaVoice!.seconds);
    // Preserve the existing eight-request project limit; never spend on a partial note.
    const preflight=await videoJSON({action:'idea-transcription-plan',id:current.id,revision:current.revision});
    if(!preflight.authorized)throw Error(preflight.blocker);
    for(const spec of plan){
     if(current.longIdea?.completed[spec.index])continue;
-    if(!current.longIdea?.chunks[spec.index]){const file=await savedIdeaChunk(`/api/content/video?ideaAudio=${current.id}`,spec.start,spec.seconds,current.ideaVoice!.seconds);current=await uploadHostedVideo(file,'voice',current,{creatorIdea:true,part:'chunk',recordingId:current.ideaVoice!.id,audioHash:current.ideaVoice!.audioHash,chunk:spec.index});onProgress?.(current);}
     current=await videoJSON({action:'transcribe-idea',id:current.id,revision:current.revision,chunk:spec.index});onProgress?.(current);
    }
   }else current=await videoJSON({action:'transcribe-idea',id:current.id,revision:current.revision,key:crypto.randomUUID()});

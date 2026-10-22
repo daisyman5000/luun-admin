@@ -25,7 +25,7 @@ export async function creatorAction(store:Store,p:CreatorProject,b:Record<string
   const voice=p.ideaVoice;
   if(voice&&(voice.seconds>120||voice.audioId===voice.id)){
    if(p.ideaTranscript?.audioHash===voice.audioHash)return p;
-   if(b.chunk===undefined)throw Error('Long idea recording is saved. Prepare its retained audio chunks before transcription; no rerecording is needed.');
+   if(b.chunk===undefined)throw Error('Long idea recording is saved. Reload this page and choose Prepare saved note; this browser sent an older transcription request. No rerecording is needed.');
    const index=Number(b.chunk),spec=ideaChunkSpec(voice.seconds,index),note=p.longIdea;
    if(!note||note.audioHash!==voice.audioHash||!note.chunks[index])throw Error('Prepare the saved note audio chunks before transcription');
    if(note.completed[index])return p;
