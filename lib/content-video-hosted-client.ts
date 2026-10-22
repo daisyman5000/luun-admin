@@ -44,7 +44,7 @@ export async function prepareSavedIdea(project:IdeaProject,onProgress?:(p:IdeaPr
  const current=body.project as IdeaProject;if(current.ideaVoice?.audioHash!==project.ideaVoice?.audioHash)throw Error('Saved idea changed; reload before preparing');
  return prepareIdeaChunks(current,async(p,spec)=>{const voice=p.ideaVoice!,decoded=await savedIdeaChunk(`/api/content/video?ideaAudio=${p.id}`,spec.start,spec.seconds,voice.seconds);return uploadHostedVideo(decoded.file,'voice',p,{coverage:decoded.coverage,creatorIdea:true,part:'chunk',recordingId:voice.id,audioHash:voice.audioHash,chunk:spec.index});},onProgress);
 }
-export async function generateScriptFromIdea(project:IdeaProject,idea:string,onProgress?:(p:typeof project)=>void){
+export async function transcribeSavedIdea(project:IdeaProject,onProgress?:(p:typeof project)=>void){
  let current=project;
  if(current.ideaVoice&&current.ideaTranscript?.audioHash!==current.ideaVoice.audioHash){
   if(current.ideaVoice.seconds>120){
@@ -59,5 +59,7 @@ export async function generateScriptFromIdea(project:IdeaProject,idea:string,onP
    }
   }else current=await videoJSON({action:'transcribe-idea',id:current.id,revision:current.revision,key:crypto.randomUUID()});
  }
- return videoJSON({action:'generate-script',id:current.id,revision:current.revision,key:crypto.randomUUID(),idea,debug:!!current.scriptApproval});
+ return current;
 }
+
+export async function generateScriptFromIdea(project:IdeaProject,idea:string,onProgress?:(p:IdeaProject)=>void){const current=await transcribeSavedIdea(project,onProgress);return videoJSON({action:'generate-script',id:current.id,revision:current.revision,key:crypto.randomUUID(),idea,debug:!!current.scriptApproval});}

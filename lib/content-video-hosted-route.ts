@@ -1,3 +1,4 @@
+import {NOTE_PROJECT,noteAllowance} from './content-video-note-allowance';
 import {ideaUploadSpec,type IdeaCoverage} from './content-video-long-note';
 import {IDEA_RECORDING_SECONDS} from './content-video-recording-limits';
 import {creatorWavSeconds} from './content-video-creator-cost';
@@ -11,7 +12,7 @@ import {hostedHandoffDigest,hostedRenderPlan,transitionHosted,requireHostedAppro
 import {creatorAction,creatorActions,attachOwnerRecording,attachIdeaVoice,type CreatorProject} from './content-video-creator-route';
 import {requireCreatorRender} from './content-video-creator';
 import {creatorDrive} from './content-video-creator-drive';
-import {creatorProviderReadiness} from './content-video-creator-providers';
+import {creatorProviders,creatorProviderReadiness} from './content-video-creator-providers';
 import {videoAudioType} from './content-video';
 const privateRedirect=(url:string)=>new Response(null,{status:307,headers:{'Cache-Control':'private, no-store','Location':url}});
 const headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'};
@@ -28,7 +29,7 @@ export async function hostedVideoGET(request:Request){try{const s=await access(r
  return Response.json({projects:(await s.list()).filter(p=>!p.hiddenFromList&&!p.demoLabel),hosted:true,capabilities:{...creatorProviderReadiness(),scriptModel:scriptModelDisplay(process.env.LUUN_VIDEO_SCRIPT_MODEL),browserRender:true}},{headers});
  }catch(e){return error(e);}}
 export async function hostedVideoPOST(request:Request){try{const s=await access(request),b=await body(request);if(b.action==='create')return Response.json(await s.create(),{headers});const row=await s.project(String(b.id||'')),p=row.package as CreatorProject;
- if(creatorActions.includes(String(b.action)))return Response.json(await creatorAction(s,p,b),{headers});
+ if(creatorActions.includes(String(b.action))){const deps=p.id===NOTE_PROJECT&&['transcribe-idea','idea-transcription-plan'].includes(String(b.action))?{providers:creatorProviders(undefined,undefined,undefined,undefined,noteAllowance(s.actorId,p.id,p.ideaVoice?.audioHash||'')),drive:creatorDrive()}:undefined;return Response.json(await creatorAction(s,p,b,deps),{headers});}
  if(b.action==='upload-intent'){
   if(p.revision!==b.revision)throw Error('Video changed in another tab. Reload before uploading');let mime=String(b.mime||'');const kind=String(b.kind);if(b.creatorIdea===true&&kind!=='voice'||b.creatorRecording===true&&kind!=='narration')throw Error('Audio upload purpose changed');if(['voice','narration'].includes(kind)&&!mime.startsWith('video/'))mime=videoAudioType(mime,String(b.name||''));const metadata:Record<string,unknown>={expectedRevision:p.revision,name:String(b.name||'').slice(0,200)};
   if(kind==='source'){if(b.owned!==true)throw Error('Choose existing owned media');metadata.owned=true;metadata.seconds=Number(b.seconds)||0;if(mime.startsWith('video/')&&(!Number.isFinite(metadata.seconds)||Number(metadata.seconds)<=0||Number(metadata.seconds)>600))throw Error('Source video must be at most ten minutes');}
