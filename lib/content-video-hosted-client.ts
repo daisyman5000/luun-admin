@@ -36,4 +36,20 @@ export async function generateCreatorVideo(project:VideoProject,key:string){
 }
 
 export async function uploadIdeaAudio(file:File,project:VideoProject){if(!file.type.startsWith('audio/')||file.size>IDEA_RECORDING_BYTES)throw Error('Idea audio exceeds the90MiB recording bound');const measured=recordedAudioSeconds.get(file);if(measured&&measured>115)return uploadHostedVideo(file,'voice',project,{creatorIdea:true,part:'original',longRecording:true});const {extractOwnerAudio}=await import('./content-video-creator-render'),audio=await extractOwnerAudio(file),original=await uploadHostedVideo(file,'voice',project,{creatorIdea:true,part:'original'});return uploadHostedVideo(audio,'voice',original,{creatorIdea:true,part:'audio',recordingId:original.ideaVoice.id});}
-export async function generateScriptFromIdea(project:VideoProject&{ideaVoice?:{audioHash:string};ideaTranscript?:{audioHash:string}},idea:string){const current=project.ideaVoice&&project.ideaTranscript?.audioHash!==project.ideaVoice.audioHash?await videoJSON({action:'transcribe-idea',id:project.id,revision:project.revision,key:crypto.randomUUID()}):project;return videoJSON({action:'generate-script',id:current.id,revision:current.revision,key:crypto.randomUUID(),idea,debug:!!current.scriptApproval});}
+export async function generateScriptFromIdea(project:VideoProject&import('./content-video-script').ScriptDebugProject&{longIdea?:import('./content-video-long-note').LongIdea},idea:string,onProgress?:(p:typeof project)=>void){
+ let current=project;
+ if(current.ideaVoice&&current.ideaTranscript?.audioHash!==current.ideaVoice.audioHash){
+  if(current.ideaVoice.seconds>120){
+   const {ideaChunkPlan}=await import('./content-video-long-note'),{savedIdeaChunk}=await import('./content-video-long-note-client'),plan=ideaChunkPlan(current.ideaVoice.seconds);
+   // Preserve the existing eight-request project limit; never spend on a partial note.
+   const preflight=await videoJSON({action:'idea-transcription-plan',id:current.id,revision:current.revision});
+   if(!preflight.authorized)throw Error(preflight.blocker);
+   for(const spec of plan){
+    if(current.longIdea?.completed[spec.index])continue;
+    if(!current.longIdea?.chunks[spec.index]){const file=await savedIdeaChunk(`/api/content/video?ideaAudio=${current.id}`,spec.start,spec.seconds,current.ideaVoice!.seconds);current=await uploadHostedVideo(file,'voice',current,{creatorIdea:true,part:'chunk',recordingId:current.ideaVoice!.id,audioHash:current.ideaVoice!.audioHash,chunk:spec.index});onProgress?.(current);}
+    current=await videoJSON({action:'transcribe-idea',id:current.id,revision:current.revision,chunk:spec.index});onProgress?.(current);
+   }
+  }else current=await videoJSON({action:'transcribe-idea',id:current.id,revision:current.revision,key:crypto.randomUUID()});
+ }
+ return videoJSON({action:'generate-script',id:current.id,revision:current.revision,key:crypto.randomUUID(),idea,debug:!!current.scriptApproval});
+}
