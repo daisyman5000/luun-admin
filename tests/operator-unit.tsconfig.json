@@ -42,7 +42,18 @@
     "../lib/warehouse-stock.test.ts",
     "../lib/cash-simulator.test.ts",
     "../lib/cash-simulator-ui.test.tsx",
-    "../lib/business-position.test.ts"
+    "../lib/business-position.test.ts",
+    "../lib/forecast-costs.test.ts",
+    "../lib/advertising-provenance.test.tsx",
+    "../lib/financing-comparison.test.ts",
+    "../lib/financing-baseline.test.ts",
+    "../lib/financing-timeline.test.ts",
+    "../lib/sale-clearance.test.ts",
+    "../lib/operating-timeline.test.ts",
+    "../lib/financing-chart-ui.test.tsx",
+    "../lib/financing-plan-cache.test.ts",
+    "../lib/forecast-money.test.ts",
+    "../lib/existing-container-purchase-gate.test.ts"
   ],
   "exclude": [
     "../node_modules"

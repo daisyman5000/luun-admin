@@ -2,18 +2,18 @@ import {roundCash} from './forecast-money';
 import type {ForecastGeo} from './forecast-geography';
 import type {operatingTimeline, CashEvent} from './operating-timeline';
 type Plan=ReturnType<typeof operatingTimeline>;
-export type PaymentGroup={date:string;kind:'order'|'landing'|'dock'|'debt'|'stockDelivery';label:string;quantity:number;amount:number;events:CashEvent[]};
+export type PaymentGroup={date:string;kind:'order'|'landing'|'dock'|'debt'|'stockDelivery'|'customs';label:string;quantity:number;amount:number;events:CashEvent[]};
 export function majorPaymentGroups(events:CashEvent[]):PaymentGroup[]{
  const groups=new Map<string,PaymentGroup>();
  for(const event of events){
   if(event.amount>=0)continue;
-  const kind=event.kind==='order'?'order':event.kind==='supplier'||event.kind==='shipping'?'landing':event.kind==='dock'?(event.id.startsWith('onhand-delgate:')?'stockDelivery':'dock'):event.kind==='debt'?'debt':null;
+  const kind=event.kind==='duty'||event.kind==='import-gst'?'customs':event.kind==='order'?'order':event.kind==='supplier'||event.kind==='shipping'?'landing':event.kind==='dock'?(event.id.startsWith('onhand-delgate:')?'stockDelivery':'dock'):event.kind==='debt'?'debt':null;
   if(!kind)continue;
   const key=event.date+kind;
-  const group=groups.get(key)||{date:event.date,kind,label:kind==='order'?'30% deposits':kind==='landing'?'Supplier balance + ocean freight':kind==='stockDelivery'?'Current stock · DelGate':kind==='dock'?'DelGate':/wayflyer/i.test(event.label)?'Wayflyer':'Debt repayment',quantity:0,amount:0,events:[]};
+  const group=groups.get(key)||{date:event.date,kind,label:kind==='customs'?'Import duty / GST':kind==='order'?'30% deposits':kind==='landing'?'Supplier balance + ocean freight':kind==='stockDelivery'?'Current stock · DelGate':kind==='dock'?'DelGate':/wayflyer/i.test(event.label)?'Wayflyer':'Debt repayment',quantity:0,amount:0,events:[]};
   group.amount-=event.amount;group.events.push(event);
   // Supplier and freight are two charges for the same physical containers.
-  if(kind==='stockDelivery')group.quantity+=event.moduleQuantity||0;else if(kind!=='landing'||event.kind==='supplier')group.quantity++;
+  if(kind==='customs'){if(!group.events.slice(0,-1).some(e=>e.containerId===event.containerId))group.quantity++;}else if(kind==='stockDelivery')group.quantity+=event.moduleQuantity||0;else if(kind!=='landing'||event.kind==='supplier')group.quantity++;
   groups.set(key,group);
  }
  return [...groups.values()].sort((a,b)=>a.date.localeCompare(b.date)||a.kind.localeCompare(b.kind));

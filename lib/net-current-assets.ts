@@ -16,22 +16,24 @@ export function netAssetSnapshot(b:Baseline,floor:number){
 export function netAssetForecast(b:Baseline,plan:CapitalPlan,floor:number){
  const snapshot=netAssetSnapshot(b,floor),daily=new Map<string,number>(),usd=b.netAssetsInputs?.inventoryUsdPer144||0;
  const add=(date:string,amount:number)=>daily.set(date,(daily.get(date)||0)+amount);
+ const dutyPerModule=(id:string)=>{const c=plan.plannedOrders.find(p=>p.container.id===id)?.container||b.containers.find(c=>c.id===id),units=(c?.manifest_json||[]).filter(m=>['corner','armless','ottoman'].includes(m.module)).reduce((n,m)=>n+m.quantity,0);return units?plan.events.filter(e=>e.kind==='duty'&&e.containerId===id).reduce((n,e)=>n-e.amount,0)/units:0;};
  for(const c of plan.forecast.cycles){
   const container=plan.plannedOrders.find(p=>p.container.id===c.id)?.container||b.containers.find(p=>p.id===c.id);
   const grossUnits=c.id==='on-hand'?b.inventory.filter(r=>['corner','armless','ottoman'].includes(r.module_slug||'')).reduce((n,r)=>n+Number(r.available_qty||0),0):(container?.manifest_json||[]).filter(m=>['corner','armless','ottoman'].includes(m.module)).reduce((n,m)=>n+m.quantity,0);
   const reserved=b.reservations.flatMap(r=>r.allocations).filter(a=>a.source===(c.id==='on-hand'?'stock':c.id)).reduce((n,a)=>n+a.quantity,0),freeUnits=Math.max(0,grossUnits-reserved);
-  const cost=freeUnits/144*(usd+(c.id==='on-hand'?0:4500))*plan.fx;
+  const duty=plan.events.filter(e=>e.kind==='duty'&&e.containerId===c.id).reduce((n,e)=>n-e.amount,0),dutyPerUnit=grossUnits?duty/grossUnits:0;
+  const cost=freeUnits*dutyPerUnit+freeUnits/144*(usd+(c.id==='on-hand'?0:4500))*plan.fx;
   // Presales are earned only at readiness; full orders at the later of order/ready.
   // A preorder's deposit and its 80% balance describe ONE sale, not two.
   const sold=plan.forecast.salesLedger?.filter(s=>s.containerId===c.id);
-  if(sold?.length){for(const sale of sold)add(sale.fulfilmentDate,sale.value-sale.modules/144*(usd+(c.id==='on-hand'?0:4500))*plan.fx);}
+  if(sold?.length){for(const sale of sold)add(sale.fulfilmentDate,sale.value-sale.modules*dutyPerUnit-sale.modules/144*(usd+(c.id==='on-hand'?0:4500))*plan.fx);}
   else for(const receipt of c.receipts){if(receipt.kind==='balance')continue;const sale=receipt.kind==='deposit'?receipt.amount/.2:receipt.amount,order=receipt.orderDate||new Date(Date.parse(receipt.date+'T12:00:00Z')-2*86400000).toISOString().slice(0,10),earned=order<c.arrival?c.arrival:order;add(earned,sale-(c.sales?cost*sale/c.sales:0));}
   // DelGate is accrued at readiness; paying the accrued bill later has no second NCA impact.
   if(c.id!=='on-hand')add(c.arrival,-(plan.ownerCosts?.delgateCad??16000));
  }
- for(const event of plan.events)if(event.id==='hypothetical-loan-fee')add(event.date,event.amount);
+ for(const event of plan.events)if(event.id==='hypothetical-loan-fee'||event.kind==='processing-fee')add(event.date,event.amount);
  for(const event of plan.events)if(event.id.startsWith('onhand-delgate:')&&event.serviceDate)add(event.serviceDate,event.amount);
- for(const order of b.netAssetsInputs?.openPreorders||[]){const sources=order.allocations.filter(a=>a.source!=='stock').map(a=>incomingReadiness(b,0).find(r=>r.container.id===a.source)?.ready).filter((s):s is string=>!!s),ready=[plan.start,...sources].sort().at(-1)!,cost=order.allocations.reduce((n,a)=>n+a.quantity/144*(usd+(a.source==='stock'?0:4500))*plan.fx,0);add(ready,order.netSaleCad-cost);}
+ for(const order of b.netAssetsInputs?.openPreorders||[]){const sources=order.allocations.filter(a=>a.source!=='stock').map(a=>incomingReadiness(b,0).find(r=>r.container.id===a.source)?.ready).filter((s):s is string=>!!s),ready=[plan.start,...sources].sort().at(-1)!,cost=order.allocations.reduce((n,a)=>n+a.quantity/144*(usd+(a.source==='stock'?0:4500))*plan.fx+a.quantity*dutyPerModule(a.source),0);add(ready,order.netSaleCad-cost);}
  let earned=0;const points=plan.points.map(p=>{earned+=daily.get(p.date)||0;return {date:p.date,value:snapshot.value===null?null:snapshot.value+earned-p.adSpend,cash:p.cash};});
  return {snapshot,points,minimum:snapshot.value===null?null:Math.min(...points.map(p=>p.value!)),basis:'Estimated accrual NCA: PO inventory cost, revenue/COGS at readiness, ads as spent and DelGate accrued at readiness. Existing principal/bill payments settle opening liabilities; they are not expensed twice.'};
 }
