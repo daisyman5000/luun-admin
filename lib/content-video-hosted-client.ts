@@ -42,14 +42,14 @@ export async function prepareSavedIdea(project:IdeaProject,onProgress?:(p:IdeaPr
  const {prepareIdeaChunks}=await import('./content-video-long-note'),{savedIdeaChunk}=await import('./content-video-long-note-client');
  const response=await fetch(`/api/content/video?context=${project.id}`,{cache:'no-store'}),body=await response.json();if(!response.ok)throw Error(body.error||'Saved note is unavailable');
  const current=body.project as IdeaProject;if(current.ideaVoice?.audioHash!==project.ideaVoice?.audioHash)throw Error('Saved idea changed; reload before preparing');
- return prepareIdeaChunks(current,async(p,spec)=>{const voice=p.ideaVoice!,file=await savedIdeaChunk(`/api/content/video?ideaAudio=${p.id}`,spec.start,spec.seconds,voice.seconds);return uploadHostedVideo(file,'voice',p,{creatorIdea:true,part:'chunk',recordingId:voice.id,audioHash:voice.audioHash,chunk:spec.index});},onProgress);
+ return prepareIdeaChunks(current,async(p,spec)=>{const voice=p.ideaVoice!,decoded=await savedIdeaChunk(`/api/content/video?ideaAudio=${p.id}`,spec.start,spec.seconds,voice.seconds);return uploadHostedVideo(decoded.file,'voice',p,{coverage:decoded.coverage,creatorIdea:true,part:'chunk',recordingId:voice.id,audioHash:voice.audioHash,chunk:spec.index});},onProgress);
 }
 export async function generateScriptFromIdea(project:IdeaProject,idea:string,onProgress?:(p:typeof project)=>void){
  let current=project;
  if(current.ideaVoice&&current.ideaTranscript?.audioHash!==current.ideaVoice.audioHash){
   if(current.ideaVoice.seconds>120){
    current=await prepareSavedIdea(current,onProgress);
-   const {ideaChunkPlan}=await import('./content-video-long-note'),plan=ideaChunkPlan(current.ideaVoice!.seconds);
+   const {ideaChunkPlan}=await import('./content-video-long-note'),plan=ideaChunkPlan(current.longIdea?.seconds||current.ideaVoice!.seconds);
    // Preserve the existing eight-request project limit; never spend on a partial note.
    const preflight=await videoJSON({action:'idea-transcription-plan',id:current.id,revision:current.revision});
    if(!preflight.authorized)throw Error(preflight.blocker);

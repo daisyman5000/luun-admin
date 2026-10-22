@@ -17,7 +17,7 @@ export async function creatorAction(store:Store,p:CreatorProject,b:Record<string
  const persistence=adapter(store),providers=deps.providers,drive=deps.drive;const revision=p.revision;p=await reconcileCreatorJobs(persistence,p) as CreatorProject;if(p.revision!==revision&&b.revision===revision)b={...b,revision:p.revision};
  if(b.action==='resume-render'){return {...p,creatorRenderPlan:await creatorRenderPlan(store,p)};}
  if(b.action==='idea-transcription-plan'){
-  if(!p.ideaVoice)throw Error('Upload an idea voice note first');const plan=ideaChunkPlan(p.ideaVoice.seconds),remaining=plan.filter(c=>!p.longIdea?.completed[c.index]).length,used=Object.values(p.jobs||{}).reduce((n,j)=>n+j.requests,0);
+  if(!p.ideaVoice)throw Error('Upload an idea voice note first');const plan=ideaChunkPlan(p.longIdea?.coverage?p.longIdea.seconds:p.ideaVoice.seconds),remaining=plan.filter(c=>!p.longIdea?.completed[c.index]).length,used=Object.values(p.jobs||{}).reduce((n,j)=>n+j.requests,0);
   let blocker='';try{if(used+remaining>8)throw Error('Full note exceeds the existing eight-request project allowance; no partial transcription started');providers.assert('idea');const quote=providers.quote('idea',p.id);reserveCreatorCost(p.jobs,{...quote,reservedMicrousd:quote.reservedMicrousd*remaining});}catch(e){blocker=e instanceof Error?e.message:'Audio authorization unavailable';}
   return {...p,authorized:!blocker,blocker:blocker?`Saved audio retained. ${plan.length} chunks cover ${p.ideaVoice.seconds.toFixed(3)} seconds. Whisper estimate US$${(Math.ceil(p.ideaVoice.seconds)*.0001).toFixed(4)}; conservative reservation US$${(plan.length*.03).toFixed(2)}. Audio-specific approval required: ${blocker}`:'',transcriptionPlan:plan};
  }
@@ -26,13 +26,13 @@ export async function creatorAction(store:Store,p:CreatorProject,b:Record<string
   if(voice&&(voice.seconds>120||voice.audioId===voice.id)){
    if(p.ideaTranscript?.audioHash===voice.audioHash)return p;
    if(b.chunk===undefined)throw Error('Long idea recording is saved. Reload this page and choose Prepare saved note; this browser sent an older transcription request. No rerecording is needed.');
-   const index=Number(b.chunk),spec=ideaChunkSpec(voice.seconds,index),note=p.longIdea;
+   const index=Number(b.chunk),note=p.longIdea,spec=ideaChunkSpec(note?.coverage?note.seconds:voice.seconds,index);
    if(!note||note.audioHash!==voice.audioHash||!note.chunks[index])throw Error('Prepare the saved note audio chunks before transcription');
    if(note.completed[index])return p;
    const key='idea-chunk-'+creatorHash({audioHash:voice.audioHash,index}).slice(0,40);
    providers.assert('idea');sameRevision(p,b);
    if(p.jobs?.[key])throw Error('This chunk is already reserved, failed or uncertain; provider replay is blocked');if(Object.values(p.jobs||{}).some(j=>j.status==='pending'||j.status==='uncertain'))throw Error('Resolve the pending or uncertain generation before continuing');
-   const remaining=ideaChunkPlan(voice.seconds).filter(c=>!note.completed[c.index]).length,used=Object.values(p.jobs||{}).reduce((n,j)=>n+j.requests,0);if(used+remaining>8)throw Error('Full note exceeds the existing eight-request project allowance');const fullQuote=providers.quote('idea',p.id);reserveCreatorCost(p.jobs,{...fullQuote,reservedMicrousd:fullQuote.reservedMicrousd*remaining});
+   const remaining=ideaChunkPlan(note.seconds).filter(c=>!note.completed[c.index]).length,used=Object.values(p.jobs||{}).reduce((n,j)=>n+j.requests,0);if(used+remaining>8)throw Error('Full note exceeds the existing eight-request project allowance');const fullQuote=providers.quote('idea',p.id);reserveCreatorCost(p.jobs,{...fullQuote,reservedMicrousd:fullQuote.reservedMicrousd*remaining});
    const chunk=note.chunks[index],media=await store.media(chunk.id);
    if(media.project_id!==p.id||media.sha256!==chunk.hash||media.state!=='ready'||media.mime!=='audio/wav')throw Error('Idea chunk changed');
    const bytes=await store.bytes(media),seconds=creatorWavSeconds(bytes);if(Math.abs(seconds-spec.seconds)>.05)throw Error('Idea chunk duration does not cover its source interval');
