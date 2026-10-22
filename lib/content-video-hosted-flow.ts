@@ -1,7 +1,9 @@
 import {createHash} from 'node:crypto';
 import type {VideoProject,VideoShot} from './content-video';
 import type {HostedMedia,createHostedVideoStore} from './content-video-hosted';
-export type HostedProject=VideoProject&{requests?:Record<string,{output:string}>;handoffs?:Record<string,string>;feedback?:{stage:string;text:string};sources?:string[];finalNarration?:{id:string;hash:string;scriptHash:string}};
+export type ScriptDraftSource='assistant-written'|'owner-written';
+export type SavedScriptDraft={script:string;targetSeconds:number;source:ScriptDraftSource;savedAt:string;digest:string};
+export type HostedProject=VideoProject&{scriptDraft?:SavedScriptDraft;scriptDraftHistory?:SavedScriptDraft[];requests?:Record<string,{output:string}>;handoffs?:Record<string,string>;feedback?:{stage:string;text:string};sources?:string[];finalNarration?:{id:string;hash:string;scriptHash:string}};
 export type HostedShot=VideoShot&{mediaId:string;fingerprint:string};
 export const videoDigest=(value:unknown)=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex');
 function reset(p:HostedProject,script=false){p.output=null;p.boardApproval=null;if(script){p.scriptApproval=null;p.shots=[];p.roughCaptions=[];p.finalNarration=undefined;}}
@@ -9,7 +11,7 @@ export function hostedBoardHash(p:HostedProject){return videoDigest({script:p.sc
 export function requireHostedApprovals(p:HostedProject){if(!p.scriptApproval||p.scriptApproval!==videoDigest(p.script)||!p.boardApproval||p.boardApproval!==hostedBoardHash(p)||p.missingAssets.length||!p.shots.length)throw Error('Approve the exact script and storyboard before rendering');}
 function text(value:unknown,max:number){if(typeof value!=='string'||!value.trim()||value.length>max)throw Error('Invalid video text');return value.trim();}
 export function hostedCaptions(script:string,seconds:number){const words=script.split(/\s+/),lines=[];for(let i=0;i<words.length;i+=7)lines.push(words.slice(i,i+7).join(' '));return lines.map((text,i)=>({text,start:i*seconds/lines.length,end:(i+1)*seconds/lines.length}));}
-export const hostedHandoffDigest=(b:Record<string,unknown>)=>videoDigest({kind:b.kind,script:b.script,shots:b.shots,scriptHash:b.scriptHash,missingAssets:b.missingAssets});
+export const hostedHandoffDigest=(b:Record<string,unknown>)=>videoDigest({kind:b.kind,script:b.script,shots:b.shots,scriptHash:b.scriptHash,missingAssets:b.missingAssets,...(b.seconds!==undefined?{seconds:b.seconds}:{}),...(b.draftSource!==undefined?{draftSource:b.draftSource}:{})});
 export function transitionHosted(p:HostedProject,b:Record<string,unknown>,media:HostedMedia[]){
  if(p.revision!==b.revision)throw Error('Video changed in another tab. Reload before continuing.');
  if(b.action==='idea'){reset(p,true);p.idea=text(b.idea,8000);p.voice=undefined;p.script='';p.stage='awaiting-script';}
@@ -20,7 +22,15 @@ export function transitionHosted(p:HostedProject,b:Record<string,unknown>,media:
  else if(b.action==='silent'){reset(p);p.finalNarration=undefined;p.stage='storyboard';}
  else if(b.action==='handoff'){
   if(typeof b.key!=='string'||!/^[a-zA-Z0-9_-]{8,100}$/.test(b.key))throw Error('Invalid handoff key');const digest=hostedHandoffDigest(b);p.handoffs||={};if(p.handoffs[b.key]){if(p.handoffs[b.key]!==digest)throw Error('Handoff key already used for different content');return p;}
-  if(b.kind==='script'){reset(p,true);p.script=text(b.script,8000);p.stage='script';}
+  if(b.kind==='script'){
+   const script=text(b.script,5000),seconds=b.seconds===undefined?p.targetSeconds:Number(b.seconds),source=b.draftSource===undefined?'owner-written':String(b.draftSource);
+   if(![15,30,45,60].includes(seconds))throw Error('Choose a supported duration');if(!['assistant-written','owner-written'].includes(source))throw Error('Choose a valid draft source');
+   const words=script.split(/\s+/).length;if(words>Math.ceil(seconds*2.8))throw Error(`Draft has ${words} words; choose a suitable duration before saving (maximum ${Math.ceil(seconds*2.8)} words for ${seconds} seconds)`);
+   const savedAt=new Date().toISOString(),digest=videoDigest({script,seconds,source}),history=[...(p.scriptDraftHistory||[])];
+   if(p.script&&p.script!==script&&!history.some(d=>d.script===p.script&&d.targetSeconds===p.targetSeconds))history.push(p.scriptDraft?.script===p.script?p.scriptDraft:{script:p.script,targetSeconds:p.targetSeconds,source:'owner-written',savedAt,digest:videoDigest({script:p.script,seconds:p.targetSeconds,source:'owner-written'})});
+   const draft:SavedScriptDraft={script,targetSeconds:seconds,source:source as ScriptDraftSource,savedAt,digest};if(!history.some(d=>d.digest===digest))history.push(draft);if(history.length>20)throw Error('Draft history is full; prior revisions were preserved and this save was not applied');
+   reset(p,true);p.script=script;p.targetSeconds=seconds;p.scriptDraft=draft;p.scriptDraftHistory=history;p.stage='script';
+  }
   else if(b.kind==='storyboard'){
    if(!p.scriptApproval||b.scriptHash!==p.scriptApproval||p.scriptApproval!==videoDigest(p.script))throw Error('Storyboard must match the approved script');if(!Array.isArray(b.shots)||b.shots.length>12||!Array.isArray(b.missingAssets)||b.missingAssets.length>20)throw Error('Invalid storyboard');const missing=b.missingAssets.map(x=>text(x,500));if(!b.shots.length&&!missing.length)throw Error('Select existing media or report what is missing');const shots:HostedShot[]=b.shots.map((item:Record<string,unknown>,i:number)=>{const source=media.find(m=>m.id===item.assetId&&m.kind==='source'&&m.state==='ready'&&m.metadata.owned===true);if(!source||source.sha256!==item.fingerprint)throw Error('Select verified owned media');const seconds=Number(item.seconds),offset=Number(item.offset);if(!Number.isFinite(seconds)||seconds<1||seconds>15||!Number.isFinite(offset)||offset<0||offset>600)throw Error('Invalid shot timing');const video=source.mime.startsWith('video/');const preview=media.find(m=>m.id===item.preview&&m.state==='ready'&&m.project_id===p.id&&m.mime.startsWith('image/'));if(!preview||(video&&(preview.kind!=='preview'||preview.metadata.sourceId!==source.id||preview.metadata.offset!==offset))||(!video&&(preview.id!==source.id||offset!==0)))throw Error('Storyboard needs the actual selected source frame');return {id:source.id,mediaId:source.id,name:String(source.metadata.name||'Shot '+(i+1)),source:'owned-media:'+source.id,seconds,offset,preview:preview.id,fingerprint:source.sha256,reason:text(item.reason,1000),synthetic:typeof source.metadata.synthetic==='boolean'?source.metadata.synthetic:null,rights:{basis:'Owner selected existing owned media'},provenance:{sourceId:source.id,sha256:source.sha256,name:source.metadata.name}};});if(shots.length&&Math.abs(shots.reduce((sum,s)=>sum+s.seconds,0)-p.targetSeconds)>.01)throw Error('Shots must total the selected duration');reset(p);p.shots=shots;p.missingAssets=missing;p.roughCaptions=hostedCaptions(p.script,p.targetSeconds);p.stage='storyboard';
   }else throw Error('Unsupported handoff');p.handoffs[b.key]=digest;
