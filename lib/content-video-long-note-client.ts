@@ -15,7 +15,7 @@ export async function savedIdeaChunk(url:string,start:number,seconds:number,tota
    for(let i=lo;i<hi;i++){const pos=Math.max(0,Math.min(item.buffer.length-1,Math.round((start+i/48000-begin)*item.buffer.sampleRate)));let value=0;for(const channel of channels)value+=channel[pos];pcm[i]=value/channels.length;}
    covered=Math.max(covered,end);
   }
-  if(covered<start+seconds-.1)throw Error('Saved note ends before the requested interval; original retained');
+  if(covered<start+seconds-.1)throw Error(`Saved note ends before the requested interval: decoded through ${covered.toFixed(6)}s; encoded duration ${(duration-origin).toFixed(6)}s; requested ${(start+seconds).toFixed(6)}s. Original retained; no audio discarded.`);
   const bytes=new ArrayBuffer(44+count*2),v=new DataView(bytes),word=(at:number,s:string)=>{for(let i=0;i<s.length;i++)v.setUint8(at+i,s.charCodeAt(i));};
   word(0,'RIFF');v.setUint32(4,bytes.byteLength-8,true);word(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,48000,true);v.setUint32(28,96000,true);v.setUint16(32,2,true);v.setUint16(34,16,true);word(36,'data');v.setUint32(40,count*2,true);for(let i=0;i<count;i++)v.setInt16(44+i*2,Math.round(Math.max(-1,Math.min(1,pcm[i]))*32767),true);
   return new File([bytes],'idea-chunk.wav',{type:'audio/wav'});
