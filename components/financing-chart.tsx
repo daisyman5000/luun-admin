@@ -1,4 +1,6 @@
 'use client';
+import {displayedForecast} from '../lib/forecast-actual';
+import {ForecastActualPanel} from './forecast-actual-panel';
 import {useCallback,useEffect,useMemo,useState} from 'react';
 import type {Baseline} from '../lib/financing-baseline';
 import {financingDefaults} from '../lib/financing-defaults';
@@ -34,11 +36,12 @@ export function FinancingChart({baseline,sourceError,initialPlan,initialChoiceKe
  const included=plan.events.filter(e=>e.date>=start&&e.date<=plan.end&&e.amount<0),costs=[{label:'Supplier / deposits',amount:-included.filter(e=>e.kind==='supplier'||e.kind==='order').reduce((n,e)=>n+e.amount,0)},{label:'Freight',amount:-included.filter(e=>e.kind==='shipping').reduce((n,e)=>n+e.amount,0)},{label:'DelGate',amount:-included.filter(e=>e.kind==='dock').reduce((n,e)=>n+e.amount,0)},{label:'Wayflyer',amount:-included.filter(e=>e.kind==='debt').reduce((n,e)=>n+e.amount,0)},{label:'Ads',amount:plan.points.at(-1)?.adSpend||0},{label:'Shopify processing',amount:-included.filter(e=>e.kind==='processing-fee').reduce((n,e)=>n+e.amount,0)},{label:'Import duty (confirmed/scenario only)',amount:-included.filter(e=>e.kind==='duty').reduce((n,e)=>n+e.amount,0)},{label:'Import GST cash (no recovery assumed)',amount:-included.filter(e=>e.kind==='import-gst').reduce((n,e)=>n+e.amount,0)},{label:'Shopify subscription within allowance',amount:-included.filter(e=>e.id.startsWith('shopify-subscription:')).reduce((n,e)=>n+e.amount,0)},{label:'Living + AI / tools remainder',amount:-included.filter(e=>e.id.startsWith('living-tools:')).reduce((n,e)=>n+e.amount,0)},{label:'Tax / other bills',amount:-included.filter(e=>e.kind==='bill'&&!e.id.startsWith('living-tools:')&&!e.id.startsWith('shopify-subscription:')).reduce((n,e)=>n+e.amount,0)}];
  const choose=useCallback((date:string)=>{setSelected(date);setChartFocus({date});setShowMovements(true);setShowDetails(true);},[]);
  if(updating)return <main data-forecast-recalculating className="mx-auto max-w-6xl rounded-xl border bg-white p-5 text-sm text-slate-700"><p role="status">{calculationError||'Recalculating your forecast…'}</p><button className="mt-3 rounded border px-3 py-2 text-xs" onClick={()=>{setPresaleDays(14);setReserveUnverified(true);}}>Return to saved forecast</button></main>;
- if(sourceError||plan.missing)return <main className="mx-auto max-w-6xl text-slate-900"><p role="alert" data-forecast-unavailable className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">Forecast unavailable: {sourceError||plan.missingSources.join(", ")}. Source records must be available before cash or purchase recommendations can be shown.</p></main>;
+ if(sourceError||plan.missing)return <main className="mx-auto max-w-6xl text-slate-900"><ForecastActualPanel forecast={null}/><p role="alert" data-forecast-unavailable className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">Forecast unavailable: {sourceError||plan.missingSources.join(", ")}. Source records must be available before cash or purchase recommendations can be shown.</p></main>;
  return <main data-financing-chart className="mx-auto max-w-6xl text-slate-900">
 
   {sourceError&&<p role="alert" className="mb-3 text-sm text-rose-700">{sourceError}</p>}
 
+  <ForecastActualPanel forecast={displayedForecast(baseline,plan)}/>
   <div data-base-forecast>
   <CashTimelineChart advertising={advertisingContext(baseline)} plan={plan} cashReserve={0} netCashFloor={netCashFloor} onDate={choose} focusDate={chartFocus}/>
   {!!plan.costUncertainties?.length&&<p data-cost-gaps className="mt-2 text-xs text-amber-800">Processing fees are estimates; unconfirmed import costs are not included. Review cost assumptions below.</p>}
