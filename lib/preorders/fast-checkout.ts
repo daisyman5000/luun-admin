@@ -1,3 +1,4 @@
+import {funnelSession} from '@/lib/funnel';
 import {createHash,randomUUID} from 'node:crypto';
 import {createAdminClient} from '@/lib/supabase/admin';
 import {FABRICS} from '@/lib/sales/shopify';
@@ -23,7 +24,7 @@ export async function fastCheckout(body:Record<string,unknown>,ip:string){
  const reservationId=randomUUID();
  const response=await fetch(`https://${domain}/api/2026-01/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token,'Shopify-Storefront-Buyer-IP':ip},body:JSON.stringify({
   query:`mutation($input:CartInput!){cartCreate(input:$input){cart{id checkoutUrl discountAllocations{discountedAmount{amount currencyCode}} cost{checkoutChargeAmount{amount currencyCode} subtotalAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}} sellingPlanAllocation{sellingPlan{id} checkoutChargeAmount{amount currencyCode}}}}} userErrors{message}}}`,
-  variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[{key:'Luun reservation',value:reservationId},{key:'Luun payment option',value:preorder?'20% deposit; balance manually collected when complete sofa is available':'Full payment'}],lines:keys.filter(k=>counts[k]>0).map(k=>({quantity:counts[k],merchandiseId:`gid://shopify/ProductVariant/${variants[k]}`,...(preorder?{sellingPlanId:plan}:{})}))}}
+  variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[...(funnelSession(body.funnelSession)?[{key:'Luun funnel session',value:body.funnelSession}]:[]),{key:'Luun reservation',value:reservationId},{key:'Luun payment option',value:preorder?'20% deposit; balance manually collected when complete sofa is available':'Full payment'}],lines:keys.filter(k=>counts[k]>0).map(k=>({quantity:counts[k],merchandiseId:`gid://shopify/ProductVariant/${variants[k]}`,...(preorder?{sellingPlanId:plan}:{})}))}}
  })});
  const payload=await response.json(),cart=payload.data?.cartCreate?.cart,shopifyMs=Date.now()-started;
  if(!response.ok||payload.errors?.length||payload.data?.cartCreate?.userErrors?.length||!cart)throw Error('Shopify could not open checkout. Please try again.');

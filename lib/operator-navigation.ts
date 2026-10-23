@@ -1,6 +1,7 @@
 export const operatorLinks = [
   { href: "/content", label: "Content" },
   { href: "/demand", label: "Sales" },
+  { href: "/funnel", label: "Funnel" },
   { href: "/financing", label: "Forecasting" },
   { href: "/ticketing", label: "Customers" }
 ];

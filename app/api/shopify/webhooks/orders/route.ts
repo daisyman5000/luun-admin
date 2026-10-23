@@ -1,3 +1,4 @@
+import {recordFunnelPurchase} from '@/lib/funnel-server';
 import { NextResponse, type NextRequest } from "next/server";
 import {
   isExpectedShopifyShopDomain,
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
   try {
     const shopifyOrderId = getShopifyGraphQLOrderId(payload);
     const summary = await importShopifyOrderById(shopifyOrderId);
+    await recordFunnelPurchase(payload);
 
     return NextResponse.json({ topic, ...summary });
   } catch (error) {

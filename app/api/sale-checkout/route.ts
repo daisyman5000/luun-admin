@@ -20,7 +20,7 @@ export async function POST(r:Request){
   const body=await r.json();const counts=validateCounts(body.counts);
   const sale=await readSale();
   if(!isSaleActive(sale))throw new Error('Sale changed. Refresh your configuration before checking out.');
-  const cart=await checkoutQuote(counts,body.fabric);
+  const cart=await checkoutQuote(counts,body.fabric,[],body.funnelSession);
   if(cart.totalCents!==quote(counts,true).totalCents)throw new Error('Checkout total differs. Please refresh or contact support.');
   const latest=await readSale();
   if(latest.version!==sale.version || !isSaleActive(latest))throw new Error('Sale changed. Refresh before checking out.');
