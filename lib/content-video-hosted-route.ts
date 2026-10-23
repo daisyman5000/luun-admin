@@ -1,4 +1,4 @@
-import {SOURCE_SCRIPT_BLOCKER} from './content-video-source-bank';
+import {sourceScriptStatus,sourceScriptAllowance} from './content-video-source-allowance';
 import {manualScriptStatus,manualScriptAllowance} from './content-video-manual-script';
 import {scriptSettings} from './content-video-script';
 import {savedScriptAllowance,SAVED_SCRIPT_PROJECT,SAVED_SCRIPT_JOB} from './content-video-saved-script-allowance';
@@ -33,7 +33,8 @@ export async function hostedVideoGET(request:Request){try{const s=await access(r
  return Response.json({projects:(await s.list()).filter(p=>!p.hiddenFromList&&!p.demoLabel),hosted:true,capabilities:{...creatorProviderReadiness(),scriptModel:scriptModelDisplay(process.env.LUUN_VIDEO_SCRIPT_MODEL),browserRender:true}},{headers});
  }catch(e){return error(e);}}
 export async function hostedVideoPOST(request:Request){try{const s=await access(request),b=await body(request);if(b.action==='create')return Response.json(await s.create(),{headers});const row=await s.project(String(b.id||'')),p=row.package as CreatorProject;
- if(b.action==='generate-source-script')throw Error(SOURCE_SCRIPT_BLOCKER);
+ if(b.action==='source-script-status')return Response.json({...p,manualStatus:sourceScriptStatus(s.actorId,p)},{headers});
+ if(b.action==='generate-source-script'){const allowance=sourceScriptAllowance(s.actorId,p);return Response.json(await creatorAction(s,p,b,{providers:creatorProviders(undefined,undefined,undefined,undefined,undefined,undefined,undefined,allowance),drive:creatorDrive()}),{headers});}
  if(b.action==='manual-script-status')return Response.json({...p,manualStatus:manualScriptStatus(s.actorId,p)},{headers});
  if(b.action==='manual-generate-script'){const angle=String(b.angle||'').trim();if(!angle||angle.length>1000)throw Error('Describe a distinct angle in 1–1000 characters');const allowance=manualScriptAllowance(s.actorId,p);return Response.json(await creatorAction(s,p,{...b,action:'generate-script',debug:true,idea:'',baseCandidateId:undefined,fromStage:undefined,feedback:angle,settings:scriptSettings(undefined,60)},{providers:creatorProviders(undefined,undefined,undefined,undefined,undefined,undefined,allowance),drive:creatorDrive()}),{headers});}
  if(creatorActions.includes(String(b.action))){const savedScript=p.id===SAVED_SCRIPT_PROJECT&&['generate-script','script-readiness'].includes(String(b.action))?savedScriptAllowance(s.actorId,p.id,p.ideaTranscript?.text||'',p.ideaTranscript?.audioHash||''):undefined;if(savedScript&&b.action==='generate-script')b.key=SAVED_SCRIPT_JOB;const deps=savedScript?{providers:creatorProviders(undefined,undefined,undefined,undefined,undefined,savedScript),drive:creatorDrive()}:p.id===NOTE_PROJECT&&['transcribe-idea','idea-transcription-plan'].includes(String(b.action))?{providers:creatorProviders(undefined,undefined,undefined,undefined,noteAllowance(s.actorId,p.id,p.ideaVoice?.audioHash||'')),drive:creatorDrive()}:undefined;return Response.json(await creatorAction(s,p,b,deps),{headers});}

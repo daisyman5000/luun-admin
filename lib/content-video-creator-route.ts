@@ -63,7 +63,7 @@ export async function creatorAction(store:Store,p:CreatorProject,b:Record<string
   return creatorJob(persistence,p,key,'script',{request:openAIScriptRequest(input,providers.scriptModel||'Not configured'),sourceBankDigest:bank.digest,angleId:angle.id},async(reserve,operation)=>{
    const stored=await operation('openai-script',{request:openAIScriptRequest(input,providers.scriptModel||'Not configured'),requestKey:key},async()=>{reserve();return typeof providers.scriptArtifact==='function'?providers.scriptArtifact(input):providers.script(input);}),draft=isScriptArtifact(stored)?validateScriptArtifact(stored,60,true):stored,original=makeScriptCandidate(key,providers.scriptModel||'',resolved,draft),{digest:discarded,...snapshot}=original;void discarded;
    const candidate={...snapshot,sourceBankDigest:bank.digest,angleName:angle.name,sourceNoteIds:angle.noteIds};return {scriptLab:scriptLabVersion(p,input.settings,{...candidate,digest:creatorHash(candidate)}),sourceBank:{...bank,nextAngle:(bank.nextAngle+1)%bank.angles.length},stage:p.stage};
-  },8,providers.quote('script',p.id));
+  },10,providers.quote('script',p.id));
  }
  if(b.action==='save-returned-script'){
   sameRevision(p,b);if(Object.values(p.jobs||{}).some(j=>j.status==='pending'||j.status==='uncertain'))throw Error('Resolve the pending generation first');
