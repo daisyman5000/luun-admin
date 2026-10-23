@@ -1,0 +1,23 @@
+import {createHash} from 'node:crypto';
+import {creatorCostQuote,creatorScriptReservationMicrousd} from './content-video-creator-cost';
+import {SUPPORTED_SCRIPT_MODEL,scriptSettings,type ScriptInput} from './content-video-script';
+import type {CreatorState} from './content-video-creator';
+export const MANUAL_SCRIPT_SCOPE='manual-saved-script-v1';
+// Owner approved USD1 total on October 23 at 00:11 UTC, USD0.10 per
+// manually requested text attempt, including one verification. No recurring grant.
+export const MANUAL_SCRIPT_APPROVED_MICROUSD=1000000;
+const owner='913c334c-7c7c-4aed-9ffa-7c8d225a95b0',project='80c2d1cf-865d-4ac9-b736-4a6652de9553',transcript='3d6e03d07e7ea1fcfb97cc7b95945a3f26de3ec9a7a59298adea1d1fe60ecba0',source='acd140d1ecb382d104ca42e9659d046d6e6e1ed786c8c6c600e4fb449ba14b80';
+const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
+export function manualScriptLedger(p:CreatorState,approved=MANUAL_SCRIPT_APPROVED_MICROUSD){
+ const perRequestMicrousd=creatorScriptReservationMicrousd(),jobs=Object.values(p.jobs||{}),usedMicrousd=jobs.filter(j=>j.cost?.allowanceScope===MANUAL_SCRIPT_SCOPE).reduce((n,j)=>n+(j.cost?.reservedMicrousd||0),0),remainingMicrousd=Math.max(0,approved-usedMicrousd),requestSlots=Math.max(0,10-jobs.filter(j=>j.cost?.allowanceScope===MANUAL_SCRIPT_SCOPE).reduce((n,j)=>n+j.requests,0));
+ return {approvedMicrousd:approved,usedMicrousd,remainingMicrousd,perRequestMicrousd,requestSlots};
+}
+export function manualScriptStatus(actor:string,p:CreatorState,approved=MANUAL_SCRIPT_APPROVED_MICROUSD){const ledger=manualScriptLedger(p,approved),{remainingMicrousd,perRequestMicrousd,requestSlots}=ledger,jobs=Object.values(p.jobs||{});
+ let reason='';if(actor!==owner||p.id!==project||p.ideaTranscript?.audioHash!==source||hash(p.ideaTranscript?.text||'')!==transcript)reason='Choose the saved transcribed note';else if(!approved)reason='Manual text-generation spending has not been approved';else if(remainingMicrousd<perRequestMicrousd)reason='The manual script allowance is exhausted';else if(!requestSlots)reason='The existing project request limit is reached';else if(jobs.some(j=>j.status==='pending'||j.status==='uncertain'))reason='Resolve the pending or uncertain request first';else if(Buffer.byteLength(JSON.stringify(p))>180000)reason='Project draft history reached its safe storage bound; no new attempt was reserved';else if((p.scriptLab?.candidates.length||0)>=20)reason='The saved version limit is reached; no previous version was removed';
+ return {authorized:!reason,message:reason||'Ready for a manually requested script',...ledger};
+}
+export function manualScriptAllowance(actor:string,p:CreatorState,env:NodeJS.ProcessEnv=process.env,approved=MANUAL_SCRIPT_APPROVED_MICROUSD){const status=manualScriptStatus(actor,p,approved);if(!status.authorized)throw Error(status.message);
+ if(env.LUUN_VIDEO_PAID_ENABLED!==undefined&&env.LUUN_VIDEO_PAID_ENABLED!=='true')throw Error('An explicit operator setting disables paid calls');if(env.LUUN_VIDEO_APPROVED_OPERATIONS!==undefined&&!env.LUUN_VIDEO_APPROVED_OPERATIONS.split(',').includes('script'))throw Error('An explicit operator setting excludes scripts');if(env.LUUN_VIDEO_TEST_PROJECT_ID&&env.LUUN_VIDEO_TEST_PROJECT_ID!==p.id)throw Error('An explicit operator project restriction blocks this request');if(env.LUUN_VIDEO_SCRIPT_MODEL&&env.LUUN_VIDEO_SCRIPT_MODEL!==SUPPORTED_SCRIPT_MODEL)throw Error('The configured script model conflicts with the supported model');
+ const ceiling=(220000+approved)/1000000,configured=env.LUUN_VIDEO_PROVIDER_BUDGET_USD===undefined?ceiling:Number(env.LUUN_VIDEO_PROVIDER_BUDGET_USD);if(!Number.isFinite(configured)||configured<=0)throw Error('An explicit operator budget disables scripts');const quote={...creatorCostQuote('script',p.id,{...env,LUUN_VIDEO_TEST_PROJECT_ID:p.id,LUUN_VIDEO_SCRIPT_MODEL:SUPPORTED_SCRIPT_MODEL,LUUN_VIDEO_PROVIDER_BUDGET_USD:String(Math.min(ceiling,configured))}),allowanceScope:MANUAL_SCRIPT_SCOPE};if(quote.reservedMicrousd>100000)throw Error('Manual attempt exceeds the ten-cent limit');return {actor,project:p,model:SUPPORTED_SCRIPT_MODEL,quote};}
+export type ManualScriptAllowance=ReturnType<typeof manualScriptAllowance>;
+export function assertManualScriptInput(a:ManualScriptAllowance,input:ScriptInput){if(input.targetSeconds!==60||input.audio?.hash!==source||hash(input.audio?.transcript||'')!==transcript||input.idea||input.frameworkLocks&&Object.keys(input.frameworkLocks).length||!input.feedback?.trim()||input.feedback.length>1000||JSON.stringify(input.settings)!==JSON.stringify(scriptSettings(undefined,60)))throw Error('Manual generation requires the saved transcript, exact default prompt, a distinct-angle instruction, and a 60-second target');}

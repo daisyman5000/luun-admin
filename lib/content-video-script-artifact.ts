@@ -27,6 +27,7 @@ export function validateScriptArtifact(a:ScriptArtifact,seconds:number,scriptOnl
  const raw=object(value),limit=Math.ceil(seconds*2.8);
  if(typeof raw.script!=='string'||!raw.script.trim())throw Error(`Script response is incomplete: finished dialogue is missing. ${saved}`);
  const words=raw.script.trim().split(/\s+/).length;
+ if(seconds===60&&(words<130||words>160))throw Error(`The 60-second script has ${words} words; expected 130–160. ${saved}`);
  if(raw.script.length>5000||words>limit)throw Error(`Script response is too long: ${words} words / ${raw.script.length} characters; the ${seconds}-second target permits at most ${limit} words and 5000 characters. ${saved}`);
  if(!Array.isArray(raw.claimsToVerify)||raw.claimsToVerify.length>20||raw.claimsToVerify.some(c=>typeof c!=='string'||c.length>300))throw Error(`Script response is incomplete: claimsToVerify must contain at most 20 strings, each at most 300 characters. ${saved}`);
  try{return {...validateCreatorScript(raw,seconds),...validateIdeaOptions(raw,scriptOnly)};}catch(e){throw Error(`${e instanceof Error?e.message:'Script contract is invalid'}. ${saved}`);}

@@ -6,7 +6,7 @@ import {SUPPORTED_SCRIPT_MODEL,SCRIPT_MAX_OUTPUT_TOKENS} from './content-video-s
 export const CREATOR_PRICE_CHECKED='2026-10-21';
 export const CREATOR_LIMITS={scriptInputTokens:32000,editInputTokens:64000,scriptOutputTokens:SCRIPT_MAX_OUTPUT_TOKENS,editOutputTokens:5000,maxAudioSeconds:120,maxImages:12,maxImageSide:640,scriptTextBytes:24000,editTextBytes:22000};
 export function creatorScriptReservationMicrousd(){return Math.ceil(2*(CREATOR_LIMITS.scriptInputTokens*.75+CREATOR_LIMITS.scriptOutputTokens*4.5)/10000)*10000;}
-export type CreatorCostReservation={projectId:string;budgetMicrousd:number;reservedMicrousd:number;model:string;priceChecked:string;inputTokenLimit:number;outputTokenLimit:number;audioSecondsLimit:number};
+export type CreatorCostReservation={allowanceScope?:string;projectId:string;budgetMicrousd:number;reservedMicrousd:number;model:string;priceChecked:string;inputTokenLimit:number;outputTokenLimit:number;audioSecondsLimit:number};
 export function creatorCostQuote(stage:'script'|'generate'|'idea',projectId:string,env:NodeJS.ProcessEnv=process.env,now=Date.now()):CreatorCostReservation{
  const age=now-Date.parse(CREATOR_PRICE_CHECKED+'T00:00:00Z');if(age<0||age>7*86400000)throw Error('Video price verification expired; recheck official rates before paid calls');
  const model=stage==='idea'?'whisper-1':stage==='script'?env.LUUN_VIDEO_SCRIPT_MODEL:env.LUUN_VIDEO_CLAUDE_MODEL;if(model!==(stage==='idea'?'whisper-1':stage==='script'?SUPPORTED_SCRIPT_MODEL:'claude-sonnet-4-6'))throw Error('This video adapter has no verified pricing/tool contract for the configured provider/model');
