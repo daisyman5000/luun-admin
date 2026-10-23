@@ -30,20 +30,24 @@ export function LoginForm() {
       return;
     }
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
 
-    setLoading(false);
+      if (authError) {
+        setError(authError.message);
+        return;
+      }
 
-    if (authError) {
-      setError(authError.message);
-      return;
+      router.replace(loginDestination(searchParams.get("redirectedFrom")));
+      router.refresh();
+    } catch {
+      setError("Unable to sign in. Check your connection and try again.");
+    } finally {
+      setLoading(false);
     }
-
-    router.replace(loginDestination(searchParams.get("redirectedFrom")));
-    router.refresh();
   }
 
   return (
@@ -81,7 +85,7 @@ export function LoginForm() {
           This workspace connection is not configured yet.
         </p>
       ) : null}
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
       <button
         className="w-full rounded-md bg-ink px-5 py-3 text-base font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={loading || !isConfigured}
