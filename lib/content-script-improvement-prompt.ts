@@ -27,7 +27,8 @@ export function validateImprovement(phase:ImprovementPhase,value:unknown,source:
  const candidates=note.critique&&note.revisions&&note.blindOrder?[note.critique.baseline,...note.revisions]:null;
  const valid=(label:unknown)=>{if(!candidates)return true;const v=candidates[note.blindOrder![['A','B','C'].indexOf(String(label))]],count=v.script.trim().split(/\s+/).length;return count>=130&&count<=160&&v.coreIdea.trim().split(/\s+/).length<12&&!/\b(?:Liven|Loom|Lin)\b/i.test(v.script);};
  const totals=assessments.map(a=>({label:a.label,supported:a.supported,total:['hook','clarity','contrast','benefit','proof','action'].reduce((s,k)=>s+Number((a as Record<string,unknown>)[k]),0)})),eligible=totals.filter(a=>a.supported&&a.total>=20&&valid(a.label)).sort((a,b)=>b.total-a.total);
- if(r.winner==='none'){if(r.verdict==='worthwhile')throw Error('No winner cannot be worthwhile');}
+ if(r.verdict!=='worthwhile'||String(r.missingDetail||'').trim()){r.winner='none';if(r.verdict==='worthwhile')r.verdict='needs-detail';}
+ else if(r.winner==='none'){r.verdict='weak';}
  else if(!eligible.length){r.winner='none';r.verdict='needs-detail';r.reason='No version meets the source support, clarity and script-length requirements. '+text(r.reason);r.missingDetail='Review the saved alternatives and supply the missing product detail or a corrected draft.';}
  else {const top=eligible[0];if(r.winner!==top.label&&eligible.find(a=>a.label===r.winner)?.total!==top.total){r.winner=top.label;r.reason=assessments.find(a=>a.label===top.label)!.reason;}r.verdict='worthwhile';}
 
