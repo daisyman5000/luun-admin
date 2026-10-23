@@ -23,3 +23,10 @@ test('no saved scripts shows a single generation prompt and no empty editor',()=
  const html=renderToStaticMarkup(React.createElement(ContentSourceScripts,{project:{id:'project',sourceBank:bank},projects:[{id:'project',script:'',sourceBank:bank}],busy:false,error:'',readiness:null,onGenerate(){},onChoose(){}}));
  assert.match(html,/Generate a script from your saved notes/);assert.match(html,/disabled/);assert.doesNotMatch(html,/<textarea|Approve script|Draft duration/);
 });
+
+test('improvement cards preserve originals, expose weak ideas and show bounded budget without deletion controls',()=>{
+ const {ContentScriptImprovements}=require(out+'/components/content-script-improvements');
+ const state={scope:'test',notes:{'01':{noteId:'01',jobs:{critique:{status:'complete'}},critique:{baseline:{coreIdea:'Core',script:'Original sample'},reason:'Missing proof',buyerBenefit:'',weakLines:[]},comparison:{winner:'none',verdict:'weak',reason:'No supported benefit',missingDetail:'Which material changed comfort?'}}}};
+ const html=renderToStaticMarkup(React.createElement(ContentScriptImprovements,{bank,state,busy:false,progress:'',status:{authorized:true},onRun(){},onPause(){}}));
+ assert.match(html,/US\$2.00 total/);assert.match(html,/US\$0.25 per note/);assert.match(html,/Weak audio idea/);assert.match(html,/Original sample/);assert.match(html,/Which material changed comfort/);assert.doesNotMatch(html,/>Delete|Approve script|<textarea/);
+});

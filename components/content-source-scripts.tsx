@@ -1,5 +1,6 @@
 'use client';
 
+import {ContentScriptImprovements} from './content-script-improvements';
 import {useState} from 'react';
 import {sourceScriptName} from '../lib/content-video-script-name';
 import type {CreatorState} from '../lib/content-video-creator';
@@ -7,16 +8,20 @@ import type {SourceBank} from '../lib/content-video-source-bank';
 
 type Readiness={authorized:boolean;message:string;remainingMicrousd:number;approvedMicrousd:number;perRequestMicrousd:number};
 type Props={
- project:Pick<CreatorState,'id'|'sourceBank'|'scriptLab'|'sourceQuestion'>;
+ project:Pick<CreatorState,'id'|'sourceBank'|'scriptLab'|'sourceQuestion'|'scriptImprovements'>;
  projects:{id:string;script:string;sourceBank?:SourceBank}[];
  busy:boolean;
  error:string;
  readiness:Readiness|null;
  onGenerate:()=>void;
  onChoose:(id:string)=>void;
+ improvementStatus?:{authorized:boolean;message:string;remainingMicrousd:number}|null;
+ improvementProgress?:string;
+ onImprove?:(ids:string[])=>void;
+ onPauseImprovement?:()=>void;
 };
 
-export function ContentSourceScripts({project,projects,busy,error,readiness,onGenerate,onChoose}:Props){
+export function ContentSourceScripts({project,projects,busy,error,readiness,onGenerate,onChoose,improvementStatus,improvementProgress,onImprove,onPauseImprovement}:Props){
  const [selection,setSelection]=useState({id:'',latest:''});
  const bank=project.sourceBank;
  if(!bank)return null;
@@ -48,6 +53,7 @@ export function ContentSourceScripts({project,projects,busy,error,readiness,onGe
    {selected.coreIdea&&<p className="mt-4 font-medium">{selected.coreIdea}</p>}
    <p className="mt-4 whitespace-pre-wrap text-base leading-7">{selected.script}</p>
   </article>:<p className="mt-6 text-sm text-slate-600">Generate a script from your saved notes.</p>}
+  {onImprove&&<ContentScriptImprovements bank={bank} state={project.scriptImprovements} busy={busy} progress={improvementProgress||''} status={improvementStatus||null} onRun={onImprove} onPause={onPauseImprovement||(()=>{})}/> }
   <details className="mt-6 text-sm text-slate-500">
    <summary>Source notes · {bank.notes.length} notes · {bank.angles.length} angles</summary>
    {bank.notes.map(n=><details key={n.id} className="mt-3"><summary>{n.id} — {n.name}</summary><p className="mt-2 whitespace-pre-wrap">{n.text}</p></details>)}

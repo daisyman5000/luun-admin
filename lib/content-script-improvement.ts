@@ -1,0 +1,50 @@
+import {randomInt} from 'node:crypto';
+import {creatorHash,type CreatorState} from './content-video-creator';
+import {creatorOpenAIKey,creatorOpenAIReferenceAvailable} from './content-video-creator-credentials';
+import {captureScriptArtifact,type ScriptArtifact} from './content-video-script-artifact';
+import {SOURCE_SCRIPT_OWNER,SOURCE_SCRIPT_PROJECT,sourceBankFingerprint} from './content-video-source-allowance';
+import {sourceScriptName} from './content-video-script-name';
+import {improvementRequest,validateImprovement} from './content-script-improvement-prompt';
+import {IMPROVEMENT_SCOPE,IMPROVEMENT_PHASES,IMPROVEMENT_TOTAL,IMPROVEMENT_PER_NOTE,IMPROVEMENT_PER_CALL,improvementLedger,improvementPending,nextImprovementPhase,type ImprovementPhase,type ScriptCritique,type ScriptComparison,type NoteImprovement,type ImprovedScript} from './content-script-improvement-types';
+// Owner authorized one-time USD2 total / USD0.25 per source note on 2026-10-23.
+// Three calls per note at USD0.08 reserved each: USD1.92 maximum. Never renew/refund/retry.
+const PRICE_CHECKED='2026-10-23',INPUT_LIMIT=12000,OUTPUT_LIMIT=4000;
+const matches=(actor:string,p:CreatorState)=>actor===SOURCE_SCRIPT_OWNER&&p.id===SOURCE_SCRIPT_PROJECT&&p.sourceBank?.digest==='3eb438e76815e2df071aab76f3060c3d61a97ce6bac143a6624341f99110b337'&&sourceBankFingerprint(p.sourceBank)==='0514781ceb0bd1fef78bc4b702051b7d0f2d7db8996874c8c12b28e4422845e8';
+type Store={project:(id:string)=>Promise<{package:unknown}>;save:(id:string,revision:number,p:Record<string,unknown>)=>Promise<unknown>};
+export function improvementStatus(actor:string,p:CreatorState,env:NodeJS.ProcessEnv=process.env){let message='';const state=p.scriptImprovements,ledger=improvementLedger(state),age=Date.now()-Date.parse(PRICE_CHECKED+'T00:00:00Z');
+ if(!matches(actor,p))message='Improvement allowance covers only this owner and the eight saved source notes';
+ else if(state&&state.scope!==IMPROVEMENT_SCOPE)message='Improvement reservations need reconciliation';
+ else if(env.LUUN_VIDEO_PAID_ENABLED!==undefined&&env.LUUN_VIDEO_PAID_ENABLED!=='true'||env.LUUN_VIDEO_APPROVED_OPERATIONS!==undefined&&!env.LUUN_VIDEO_APPROVED_OPERATIONS.split(',').includes('script')||env.LUUN_VIDEO_TEST_PROJECT_ID&&env.LUUN_VIDEO_TEST_PROJECT_ID!==p.id||env.LUUN_VIDEO_SCRIPT_MODEL&&env.LUUN_VIDEO_SCRIPT_MODEL!=='gpt-5.4-mini-2026-03-17')message='An operator setting blocks this improvement request';
+ else if(env.LUUN_VIDEO_PROVIDER_BUDGET_USD!==undefined&&(!Number.isFinite(Number(env.LUUN_VIDEO_PROVIDER_BUDGET_USD))||Number(env.LUUN_VIDEO_PROVIDER_BUDGET_USD)<=0))message='An operator budget setting disables paid calls';
+ else if(!creatorOpenAIReferenceAvailable(env))message='The existing generation credential is unavailable';
+ else if(age<0||age>7*86400000)message='Price verification expired; recheck official rates before more calls';
+ else if(improvementPending(state)||Object.values(p.jobs||{}).some(j=>j.status==='pending'||j.status==='uncertain'))message='A pending or uncertain result needs reconciliation before more calls';
+ else if(ledger.remainingMicrousd<IMPROVEMENT_PER_CALL)message='One-time improvement budget exhausted';
+ else if(Buffer.byteLength(JSON.stringify(p))>220000)message='Saved history reached its storage bound; everything is preserved';
+ return {...ledger,authorized:!message,message:message||'One-time improvement allowance; originals preserved',perNoteMicrousd:IMPROVEMENT_PER_NOTE,perCallMicrousd:IMPROVEMENT_PER_CALL,scope:IMPROVEMENT_SCOPE};
+}
+async function jsonRequest(fetcher:typeof fetch,url:string,init:RequestInit){try{const r=await fetcher(url,{...init,redirect:'error',signal:AbortSignal.timeout(110000)});if(!r.ok){await r.body?.cancel();throw Error(`Generation provider returned HTTP ${r.status}; no automatic retry`);}const reader=r.body?.getReader();if(!reader)throw Error('Empty provider result');let size=0;const chunks:Uint8Array[]=[];while(true){const v=await reader.read();if(v.done)break;size+=v.value.length;if(size>80000){await reader.cancel();throw Error('Provider output exceeds retention bound');}chunks.push(v.value);}return JSON.parse(Buffer.concat(chunks).toString()) as Record<string,unknown>;}catch(e){throw Object.assign(Error(e instanceof Error?e.message:'Provider result is uncertain'),{uncertain:true});}}
+export async function improvementProvider(body:ReturnType<typeof improvementRequest>,env:NodeJS.ProcessEnv=process.env,fetcher:typeof fetch=fetch){if(body.max_output_tokens!==OUTPUT_LIMIT||Buffer.byteLength(JSON.stringify(body))>36000)throw Error('Improvement request exceeds its input bound');const headers={Authorization:'Bearer '+creatorOpenAIKey(env),'Content-Type':'application/json'};const counted=await jsonRequest(fetcher,'https://api.openai.com/v1/responses/input_tokens',{method:'POST',headers,body:JSON.stringify({model:body.model,instructions:body.instructions,input:body.input,text:body.text,reasoning:body.reasoning})});if(!Number.isSafeInteger(counted.input_tokens)||Number(counted.input_tokens)<1||Number(counted.input_tokens)>INPUT_LIMIT)throw Error('Improvement input exceeds its bounded cost envelope');return captureScriptArtifact(await jsonRequest(fetcher,'https://api.openai.com/v1/responses',{method:'POST',headers,body:JSON.stringify(body)}),body.model);}
+function artifactValue(a:ScriptArtifact){if(a.retentionError||a.status!=='completed'||a.error||a.refusals.length||a.outputs.length!==1)throw Error('Improvement response is incomplete; retained result requires review, with no automatic retry');if(Buffer.byteLength(a.outputs[0])>15000)throw Error('Improvement output exceeds its storage bound');try{return JSON.parse(a.outputs[0]) as unknown;}catch{throw Error('Improvement output is not valid JSON; saved for review');}}
+export async function improveSourceNote(store:Store,actor:string,p:CreatorState,b:Record<string,unknown>,provider:typeof improvementProvider=improvementProvider,env:NodeJS.ProcessEnv=process.env):Promise<CreatorState>{
+ const noteId=String(b.noteId||''),phase=String(b.phase||'') as ImprovementPhase;
+ if(!matches(actor,p))throw Error('Owner access required for this collection');if(!IMPROVEMENT_PHASES.includes(phase))throw Error('Invalid improvement phase');const source=p.sourceBank!.notes.find(n=>n.id===noteId);if(!source)throw Error('Unknown source note');
+ const existing=p.scriptImprovements?.notes[noteId],prior=existing?.jobs[phase];if(prior?.status==='complete')return p;if(prior)throw Error('This call is already reserved; no automatic retry');
+ if(p.revision!==b.revision)throw Error('Collection changed; reload before continuing');const status=improvementStatus(actor,p,env);if(!status.authorized)throw Error(status.message);if(nextImprovementPhase(existing)!==phase)throw Error('Complete the previous improvement step first');
+ const note:NoteImprovement=existing?structuredClone(existing):{noteId,sourceHash:creatorHash(source),jobs:{}};if(note.sourceHash!==creatorHash(source))throw Error('Source changed; existing results were preserved');
+ if(!existing){const history=(p.scriptLab?.candidates||[]).filter(c=>c.sourceBankDigest===p.sourceBank!.digest&&c.sourceNoteIds?.length===1&&c.sourceNoteIds[0]===noteId),original=history.at(-1);if(original){note.original={coreIdea:original.coreIdea||'',script:original.script};note.originalName=sourceScriptName(original,p.sourceBank!,p.scriptLab?.candidates||[]);}}
+ const noteSpent=Object.values(note.jobs).reduce((s,j)=>s+(j?.reservedMicrousd||0),0);if(noteSpent+IMPROVEMENT_PER_CALL>IMPROVEMENT_PER_NOTE||status.usedMicrousd+IMPROVEMENT_PER_CALL>IMPROVEMENT_TOTAL)throw Error('Improvement spending limit reached');
+ const order=phase==='judge'?[0,1,2]:undefined;if(order)for(let i=2;i>0;i--){const j=randomInt(i+1);[order[i],order[j]]=[order[j],order[i]];}if(order)note.blindOrder=order;
+ const request=improvementRequest(phase,source,note,order);note.jobs[phase]={phase,status:'pending',reservedMicrousd:IMPROVEMENT_PER_CALL,startedAt:Date.now(),inputHash:creatorHash(request)};
+ let current={...p,scriptImprovements:{scope:IMPROVEMENT_SCOPE,notes:{...(p.scriptImprovements?.notes||{}),[noteId]:note}}};current=await store.save(p.id,p.revision,current) as typeof current;
+ let artifact:ScriptArtifact;
+ const saveNote=async(n:NoteImprovement)=>{const next={...current,scriptImprovements:{...current.scriptImprovements,notes:{...current.scriptImprovements.notes,[noteId]:n}}};current=await store.save(p.id,current.revision,next) as typeof current;};
+ try{artifact=await provider(request,env);}catch(e){const error=e instanceof Error?e.message:'Improvement failed';note.jobs[phase]={...note.jobs[phase]!,status:(e as {uncertain?:boolean}).uncertain?'uncertain':'failed',error:error.slice(0,350)};await saveNote(note);throw e;}
+ // Checkpoint the sanitized paid output before validating it. Retry storage only, never the API.
+ note.jobs[phase]={...note.jobs[phase]!,result:artifact};let retained=false;
+ for(let attempt=0;attempt<2&&!retained;attempt++){try{await saveNote(note);retained=true;}catch{const latest=(await store.project(p.id)).package as typeof current;const saved=latest.scriptImprovements?.notes[noteId]?.jobs[phase];if(saved?.result&&creatorHash(saved.result)===creatorHash(artifact)){current=latest;retained=true;}else if(latest.revision===current.revision)current=latest;else throw Error('Result checkpoint is uncertain; inspect usage before continuing');}}
+ if(!retained)throw Error('Result checkpoint is uncertain; no replay permitted');
+ try{const result=validateImprovement(phase,artifactValue(artifact),source,note);if(phase==='critique')note.critique=result as ScriptCritique;else if(phase==='revise')note.revisions=(result as {revisions:ImprovedScript[]}).revisions;else note.comparison=result as ScriptComparison;
+ note.jobs[phase]={...note.jobs[phase]!,status:'complete',result:undefined};await saveNote(note);return current;
+ }catch(e){note.jobs[phase]={...note.jobs[phase]!,status:'failed',result:artifact,error:(e instanceof Error?e.message:'Invalid improvement').slice(0,350)};await saveNote(note);throw e;}
+}

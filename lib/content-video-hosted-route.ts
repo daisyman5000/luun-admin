@@ -1,3 +1,4 @@
+import {improvementStatus,improveSourceNote} from './content-script-improvement';
 import {sourceScriptStatus,sourceScriptAllowance} from './content-video-source-allowance';
 import {manualScriptStatus,manualScriptAllowance} from './content-video-manual-script';
 import {scriptSettings} from './content-video-script';
@@ -33,6 +34,8 @@ export async function hostedVideoGET(request:Request){try{const s=await access(r
  return Response.json({projects:(await s.list()).filter(p=>!p.hiddenFromList&&!p.demoLabel),hosted:true,capabilities:{...creatorProviderReadiness(),scriptModel:scriptModelDisplay(process.env.LUUN_VIDEO_SCRIPT_MODEL),browserRender:true}},{headers});
  }catch(e){return error(e);}}
 export async function hostedVideoPOST(request:Request){try{const s=await access(request),b=await body(request);if(b.action==='create')return Response.json(await s.create(),{headers});const row=await s.project(String(b.id||'')),p=row.package as CreatorProject;
+ if(b.action==='source-improvement-status')return Response.json({...p,improvementStatus:improvementStatus(s.actorId,p)},{headers});
+ if(b.action==='improve-source-note')return Response.json(await improveSourceNote(s,s.actorId,p,b),{headers});
  if(b.action==='source-script-status')return Response.json({...p,manualStatus:sourceScriptStatus(s.actorId,p)},{headers});
  if(b.action==='generate-source-script'){const allowance=sourceScriptAllowance(s.actorId,p);return Response.json(await creatorAction(s,p,b,{providers:creatorProviders(undefined,undefined,undefined,undefined,undefined,undefined,undefined,allowance),drive:creatorDrive()}),{headers});}
  if(b.action==='manual-script-status')return Response.json({...p,manualStatus:manualScriptStatus(s.actorId,p)},{headers});
