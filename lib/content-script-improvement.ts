@@ -29,7 +29,10 @@ function artifactValue(a:ScriptArtifact){if(a.retentionError||a.status!=='comple
 export async function improveSourceNote(store:Store,actor:string,p:CreatorState,b:Record<string,unknown>,provider:typeof improvementProvider=improvementProvider,env:NodeJS.ProcessEnv=process.env):Promise<CreatorState>{
  const noteId=String(b.noteId||''),phase=String(b.phase||'') as ImprovementPhase;
  if(!matches(actor,p))throw Error('Owner access required for this collection');if(!IMPROVEMENT_PHASES.includes(phase))throw Error('Invalid improvement phase');const source=p.sourceBank!.notes.find(n=>n.id===noteId);if(!source)throw Error('Unknown source note');
- const existing=p.scriptImprovements?.notes[noteId],prior=existing?.jobs[phase];if(prior?.status==='complete')return p;if(prior)throw Error('This call is already reserved; no automatic retry');
+ const existing=p.scriptImprovements?.notes[noteId],prior=existing?.jobs[phase];if(prior?.status==='complete')return p;
+ // Revalidate a retained paid response without dispatching or changing its reservation.
+ if(prior?.status==='failed'&&prior.result&&existing){if(p.revision!==b.revision)throw Error('Collection changed; reload before continuing');const note=applyResult(structuredClone(existing),phase,artifactValue(prior.result as ScriptArtifact),source);return await store.save(p.id,p.revision,{...p,scriptImprovements:{...p.scriptImprovements!,notes:{...p.scriptImprovements!.notes,[noteId]:note}}}) as CreatorState;}
+ if(prior)throw Error('This call is already reserved; no automatic retry');
  if(p.revision!==b.revision)throw Error('Collection changed; reload before continuing');const status=improvementStatus(actor,p,env);if(!status.authorized)throw Error(status.message);if(nextImprovementPhase(existing)!==phase)throw Error('Complete the previous improvement step first');
  const note:NoteImprovement=existing?structuredClone(existing):{noteId,sourceHash:creatorHash(source),jobs:{}};if(note.sourceHash!==creatorHash(source))throw Error('Source changed; existing results were preserved');
  if(!existing){const history=(p.scriptLab?.candidates||[]).filter(c=>c.sourceBankDigest===p.sourceBank!.digest&&c.sourceNoteIds?.length===1&&c.sourceNoteIds[0]===noteId),original=history.at(-1);if(original){note.original={coreIdea:original.coreIdea||'',script:original.script};note.originalName=sourceScriptName(original,p.sourceBank!,p.scriptLab?.candidates||[]);}}
@@ -44,7 +47,8 @@ export async function improveSourceNote(store:Store,actor:string,p:CreatorState,
  note.jobs[phase]={...note.jobs[phase]!,result:artifact};let retained=false;
  for(let attempt=0;attempt<2&&!retained;attempt++){try{await saveNote(note);retained=true;}catch{const latest=(await store.project(p.id)).package as typeof current;const saved=latest.scriptImprovements?.notes[noteId]?.jobs[phase];if(saved?.result&&creatorHash(saved.result)===creatorHash(artifact)){current=latest;retained=true;}else if(latest.revision===current.revision)current=latest;else throw Error('Result checkpoint is uncertain; inspect usage before continuing');}}
  if(!retained)throw Error('Result checkpoint is uncertain; no replay permitted');
- try{const result=validateImprovement(phase,artifactValue(artifact),source,note);if(phase==='critique')note.critique=result as ScriptCritique;else if(phase==='revise')note.revisions=(result as {revisions:ImprovedScript[]}).revisions;else note.comparison=result as ScriptComparison;
- note.jobs[phase]={...note.jobs[phase]!,status:'complete',result:undefined};await saveNote(note);return current;
+ try{const completed=applyResult(note,phase,artifactValue(artifact),source);await saveNote(completed);return current;
  }catch(e){note.jobs[phase]={...note.jobs[phase]!,status:'failed',result:artifact,error:(e instanceof Error?e.message:'Invalid improvement').slice(0,350)};await saveNote(note);throw e;}
 }
+
+function applyResult(note:NoteImprovement,phase:ImprovementPhase,value:unknown,source:import('./content-video-source-bank').SourceNote){const result=validateImprovement(phase,value,source,note);if(phase==='critique')note.critique=result as ScriptCritique;else if(phase==='revise')note.revisions=(result as {revisions:ImprovedScript[]}).revisions;else note.comparison=result as ScriptComparison;note.jobs[phase]={...note.jobs[phase]!,status:'complete',result:undefined,error:undefined};return note;}
