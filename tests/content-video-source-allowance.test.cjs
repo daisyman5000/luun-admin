@@ -4,6 +4,13 @@ const root=path.resolve(__dirname,'..'),out=fs.mkdtempSync(path.join(os.tmpdir()
 execFileSync(process.execPath,[root+'/node_modules/typescript/bin/tsc','lib/content-video-creator-providers.ts','--strict','--module','commonjs','--target','es2020','--esModuleInterop','--skipLibCheck','--outDir',out],{cwd:root});
 const a=require(out+'/content-video-source-allowance'),{creatorProviders}=require(out+'/content-video-creator-providers'),{creatorJob}=require(out+'/content-video-creator');
 const project=()=>({id:a.SOURCE_SCRIPT_PROJECT,revision:0,targetSeconds:60,script:'',stage:'idea'});
+test('source identity survives JSONB field reordering but rejects changed note or angle values',()=>{
+ const bank={notes:[{id:'01',name:'First',text:'Source text'}],angles:[{id:'angle-1',name:'Angle',noteIds:['01'],focus:'Focus'}]};
+ const reordered={angles:[{focus:'Focus',noteIds:['01'],name:'Angle',id:'angle-1'}],notes:[{text:'Source text',name:'First',id:'01'}]};
+ assert.equal(a.sourceBankFingerprint(bank),a.sourceBankFingerprint(reordered));
+ reordered.notes[0].text+=' changed';assert.notEqual(a.sourceBankFingerprint(bank),a.sourceBankFingerprint(reordered));
+ reordered.notes[0].text='Source text';reordered.angles[0].focus+=' changed';assert.notEqual(a.sourceBankFingerprint(bank),a.sourceBankFingerprint(reordered));
+});
 test('source grant refuses missing, different and digest-spoofed notes and foreign actors/projects',()=>{
  const p=project();for(const value of [p,{...p,id:'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb'},{...p,sourceBank:{digest:'3eb438e76815e2df071aab76f3060c3d61a97ce6bac143a6624341f99110b337',notes:[],angles:[],nextAngle:0}}])assert.throws(()=>a.sourceScriptAllowance(a.SOURCE_SCRIPT_OWNER,value,{}),/only the saved eight-note/);
  assert.equal(a.sourceScriptStatus('other-owner',p).authorized,false);

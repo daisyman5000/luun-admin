@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {creatorCostQuote,creatorScriptReservationMicrousd} from './content-video-creator-cost';
 import {SUPPORTED_SCRIPT_MODEL,type ScriptInput} from './content-video-script';
 import {sourceScriptInput} from './content-video-source-bank';
+import type {SourceBank} from './content-video-source-bank';
 import type {CreatorState} from './content-video-creator';
 
 // Owner authorized USD1 TOTAL, at most USD0.10 per manual attempt, on 2026-10-23.
@@ -10,8 +11,10 @@ export const SOURCE_SCRIPT_SCOPE='eight-source-notes-2026-10-23';
 export const SOURCE_SCRIPT_PROJECT='0bfa399c-4349-4e94-abab-c3963cac5544';
 export const SOURCE_SCRIPT_OWNER='913c334c-7c7c-4aed-9ffa-7c8d225a95b0';
 const digest='3eb438e76815e2df071aab76f3060c3d61a97ce6bac143a6624341f99110b337';
-const fingerprint='41f4c689bddf5d57b536286adc0f4cc682562df0c4d0b49c77f72566d368d476';
+const fingerprint='0514781ceb0bd1fef78bc4b702051b7d0f2d7db8996874c8c12b28e4422845e8';
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+// JSONB can reorder object keys. Bind values and array order, not key insertion order.
+export const sourceBankFingerprint=(bank:SourceBank)=>hash({notes:bank.notes.map(n=>[n.id,n.name,n.text]),angles:bank.angles.map(a=>[a.id,a.name,a.noteIds,a.focus])});
 export function sourceScriptLedger(p:CreatorState){
  const jobs=Object.values(p.jobs||{}),usedMicrousd=jobs.reduce((n,j)=>n+(j.cost?.reservedMicrousd||0),0),perRequestMicrousd=creatorScriptReservationMicrousd(),approvedMicrousd=1000000;
  return {approvedMicrousd,usedMicrousd,remainingMicrousd:Math.max(0,approvedMicrousd-usedMicrousd),perRequestMicrousd,requestSlots:Math.max(0,10-jobs.reduce((n,j)=>n+j.requests,0))};
@@ -19,7 +22,7 @@ export function sourceScriptLedger(p:CreatorState){
 export function sourceScriptStatus(actor:string,p:CreatorState){
  const jobs=Object.values(p.jobs||{}),ledger=sourceScriptLedger(p),{remainingMicrousd,perRequestMicrousd,requestSlots}=ledger,bank=p.sourceBank;
  let message='';
- if(actor!==SOURCE_SCRIPT_OWNER||p.id!==SOURCE_SCRIPT_PROJECT||!bank||bank.digest!==digest||hash({notes:bank.notes,angles:bank.angles})!==fingerprint)message='This allowance covers only the saved eight-note collection and its owner project';
+ if(actor!==SOURCE_SCRIPT_OWNER||p.id!==SOURCE_SCRIPT_PROJECT||!bank||bank.digest!==digest||sourceBankFingerprint(bank)!==fingerprint)message='This allowance covers only the saved eight-note collection and its owner project';
  else if(!Number.isInteger(bank.nextAngle)||bank.nextAngle<0||bank.nextAngle>=bank.angles.length)message='The saved angle position is invalid';
  else if(jobs.some(j=>!j.cost||j.cost.allowanceScope!==SOURCE_SCRIPT_SCOPE||j.cost.projectId!==p.id))message='Prior project reservations need reconciliation';
  else if(remainingMicrousd<perRequestMicrousd||!requestSlots)message='The US$1 total source-script allowance is exhausted';
