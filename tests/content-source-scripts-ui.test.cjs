@@ -5,7 +5,7 @@ execFileSync(process.execPath,[root+'/node_modules/typescript/bin/tsc','componen
 fs.symlinkSync(path.join(root,'node_modules'),path.join(out,'node_modules'),'dir');
 const React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),{ContentSourceScripts}=require(out+'/components/content-source-scripts'),{sourceScriptName}=require(out+'/lib/content-video-script-name');
 const bank={digest:'saved-corpus',nextAngle:1,notes:[{id:'01',name:'Original note',text:'Preserved source text'},{id:'08',name:'Other note',text:'Other source'}],angles:[{id:'angle-1',name:'Fundamentals before decoration',noteIds:['01']},{id:'angle-2',name:'Another angle',noteIds:['01','08']}]};
-const first={id:'first',sourceBankDigest:bank.digest,angleName:bank.angles[0].name,sourceNoteIds:['01'],script:'Actual saved script.'},second={...first,id:'second'},other={...first,id:'other',angleName:bank.angles[1].name,sourceNoteIds:['01','08']};
+const first={id:'first',sourceBankDigest:bank.digest,angleName:bank.angles[0].name,sourceNoteIds:['01'],coreIdea:'Others add products. We improve ours.',script:'Actual saved script.'},second={...first,id:'second'},other={...first,id:'other',angleName:bank.angles[1].name,sourceNoteIds:['01','08']};
 test('names identify source, angle and per-angle version, including legacy saved candidates',()=>{
  const history=[first,other,second],before=JSON.stringify(history);
  assert.equal(sourceScriptName(first,bank,history),'N01-A01-V001 — Fundamentals before decoration');
@@ -16,7 +16,7 @@ test('names identify source, angle and per-angle version, including legacy saved
 });
 test('source view renders named saved dialogue and Generate without the manual/video form',()=>{
  const html=renderToStaticMarkup(React.createElement(ContentSourceScripts,{project:{id:'project',sourceBank:bank,scriptLab:{candidates:[first]}},projects:[{id:'project',script:'',sourceBank:bank}],busy:false,error:'',readiness:{authorized:true,remainingMicrousd:900000,approvedMicrousd:1000000,perRequestMicrousd:100000},onGenerate(){},onChoose(){}}));
- assert.match(html,/N01-A01-V001/);assert.match(html,/Actual saved script\./);assert.match(html,/>Generate<\/button>/);assert.match(html,/US\$0.90/);
+ assert.match(html,/N01-A01-V001/);assert.match(html,/Others add products\. We improve ours\./);assert.match(html,/Actual saved script\./);assert.match(html,/>Generate<\/button>/);assert.match(html,/US\$0.90/);
  assert.doesNotMatch(html,/Draft duration|Draft source|Owner-written|Save unapproved draft|Approve script|Use this draft|<textarea|0 words|Upload audio|Narration/);
 });
 test('no saved scripts shows a single generation prompt and no empty editor',()=>{

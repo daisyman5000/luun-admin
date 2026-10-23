@@ -7,7 +7,7 @@ import type {SourceBank} from '../lib/content-video-source-bank';
 
 type Readiness={authorized:boolean;message:string;remainingMicrousd:number;approvedMicrousd:number;perRequestMicrousd:number};
 type Props={
- project:Pick<CreatorState,'id'|'sourceBank'|'scriptLab'>;
+ project:Pick<CreatorState,'id'|'sourceBank'|'scriptLab'|'sourceQuestion'>;
  projects:{id:string;script:string;sourceBank?:SourceBank}[];
  busy:boolean;
  error:string;
@@ -37,6 +37,7 @@ export function ContentSourceScripts({project,projects,busy,error,readiness,onGe
   <p className="mt-3 text-sm text-slate-600">Next: {bank.angles[bank.nextAngle]?.name}</p>
   <p role="status" className="mt-2 text-xs text-slate-500">{readiness?<>US${(readiness.remainingMicrousd/1000000).toFixed(2)} allowance remaining · up to US${(readiness.perRequestMicrousd/1000000).toFixed(2)} reserved per generation. {!readiness.authorized&&readiness.message}</>:'Checking allowance…'}</p>
   {error&&<p role="alert" className="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-800">{error}</p>}
+  {project.sourceQuestion&&<p role="status" className="mt-5 rounded-xl border border-line p-5">{project.sourceQuestion.question}</p>}
   {scripts.length>0&&<label className="mt-6 block text-sm">Saved scripts
    <select aria-label="Saved scripts" className={field+' mt-2 block w-full'} disabled={busy} value={selected?.id||''} onChange={e=>setSelection({id:e.target.value,latest:latest?.id||''})}>
     {scripts.map(c=><option key={c.id} value={c.id}>{sourceScriptName(c,bank,scripts)}</option>)}
@@ -44,6 +45,7 @@ export function ContentSourceScripts({project,projects,busy,error,readiness,onGe
   </label>}
   {selected?<article className="mt-5 rounded-xl border border-line bg-white p-6">
    <h2 className="text-lg font-semibold">{sourceScriptName(selected,bank,scripts)}</h2>
+   {selected.coreIdea&&<p className="mt-4 font-medium">{selected.coreIdea}</p>}
    <p className="mt-4 whitespace-pre-wrap text-base leading-7">{selected.script}</p>
   </article>:<p className="mt-6 text-sm text-slate-600">Generate a script from your saved notes.</p>}
   <details className="mt-6 text-sm text-slate-500">

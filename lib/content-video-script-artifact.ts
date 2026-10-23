@@ -17,7 +17,7 @@ export function captureScriptArtifact(response:unknown,model:string):ScriptArtif
  return a;
 }
 export function isScriptArtifact(v:unknown):v is ScriptArtifact{return object(v).kind==='openai-script-artifact-v1';}
-export function validateScriptArtifact(a:ScriptArtifact,seconds:number,scriptOnly=false){
+export function validateScriptArtifact(a:ScriptArtifact,seconds:number,scriptOnly=false,founderScript=false):{script:string;claimsToVerify:string[];ideaOptions:string[];selectedIdea:string;selectionReason:string;scriptOnly:boolean;coreIdea?:string;clarificationQuestion?:string}{
  if(a.retentionError)throw Error(a.retentionError);
  const saved='The sanitized provider output is saved for review; no automatic retry was made.';
  if(a.status!=='completed'||a.error)throw Error(`OpenAI did not return a completed script (${a.status}). ${saved}`);
@@ -25,6 +25,13 @@ export function validateScriptArtifact(a:ScriptArtifact,seconds:number,scriptOnl
  if(a.outputs.length!==1)throw Error(`OpenAI did not return one structured script (${a.outputs.length} outputs). ${saved}`);
  let value:unknown;try{value=JSON.parse(a.outputs[0]);}catch{throw Error(`OpenAI returned an invalid script artifact: malformed JSON. ${saved}`);}
  const raw=object(value),limit=Math.ceil(seconds*2.8);
+ if(founderScript){
+  if(typeof raw.coreIdea!=='string'||!raw.coreIdea.trim()||raw.coreIdea.trim().split(/\s+/).length>=12||raw.coreIdea.length>300)throw Error(`Core idea must contain fewer than 12 words. ${saved}`);
+  if(typeof raw.script!=='string'||typeof raw.clarificationQuestion!=='string'||raw.clarificationQuestion.length>1000)throw Error(`Founder script output is incomplete. ${saved}`);
+  const coreIdea=safeScriptText(raw.coreIdea.trim()),clarificationQuestion=safeScriptText(raw.clarificationQuestion.trim()),options={claimsToVerify:[],ideaOptions:[],selectedIdea:'',selectionReason:'',scriptOnly:true,coreIdea};
+  if(clarificationQuestion){if(raw.script.trim())throw Error(`Ask for the missing detail before writing a script. ${saved}`);return {...options,script:'',clarificationQuestion};}
+  return {...options,...validateCreatorScript({script:safeScriptText(raw.script),claimsToVerify:[]},seconds),clarificationQuestion:''};
+ }
  if(typeof raw.script!=='string'||!raw.script.trim())throw Error(`Script response is incomplete: finished dialogue is missing. ${saved}`);
  const words=raw.script.trim().split(/\s+/).length;
 

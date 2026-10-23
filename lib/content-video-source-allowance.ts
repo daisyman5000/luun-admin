@@ -23,6 +23,7 @@ export function sourceScriptStatus(actor:string,p:CreatorState){
  const jobs=Object.values(p.jobs||{}),ledger=sourceScriptLedger(p),{remainingMicrousd,perRequestMicrousd,requestSlots}=ledger,bank=p.sourceBank;
  let message='';
  if(actor!==SOURCE_SCRIPT_OWNER||p.id!==SOURCE_SCRIPT_PROJECT||!bank||bank.digest!==digest||sourceBankFingerprint(bank)!==fingerprint)message='This allowance covers only the saved eight-note collection and its owner project';
+ else if(p.sourceQuestion)message='A concrete detail is needed before writing. Answer the saved question before generating again';
  else if(!Number.isInteger(bank.nextAngle)||bank.nextAngle<0||bank.nextAngle>=bank.angles.length)message='The saved angle position is invalid';
  else if(jobs.some(j=>!j.cost||j.cost.allowanceScope!==SOURCE_SCRIPT_SCOPE||j.cost.projectId!==p.id))message='Prior project reservations need reconciliation';
  else if(remainingMicrousd<perRequestMicrousd||!requestSlots)message='The US$1 total source-script allowance is exhausted';
