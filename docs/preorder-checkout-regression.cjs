@@ -7,9 +7,7 @@ function query(table){
  q.single=q.maybeSingle=async()=>({data:table==='preorder_app_connections'?{plan_setup_state:'ready',plan_ids:{'luun-deposit-4215':'gid://shopify/SellingPlan/1'}}:{eta:'2026-10-20'}});
  q.then=(resolve,reject)=>Promise.resolve({data:table==='inventory'?[{fabric_slug:'dark-grey',module_slug:'corner',available_qty:7,reserved_qty:0},{fabric_slug:'dark-grey',module_slug:'armless',available_qty:0,reserved_qty:0}]:table==='container_entries'?[{id:'7',container_number:'MT-LUUN-007',status:'planning',eta:'2099-10-20',manifest_json:[{color:'dark-grey',module:'armless',quantity:10}]}]:[]}).then(resolve,reject);return q;
 }
-const funnelContext={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(require('node:path').join(__dirname,'../lib/funnel.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,funnelContext);
 const modules={
- '@/lib/funnel':funnelContext.exports,
  '@/lib/preorders/fast-checkout':{fastCheckout:async()=>{throw Error('Unexpected fast-path request in legacy compatibility check');}},
  'next/server':{after:fn=>callbacks.push(fn),NextResponse:{json:(body,options)=>({body,status:options?.status||200})}},
  '@/lib/supabase/admin':{createAdminClient:()=>({from:query,rpc:async(name)=>{calls.push(name);return {data:true}}})},

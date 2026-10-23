@@ -1,7 +1,3 @@
-import {createHash} from 'node:crypto';
-import {createAdminClient} from '@/lib/supabase/admin';
-import {allowedStorefront,headersFor} from '@/lib/sales/public-headers';
-import {validateFunnelEvent} from '@/lib/funnel';
-export const runtime='nodejs';export const dynamic='force-dynamic';
-export async function OPTIONS(r:Request){return new Response(null,{status:204,headers:headersFor(r)});}
-export async function POST(r:Request){const headers=headersFor(r);if(!allowedStorefront(r))return Response.json({error:'Invalid origin'},{status:403,headers});try{const reader=r.body?.getReader();if(!reader)throw Error('Empty event');const chunks:Uint8Array[]=[];let size=0;while(true){const part=await reader.read();if(part.done)break;size+=part.value.length;if(size>1200){await reader.cancel();throw Error('Event too large');}chunks.push(part.value);}const raw=Buffer.concat(chunks).toString();const event=validateFunnelEvent(JSON.parse(raw));const ip=r.headers.get('x-forwarded-for')?.split(',')[0]?.trim();if(!ip)throw Error('Unverified request');const db=createAdminClient();const key=createHash('sha256').update('funnel:'+new Date().toISOString().slice(0,10)+':'+ip).digest('hex');const limit=await db.rpc('claim_sale_checkout_request',{key_hash_input:key});if(limit.error||limit.data!==true)return Response.json({error:'Tracking rate limited'},{status:429,headers});const saved=await db.from('funnel_events').upsert(event,{onConflict:'id',ignoreDuplicates:true});if(saved.error)throw Error('Tracking unavailable');return new Response(null,{status:204,headers});}catch{return Response.json({error:'Event not recorded'},{status:400,headers});}}
+export const dynamic='force-dynamic';
+export async function OPTIONS(){return new Response(null,{status:410,headers:{'Cache-Control':'no-store'}});}
+export async function POST(){return new Response(null,{status:410,headers:{'Cache-Control':'no-store'}});}

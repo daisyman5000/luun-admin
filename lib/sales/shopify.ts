@@ -1,4 +1,3 @@
-import {funnelSession} from '@/lib/funnel';
 import 'server-only';
 import {randomUUID} from 'node:crypto';
 import { shopifyAdminGraphQL } from '@/lib/shopify/client';
@@ -67,7 +66,7 @@ export async function setShopifySale(sale:SaleState,enabled:boolean){
  }
  if(errors.length)throw new Error(errors.join('; '));return JSON.stringify(ids);
 }
-export async function checkoutQuote(counts:Counts, fabric:string,discountCodes:string[]=[],session?:string) {
+export async function checkoutQuote(counts:Counts, fabric:string,discountCodes:string[]=[]) {
  const variants=FABRICS[fabric];
  if(!variants) throw new Error('Invalid fabric');
  const domain=process.env.SHOPIFY_STORE_DOMAIN;
@@ -76,7 +75,7 @@ export async function checkoutQuote(counts:Counts, fabric:string,discountCodes:s
  if(!token) throw new Error('Checkout verification is not configured');
  const response=await fetch(`https://${domain}/api/2025-10/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token},body:JSON.stringify({query:
   `mutation($input:CartInput!){cartCreate(input:$input){cart{checkoutUrl discountCodes{code applicable} cost{subtotalAmount{amount currencyCode}} discountAllocations{discountedAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}}}}} userErrors{message}}}`,
-  variables:{input:{discountCodes,...(funnelSession(session)?{attributes:[{key:'Luun funnel session',value:session}]}:{}),buyerIdentity:{countryCode:'CA'},lines:(Object.keys(counts) as (keyof Counts)[]).filter(k=>counts[k]>0).map(k=>({quantity:counts[k],merchandiseId:`gid://shopify/ProductVariant/${variants[k]}`}))}}})});
+  variables:{input:{discountCodes,buyerIdentity:{countryCode:'CA'},lines:(Object.keys(counts) as (keyof Counts)[]).filter(k=>counts[k]>0).map(k=>({quantity:counts[k],merchandiseId:`gid://shopify/ProductVariant/${variants[k]}`}))}}})});
  const body=await response.json();
  const result=body.data?.cartCreate;
  if(!response.ok || body.errors?.length || result?.userErrors?.length || !result?.cart) throw new Error('Shopify could not verify this configuration.');

@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
 function load(file,modules,globals={}){const ctx={exports:{},require:n=>modules[n]||require(n),process:{env:{SHOPIFY_STORE_DOMAIN:'example.myshopify.com',SHOPIFY_STOREFRONT_ACCESS_TOKEN:'test'}},...globals};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx);return ctx.exports;}
-const pricing=load('lib/sales/pricing.ts',{}),funnel=load('lib/funnel.ts',{});
+const pricing=load('lib/sales/pricing.ts',{});
 function setup({preorder=true,active=true,cartChange,confirmation}={}){
  const calls=[],counts={corner:2,armless:1,ottoman:0},total=pricing.quote(counts,active).totalCents;
  const bps=active?4215:1100,plan='gid://shopify/SellingPlan/1';
@@ -9,7 +9,6 @@ function setup({preorder=true,active=true,cartChange,confirmation}={}){
  const cart={id:'gid://shopify/Cart/test?key=secret',checkoutUrl:'https://example.myshopify.com/checkout',discountAllocations:[{discountedAmount:{amount:String((subtotal-total)/100),currencyCode:'CAD'}}],cost:{subtotalAmount:{amount:String(subtotal/100),currencyCode:'CAD'},checkoutChargeAmount:preorder?{amount:String(due/100),currencyCode:'CAD'}:null},lines:{nodes:['corner','armless'].map((k,i)=>({quantity:counts[k],merchandise:{id:`gid://shopify/ProductVariant/${i+1}`},sellingPlanAllocation:preorder?{sellingPlan:{id:plan},checkoutChargeAmount:{amount:String(Math.round(pricing.MODULE_CENTS[k]*(10000-bps)/50000)/100),currencyCode:'CAD'}}:null}))}};
  if(cartChange)cartChange(cart);
  const modules={
-  '@/lib/funnel':funnel,
   '@/lib/supabase/admin':{createAdminClient:()=>({from:()=>{throw Error('Checkout must not make separate database reads');},rpc:async(name,args)=>{calls.push({name,args});return confirmation||{data:{eta:preorder?'2026-10-20':null}};}})},
   '@/lib/sales/shopify':{FABRICS:{'dark-grey':{corner:1,armless:2,ottoman:3}}},
   '@/lib/sales/pricing':pricing,
@@ -33,5 +32,3 @@ test('wrong deposit charge and changed cart quantities fail before stock is rese
  for(const cartChange of [cart=>cart.cost.checkoutChargeAmount.amount='1',cart=>cart.lines.nodes[0].quantity=9]){const x=setup({cartChange});await assert.rejects(x.api.fastCheckout(x.body,'127.0.0.1'));assert.equal(x.calls.length,1);}
 });
 test('invalid price is rejected before creating a Shopify cart',async()=>{const x=setup();x.body.expectedTotalCents=1;await assert.rejects(x.api.fastCheckout(x.body,'127.0.0.1'));assert.equal(x.calls.length,0);});
-
-test('checkout retains an anonymous valid funnel session and rejects arbitrary attributes',async()=>{const x=setup();x.body.funnelSession='12345678-1234-4123-8123-123456789abc';await x.api.fastCheckout(x.body,'127.0.0.1');const a=JSON.parse(x.calls[0].options.body).variables.input.attributes;assert.equal(a.find(a=>a.key==='Luun funnel session').value,x.body.funnelSession);const bad=setup();bad.body.funnelSession='customer@example.com';await bad.api.fastCheckout(bad.body,'127.0.0.1');assert.ok(!JSON.parse(bad.calls[0].options.body).variables.input.attributes.some(a=>a.key==='Luun funnel session'));});

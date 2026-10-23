@@ -1,4 +1,3 @@
-import {funnelSession} from '@/lib/funnel';
 import {createHash,randomUUID} from 'node:crypto';
 import {fastCheckout} from '@/lib/preorders/fast-checkout';
 import {after,NextResponse} from 'next/server';
@@ -109,7 +108,7 @@ export async function POST(r:Request){const started=Date.now();
   
   const response=await fetch(`https://${domain}/api/2026-01/graphql.json`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Shopify-Storefront-Access-Token':token},body:JSON.stringify({query:
    `mutation($input:CartInput!){cartCreate(input:$input){cart{id checkoutUrl discountAllocations{discountedAmount{amount currencyCode}} cost{checkoutChargeAmount{amount currencyCode} subtotalAmount{amount currencyCode}} lines(first:100){nodes{quantity merchandise{... on ProductVariant{id}} sellingPlanAllocation{sellingPlan{id} checkoutChargeAmount{amount currencyCode}}}}} userErrors{message}}}`,
-   variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[...(funnelSession(body.funnelSession)?[{key:'Luun funnel session',value:body.funnelSession}]:[]),{key:'Luun reservation',value:reservationId},{key:'Luun payment option',value:preorder?'20% deposit; balance manually collected when complete sofa is available':'Full payment'}],lines:keys.filter(key=>counts[key]>0).map(key=>({quantity:counts[key],merchandiseId:`gid://shopify/ProductVariant/${variants[key]}`,...(preorder?{sellingPlanId:PLAN}:{})}))}}})});
+   variables:{input:{buyerIdentity:{countryCode:'CA'},attributes:[{key:'Luun reservation',value:reservationId},{key:'Luun payment option',value:preorder?'20% deposit; balance manually collected when complete sofa is available':'Full payment'}],lines:keys.filter(key=>counts[key]>0).map(key=>({quantity:counts[key],merchandiseId:`gid://shopify/ProductVariant/${variants[key]}`,...(preorder?{sellingPlanId:PLAN}:{})}))}}})});
   const result=await response.json();const shopifyMs=Date.now()-shopifyStarted;const cart=result.data?.cartCreate?.cart;
   if(!response.ok||result.errors?.length||result.data?.cartCreate?.userErrors?.length||!cart)throw new Error('Shopify could not create the deposit checkout. Please contact support.');
   if(cart.cost.subtotalAmount.currencyCode!=='CAD')throw new Error('Checkout currency differs.');
