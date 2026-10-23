@@ -1,3 +1,4 @@
+import {sourceScriptName} from './content-video-script-name';
 import {createSourceBank,sourceScriptInput} from './content-video-source-bank';
 import {manualScriptSourceMatches,MANUAL_SCRIPT_SCOPE} from './content-video-manual-script';
 import {isScriptArtifact,validateScriptArtifact} from './content-video-script-artifact';
@@ -62,7 +63,7 @@ export async function creatorAction(store:Store,p:CreatorProject,b:Record<string
   if(!key||key.length>100)throw Error('A unique generation key is required');if((p.scriptLab?.candidates.length||0)>=20||Buffer.byteLength(JSON.stringify(p))>180000)throw Error('Saved history reached its safe bound; previous versions were preserved');
   return creatorJob(persistence,p,key,'script',{request:openAIScriptRequest(input,providers.scriptModel||'Not configured'),sourceBankDigest:bank.digest,angleId:angle.id},async(reserve,operation)=>{
    const stored=await operation('openai-script',{request:openAIScriptRequest(input,providers.scriptModel||'Not configured'),requestKey:key},async()=>{reserve();return typeof providers.scriptArtifact==='function'?providers.scriptArtifact(input):providers.script(input);}),draft=isScriptArtifact(stored)?validateScriptArtifact(stored,60,true):stored,original=makeScriptCandidate(key,providers.scriptModel||'',resolved,draft),{digest:discarded,...snapshot}=original;void discarded;
-   const candidate={...snapshot,sourceBankDigest:bank.digest,angleName:angle.name,sourceNoteIds:angle.noteIds};return {scriptLab:scriptLabVersion(p,input.settings,{...candidate,digest:creatorHash(candidate)}),sourceBank:{...bank,nextAngle:(bank.nextAngle+1)%bank.angles.length},stage:p.stage};
+   const named={...snapshot,sourceBankDigest:bank.digest,angleId:angle.id,angleName:angle.name,sourceNoteIds:angle.noteIds},candidate={...named,scriptName:sourceScriptName(named,bank,p.scriptLab?.candidates||[])};return {scriptLab:scriptLabVersion(p,input.settings,{...candidate,digest:creatorHash(candidate)}),sourceBank:{...bank,nextAngle:(bank.nextAngle+1)%bank.angles.length},stage:p.stage};
   },10,providers.quote('script',p.id));
  }
  if(b.action==='save-returned-script'){
