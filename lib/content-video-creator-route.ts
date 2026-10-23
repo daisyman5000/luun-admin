@@ -1,3 +1,5 @@
+import {createSourceBank,sourceScriptInput} from './content-video-source-bank';
+import {manualScriptSourceMatches,MANUAL_SCRIPT_SCOPE} from './content-video-manual-script';
 import {isScriptArtifact,validateScriptArtifact} from './content-video-script-artifact';
 import {scriptGenerationReadiness} from './content-video-script-readiness';
 import {ideaChunkSpec,ideaChunkPlan,fullIdeaTranscript} from './content-video-long-note';
@@ -11,7 +13,7 @@ import {creatorDrive,type CreatorDriveFile} from './content-video-creator-drive'
 import type {HostedProject} from './content-video-hosted-flow';
 type Store=ReturnType<typeof createHostedVideoStore>;
 export type CreatorProject=HostedProject&CreatorState&{driveCatalog?:CreatorDriveFile[];driveReadKey?:string;driveCoverage?:unknown};
-export const creatorActions=['script-readiness','idea-transcription-plan','save-framework-edits','transcribe-idea','preview-script','save-script-settings','apply-script-candidate','resume-render','generate-script','approve-creator-script','prepare-generate','generate'];
+export const creatorActions=['save-source-notes','generate-source-script','save-returned-script','script-readiness','idea-transcription-plan','save-framework-edits','transcribe-idea','preview-script','save-script-settings','apply-script-candidate','resume-render','generate-script','approve-creator-script','prepare-generate','generate'];
 function adapter(store:Store){return {load:async(id:string)=>(await store.project(id)).package as unknown as CreatorProject,save:async(id:string,revision:number,p:CreatorState)=>await store.save(id,revision,p as unknown as Record<string,unknown>) as unknown as CreatorProject};}
 const sameRevision=(p:CreatorProject,b:Record<string,unknown>)=>{if(p.revision!==b.revision)throw Error('Video changed in another tab. Reload before continuing.');};
 export async function creatorRenderPlan(store:Store,p:CreatorProject){requireCreatorRender(p);const sources=[];for(const scene of p.edit!.scenes){const frame=scene.sourceSampleId?p.frames!.find(f=>f.sampleId===scene.sourceSampleId):undefined;const file=frame?p.driveCatalog?.find(f=>f.id===frame.fileId&&f.version===frame.version&&f.md5Checksum===frame.md5):undefined;if(frame&&!file)throw Error('Selected Drive source changed');sources.push({...scene,...(file?{source:{url:`/api/content/video?driveFile=${encodeURIComponent(file.id)}&id=${p.id}`,mime:file.mimeType,offset:frame!.offset}}:{})});}const original=await store.media(p.performance!.id),audio=await store.media(p.performance!.audioId);if(original.sha256!==p.performance!.hash||audio.sha256!==p.performance!.audioHash||original.state!=='ready'||audio.state!=='ready')throw Error('Owner recording is unavailable or changed');return {audioUrl:`/api/content/video?recordingAudio=${p.id}`,...(p.performance!.mime.startsWith('video/')?{ownerVideoUrl:`/api/content/video?recording=${p.id}`}:{}),scenes:sources,captions:creatorCaptions(p.wordTimings!,p.edit!.scenes),approval:p.renderApproval};}
@@ -47,6 +49,30 @@ export async function creatorAction(store:Store,p:CreatorProject,b:Record<string
   }
   if(!voice?.audioId)throw Error('Upload an idea voice note first');if(p.ideaTranscript?.audioHash===voice.audioHash)return p;providers.assert('idea');sameRevision(p,b);
   return creatorJob(persistence,p,String(b.key),'idea',{audioHash:voice.audioHash,model:'whisper-1'},async(reserve,operation)=>{const media=await store.media(voice.audioId);if(media.project_id!==p.id||media.sha256!==voice.audioHash||media.mime!=='audio/wav'||media.state!=='ready')throw Error('Idea audio changed');const bytes=await store.bytes(media),seconds=creatorWavSeconds(bytes),words=await operation('idea-transcription',{audioHash:voice.audioHash,model:'whisper-1'},async()=>{reserve();return providers.transcribe(bytes,'audio/wav','idea');});if(!Array.isArray(words)||!words.length||words.length>800||words.some(w=>typeof w.word!=='string'||w.word.length>100||!Number.isFinite(w.start)||!Number.isFinite(w.end)||w.start<0||w.end<w.start||w.end>seconds+.25))throw Error('Idea transcription did not return valid words');const text=safeScriptText(words.map(w=>w.word).join(' '));if(text.length>12000)throw Error('Idea transcript exceeds the script input bound');return {ideaTranscript:{audioHash:voice.audioHash,text,words,model:'whisper-1',createdAt:new Date().toISOString()},stage:p.stage};},8,providers.quote('idea',p.id));
+ }
+ if(b.action==='save-source-notes'){
+  sameRevision(p,b);if(Object.values(p.jobs||{}).some(j=>j.status==='pending'||j.status==='uncertain'))throw Error('Resolve the pending generation first');
+  const bank=createSourceBank(String(b.text||''),String(b.filename||'source-notes.txt'),typeof b.libraryId==='string'?b.libraryId:undefined);
+  if(p.sourceBank&&p.sourceBank.digest!==bank.digest)throw Error('This project already has different saved source notes; use a new project to preserve them');
+  if(!p.sourceBank)p.sourceBank=bank;return persistence.save(p.id,p.revision,p);
+ }
+ if(b.action==='generate-source-script'){
+  sameRevision(p,b);if(!p.sourceBank)throw Error('Save source notes first');providers.assert('script');
+  const {angle,input}=sourceScriptInput(p.sourceBank),resolved=buildScriptRequest(input),bank=p.sourceBank,key=String(b.key||'');
+  if(!key||key.length>100)throw Error('A unique generation key is required');if((p.scriptLab?.candidates.length||0)>=20||Buffer.byteLength(JSON.stringify(p))>180000)throw Error('Saved history reached its safe bound; previous versions were preserved');
+  return creatorJob(persistence,p,key,'script',{request:openAIScriptRequest(input,providers.scriptModel||'Not configured'),sourceBankDigest:bank.digest,angleId:angle.id},async(reserve,operation)=>{
+   const stored=await operation('openai-script',{request:openAIScriptRequest(input,providers.scriptModel||'Not configured'),requestKey:key},async()=>{reserve();return typeof providers.scriptArtifact==='function'?providers.scriptArtifact(input):providers.script(input);}),draft=isScriptArtifact(stored)?validateScriptArtifact(stored,60,true):stored,original=makeScriptCandidate(key,providers.scriptModel||'',resolved,draft),{digest:discarded,...snapshot}=original;void discarded;
+   const candidate={...snapshot,sourceBankDigest:bank.digest,angleName:angle.name,sourceNoteIds:angle.noteIds};return {scriptLab:scriptLabVersion(p,input.settings,{...candidate,digest:creatorHash(candidate)}),sourceBank:{...bank,nextAngle:(bank.nextAngle+1)%bank.angles.length},stage:p.stage};
+  },8,providers.quote('script',p.id));
+ }
+ if(b.action==='save-returned-script'){
+  sameRevision(p,b);if(Object.values(p.jobs||{}).some(j=>j.status==='pending'||j.status==='uncertain'))throw Error('Resolve the pending generation first');
+  const jobKey=String(b.jobKey||''),job=p.jobs?.[jobKey],op=Object.values(p.providerOperations||{}).find(o=>o.jobKey===jobKey&&o.name==='openai-script'&&o.status==='complete');
+  if(!manualScriptSourceMatches(p)||job?.status!=='failed'||job.cost?.allowanceScope!==MANUAL_SCRIPT_SCOPE||!op||!isScriptArtifact(op.result))throw Error('Choose a retained completed response from this saved note');
+  const id='returned-'+jobKey;if(p.scriptLab?.candidates.some(c=>c.id===id))return p;
+  const settings=scriptSettings(undefined,60),resolved=buildScriptRequest({idea:'',targetSeconds:60,previousScript:p.script||'',feedback:'Retained provider response saved for review; original validation job remains failed.',settings,audio:ideaScriptAudio(p)}),draft=validateScriptArtifact(op.result,60,false),original=makeScriptCandidate(id,op.result.model,resolved,draft),{digest:discarded,...snapshot}=original;void discarded;
+  const candidate={...snapshot,recoveredFromJob:jobKey};p.scriptLab=scriptLabVersion(p,settings,{...candidate,digest:creatorHash(candidate)});
+  return persistence.save(p.id,p.revision,p);
  }
  if(b.action==='preview-script'){sameRevision(p,b);return scriptPreview(p,b.settings,b.idea,b.feedback,providers.scriptModel,lockedFrameworkInput(p,b.baseCandidateId,b.fromStage));}
  if(b.action==='save-framework-edits'){sameRevision(p,b);if(Object.values(p.jobs||{}).some(j=>j.status==='pending'||j.status==='uncertain'))throw Error('Resolve the pending generation first');saveFrameworkEdits(p,String(b.candidateId),b.fields);return persistence.save(p.id,p.revision,p);}

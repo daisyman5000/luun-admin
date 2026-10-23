@@ -8,6 +8,7 @@ export const MANUAL_SCRIPT_SCOPE='manual-saved-script-v1';
 export const MANUAL_SCRIPT_APPROVED_MICROUSD=1000000;
 const owner='913c334c-7c7c-4aed-9ffa-7c8d225a95b0',project='80c2d1cf-865d-4ac9-b736-4a6652de9553',transcript='3d6e03d07e7ea1fcfb97cc7b95945a3f26de3ec9a7a59298adea1d1fe60ecba0',source='acd140d1ecb382d104ca42e9659d046d6e6e1ed786c8c6c600e4fb449ba14b80';
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
+export const manualScriptSourceMatches=(p:CreatorState)=>p.id===project&&p.ideaTranscript?.audioHash===source&&p.ideaVoice?.audioHash===source&&hash(p.ideaTranscript?.text||'')===transcript;
 export function manualScriptLedger(p:CreatorState,approved=MANUAL_SCRIPT_APPROVED_MICROUSD){
  const perRequestMicrousd=creatorScriptReservationMicrousd(),jobs=Object.values(p.jobs||{}),usedMicrousd=jobs.filter(j=>j.cost?.allowanceScope===MANUAL_SCRIPT_SCOPE).reduce((n,j)=>n+(j.cost?.reservedMicrousd||0),0),remainingMicrousd=Math.max(0,approved-usedMicrousd),requestSlots=Math.max(0,10-jobs.filter(j=>j.cost?.allowanceScope===MANUAL_SCRIPT_SCOPE).reduce((n,j)=>n+j.requests,0));
  return {approvedMicrousd:approved,usedMicrousd,remainingMicrousd,perRequestMicrousd,requestSlots};
