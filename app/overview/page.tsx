@@ -1,14 +1,56 @@
-import Link from 'next/link';
-import {requireUser,canViewFinancials} from '@/lib/auth';
-import {loadDailyOverview} from '@/lib/daily-overview-server';
-import type {OverviewAction} from '@/lib/daily-overview';
-export const dynamic='force-dynamic';
-const money=(rows:{currency:string;amount:number}[])=>rows.length?rows.map(r=>new Intl.NumberFormat('en-CA',{style:'currency',currency:r.currency,currencyDisplay:'code'}).format(r.amount)).join(' · '):'Unknown';
-const at=(s:string|null)=>s&&Number.isFinite(Date.parse(s))?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Cancun',dateStyle:'medium',timeStyle:'short'}).format(new Date(s))+' Cancún':'Not recorded';
-function Queue({title,rows,available,note,href}:{title:string;rows:OverviewAction[];available:boolean;note:string;href:string}){return <section className="rounded-xl border border-line bg-white p-5"><div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{title} <span className="text-slate-500">{available?rows.length:'Unknown'}</span></h2><Link prefetch={false} href={href} className="text-sm underline">Open records</Link></div><p className="my-3 text-xs text-slate-500">{note}</p>{!available?<p role="alert">Some records are unavailable. The count is incomplete.</p>:rows.length===0?<p className="text-sm text-slate-600">None identified in the returned records.</p>:null}<ul className="divide-y">{rows.slice(0,10).map(r=><li className="py-3" key={r.id}><Link prefetch={false} href={r.href} className="font-medium underline">{r.title}</Link><p className="mt-1 text-sm text-slate-600">{r.reason}</p>{r.date&&<p className="mt-1 text-xs text-slate-500">Due {r.date.length===10?r.date:at(r.date)}</p>}</li>)}</ul>{rows.length>10&&<p className="text-xs text-slate-500">Showing 10 of {rows.length}. Open records for the rest.</p>}</section>;}
-export default async function OverviewPage(){const {profile}=await requireUser();if(!canViewFinancials(profile?.role))return <main className="p-8">Owner/admin access required.</main>;const d=await loadDailyOverview();return <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8"><div className="mb-6 flex items-start justify-between gap-4"><div><h1 className="text-2xl font-semibold">Today at Luun</h1><p className="mt-2 text-sm text-slate-600">{d.today} · Vancouver business day · Checked {at(d.checkedAt)}</p></div><a href="/overview" className="rounded-lg border bg-white px-4 py-2 text-sm">Refresh overview</a></div>
- {d.issues.length>0&&<div role="alert" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm"><strong>Some information is incomplete.</strong><ul className="mt-2 list-disc pl-5">{d.issues.map(s=><li key={s}>{s}</li>)}</ul></div>}
- <div className="grid gap-4 lg:grid-cols-2"><section className="rounded-xl border border-line bg-white p-5"><h2 className="text-lg font-semibold">Recorded sales</h2><p className="mt-2 text-xs text-slate-500">Paid and part-paid orders; full order value, including deposits. Excludes test and cancelled orders. These are booked sales, not cash collected.</p><div className="mt-4 grid grid-cols-3 gap-3">{([['Today',d.sales.today],['Last 7 days',d.sales.week],['Month to date',d.sales.month]] as const).map(([label,v])=><div key={label}><h3 className="text-xs text-slate-500">{label}</h3><p className="mt-2 text-xl font-semibold">{d.sales.available?v.orders:'Unknown'}</p><p className="text-xs">{d.sales.available?(v.orders===0?'No orders recorded':money(v.totals)):'Unavailable'}</p>{v.unknownAmounts>0&&<p className="text-xs text-amber-800">{v.unknownAmounts} amounts unknown</p>}</div>)}</div><p className="mt-4 text-xs text-slate-500">Shopify sync: {at(d.sales.sourceAt)} · {d.sales.sourceState}. Recorded coverage may omit older orders; counts do not prove complete sales.</p><Link prefetch={false} className="mt-3 inline-block text-sm underline" href="/data">Open orders</Link></section>
- <section className="rounded-xl border border-line bg-white p-5"><h2 className="text-lg font-semibold">Saved business cash</h2><p className="mt-3 text-2xl font-semibold">{money(d.cash.totals)}</p><p className="mt-2 text-sm">{d.cash.state==='saved'?'Saved Wise business balances':d.cash.state==='stale'?'Stale snapshot — verify before relying on it':d.cash.state==='partial'?'Partial balance snapshot':'Current business cash unavailable'}</p><p className="mt-2 text-xs text-slate-500">Snapshot: {at(d.cash.sourceAt)}. Personal profiles excluded. Currencies remain separate; other bank accounts and reconciled closing cash are not established.</p><div className="mt-4 border-t pt-3 text-sm"><p>Collections observed today: {d.available.actuals?money(d.collections.totals):'Unavailable'}</p><p className="mt-2">Paid expenses observed today: {d.available.actuals?money(d.paidExpenses.totals):'Unavailable'}</p><p className="mt-2 text-xs text-slate-500">Partial payment evidence. Missing records are unknown. Collections are not bank payouts.</p></div><Link prefetch={false} className="mt-3 inline-block text-sm underline" href="/financing">Open forecast vs actual</Link></section></div>
- <div className="mt-5 grid items-start gap-5 xl:grid-cols-3"><Queue title="Orders needing attention" rows={d.orders} available={d.available.orders} href="/data" note="Status and payment checks. No promised delivery dates are recorded here, so these are not confirmed late orders."/><Queue title="Stock issues" rows={d.stock} available={d.available.stock} href="/inventory" note={'Recorded on-hand minus reserved. Reservations may include incoming stock; allocation warnings do not prove overselling. Stock updated: '+at(d.sources.stock)+'. Warehouse accuracy remains unverified.'}/><Queue title="Overdue work" rows={d.work} available={d.available.work} href="/daily-plan" note={'Saved ticket, content, commitment and payment due dates. '+d.undated+' open items have no recorded deadline and are not labelled overdue.'}/></div>
- <p className="mt-5 text-xs text-slate-500">This overview reads saved Luun Admin records. Refreshing it does not refresh provider accounts, run AI, publish, or change stock or orders.</p>{!d.objective&&<p className="mt-3 text-sm text-slate-600">No daily business objective is saved yet.</p>}</main>;}
+import {canViewFinancials, requireUser} from '@/lib/auth';
+import {actualDay, validDay} from '@/lib/forecast-actual';
+import {FUNNEL_STAGES} from '@/lib/funnel';
+import {funnelReport} from '@/lib/funnel-server';
+
+export const dynamic = 'force-dynamic';
+const labels = {landing: 'Visits', product_view: 'Viewed a sofa', configuration: 'Configured a sofa', checkout_start: 'Checkout opened', purchase: 'Paid order'};
+
+export default async function OverviewPage({searchParams}: {searchParams: Promise<{from?: string; through?: string}>}) {
+  const {profile} = await requireUser();
+  if (!canViewFinancials(profile?.role)) return <main className="p-8">Owner/admin access required.</main>;
+  const today = actualDay(new Date().toISOString());
+  const query = await searchParams;
+  const from = query.from || today.slice(0, 7) + '-01';
+  const through = query.through || today;
+  const valid = validDay(from) && validDay(through) && through >= from && through <= today && Date.parse(through) - Date.parse(from) <= 31 * 86400000;
+  let report: Awaited<ReturnType<typeof funnelReport>> | null = null;
+  let error = valid ? '' : 'Choose up to 32 days through today.';
+  if (valid) {
+    try { report = await funnelReport(from, through); }
+    catch { error = 'Funnel metrics are unavailable. Try refreshing.'; }
+  }
+  const analysis = report?.analysis;
+  return <main className="mx-auto max-w-6xl px-5 py-8">
+    <h1 className="text-2xl font-semibold">Funnel overview</h1>
+    <form action="/overview" className="my-6 flex flex-wrap items-end gap-4">
+      <label className="text-sm">From<input name="from" type="date" defaultValue={from} max={today} className="mt-1 block rounded border p-2" /></label>
+      <label className="text-sm">Through<input name="through" type="date" defaultValue={through} max={today} className="mt-1 block rounded border p-2" /></label>
+      <button className="rounded bg-slate-950 px-4 py-2 text-white">Update</button>
+    </form>
+    {error && <p role="alert">{error}</p>}
+    {analysis && <>
+      <div className="grid gap-3 sm:grid-cols-5">{FUNNEL_STAGES.map((stage, i) => <section key={stage} className="rounded-xl border bg-white p-4">
+        <h2 className="text-sm text-slate-600">{labels[stage]}</h2>
+        <p className="mt-2 text-3xl font-semibold">{analysis.trackedSessions ? analysis.counts[i] : '—'}</p>
+      </section>)}</div>
+      {!analysis.trackedSessions && <p className="mt-4 text-sm text-slate-600">No tracked funnel sessions in this period. Conversion is unknown.</p>}
+      <section className="mt-6 rounded-xl border bg-white p-5">
+        <h2 className="text-lg font-semibold">Conversion by step</h2>
+        <div className="overflow-auto"><table className="mt-4 w-full text-left text-sm">
+          <thead><tr><th className="p-2">Step</th><th>Entered</th><th>Continued</th><th>Conversion</th><th>Lost</th></tr></thead>
+          <tbody>{analysis.steps.map(step => <tr className="border-t" key={step.to}>
+            <td className="p-2">{labels[step.from]} → {labels[step.to]}</td>
+            <td>{analysis.trackedSessions ? step.entered : '—'}</td><td>{analysis.trackedSessions ? step.continued : '—'}</td>
+            <td>{step.conversion === null ? 'Unknown' : (step.conversion * 100).toFixed(1) + '%'}</td>
+            <td>{analysis.trackedSessions ? step.lost : '—'}</td>
+          </tr>)}</tbody>
+        </table></div>
+        <p className="mt-4 text-sm text-slate-600">{analysis.bottleneck
+          ? `Biggest measured drop-off: ${labels[analysis.bottleneck.from]} → ${labels[analysis.bottleneck.to]}. ${analysis.bottleneck.matureLost} of ${analysis.bottleneck.matureEntered} mature sessions did not continue.`
+          : 'Not enough evidence to identify the biggest bottleneck: at least 100 entrants and 24 hours of observation are needed.'}</p>
+      </section>
+      <p className="mt-4 text-xs text-slate-500">Saved same-session events · Vancouver landing day · Configuration means builder interaction, not cart addition. Website tracking remains disabled. This overview only reads saved metrics.</p>
+    </>}
+  </main>;
+}
