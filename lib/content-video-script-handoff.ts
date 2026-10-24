@@ -4,15 +4,16 @@ import {sourceScriptName} from './content-video-script-name';
 import {bestImprovement,bestAvailableImprovement} from './content-script-improvement-types';
 
 // Resolve saved content on the server; the browser cannot supply replacement text.
-export function videoScriptHandoff(p:CreatorState,selection:{candidateId?:unknown;noteId?:unknown},revision:unknown){
+export function videoScriptHandoff(p:CreatorState,selection:{candidateId?:unknown;noteId?:unknown;referenceResultId?:unknown},revision:unknown){
  if(p.revision!==revision)throw Error('Scripts changed. Reload before choosing a video script');
  if(!p.sourceBank)throw Error('Choose a saved source-note collection');
  let script='',name='',selectionId='';
- if(typeof selection.candidateId==='string'&&!selection.noteId){
+ if(typeof selection.referenceResultId==='string'&&!selection.noteId&&!selection.candidateId){const r=p.adReferences?.results.find(r=>r.id===selection.referenceResultId);if(!r||!r.script)throw Error('Saved reference script is unavailable');script=r.script;name=r.name;selectionId='reference:'+r.id;
+ }else if(typeof selection.candidateId==='string'&&!selection.noteId&&!selection.referenceResultId){
   const c=p.scriptLab?.candidates.find(c=>c.id===selection.candidateId&&c.sourceBankDigest===p.sourceBank!.digest);
   if(!c)throw Error('Saved script is unavailable');
   script=c.script;name=sourceScriptName(c,p.sourceBank,p.scriptLab!.candidates);selectionId=c.id;
- }else if(typeof selection.noteId==='string'&&!selection.candidateId){
+ }else if(typeof selection.noteId==='string'&&!selection.candidateId&&!selection.referenceResultId){
   const source=p.sourceBank.notes.find(n=>n.id===selection.noteId),note=p.scriptImprovements?.notes[String(selection.noteId)];
   const best=note&&(bestImprovement(note)||bestAvailableImprovement(note));
   if(!source||!best)throw Error('Reviewed script is unavailable');
