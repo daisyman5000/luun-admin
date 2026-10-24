@@ -87,5 +87,5 @@ export async function makeSingleVideo(project:VideoProject,onProgress?:(p:VideoP
   onStatus?.('Timing narration and editing…');ready=await videoJSON({action:'single-video-edit',id:prepared.id,revision:prepared.revision,previewIds:selected.frames});onProgress?.(ready);
  }
  onStatus?.('Rendering MP4 — keep this tab open…');const blob=await renderCreatorVideo(ready.creatorRenderPlan,fraction=>onStatus?.(`Rendering MP4 · ${Math.round(fraction*100)}% — keep this tab open`));
- onStatus?.('Saving the finished video…');return uploadHostedVideo(new File([blob],'N06-R001-Luun.mp4',{type:'video/mp4'}),'export',ready,{approval:ready.renderApproval,renderKey:'n06-render-test-v1'});
+ onStatus?.('Saving the finished video…');const saved=await uploadHostedVideo(new File([blob],'N06-R001-Luun.mp4',{type:'video/mp4'}),'export',ready,{approval:ready.renderApproval,renderKey:'n06-render-test-v1'});onStatus?.('Video saved. Ready to review.');return saved;
 }
