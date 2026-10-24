@@ -73,7 +73,7 @@ export async function makeSingleVideo(project:VideoProject,onProgress?:(p:VideoP
  if(current.output)return current;
  if(!current.performance?.audioId){onStatus?.('Generating AI narration…');current=await videoJSON({action:'single-video-voice',id:current.id,revision:current.revision});onProgress?.(current);}
  let ready;
- if(current.renderApproval){ready=await videoJSON({action:'resume-render',id:current.id});}
+ if(current.renderApproval){ready=await videoJSON({action:'single-video-recover',id:current.id,revision:current.revision});}
  else if(current.jobs?.['n06-edit-test-v2']?.status==='failed'){onStatus?.('Conforming the saved edit — no new paid call…');ready=await videoJSON({action:'single-video-recover',id:current.id,revision:current.revision});onProgress?.(ready);}
  else{
   onStatus?.('Reading Luun footage…');const prepared=await videoJSON({action:'single-video-prepare',id:current.id,revision:current.revision});current=prepared;onProgress?.(current);

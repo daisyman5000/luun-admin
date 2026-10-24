@@ -1,4 +1,4 @@
-import {creatorHash,creatorJob,alignApprovedRecording,creatorWordBounds,validateCreatorEdit,requireCreatorNarration,type CreatorState,type DriveFrame,type TimedWord,type CreatorEdit} from './content-video-creator';
+import {creatorHash,creatorRenderHash,creatorJob,alignApprovedRecording,creatorWordBounds,validateCreatorEdit,requireCreatorNarration,type CreatorState,type DriveFrame,type TimedWord,type CreatorEdit} from './content-video-creator';
 import {creatorWavSeconds,type CreatorCostReservation} from './content-video-creator-cost';
 import {creatorOpenAIKey,creatorOpenAIReferenceAvailable} from './content-video-creator-credentials';
 import {CreatorProviderError,editSchema} from './content-video-creator-providers';
@@ -97,7 +97,7 @@ export async function singleVideoAction(s:Store,p:CreatorProject,b:Record<string
  }
  requireCreatorNarration(p);
  if(b.action==='single-video-recover'){
-  if(p.renderApproval)return {...p,creatorRenderPlan:await creatorRenderPlan(s,p)};
+  if(p.renderApproval&&p.renderHashVersion==='canonical-v1')return {...p,creatorRenderPlan:await creatorRenderPlan(s,p)};
   if(p.revision!==b.revision||Object.values(p.jobs||{}).some(j=>j.status==='pending'||j.status==='uncertain'))throw Error('Video changed or a provider request needs reconciliation');
   const ops=Object.values(p.providerOperations||{}),timing=ops.find(op=>op.jobKey==='n06-edit-test-v2'&&op.name==='single-video-timing'&&op.status==='complete'),artifact=ops.find(op=>op.jobKey==='n06-edit-test-v2'&&op.name==='single-video-edit'&&op.status==='complete');
   if(p.jobs?.['n06-edit-test-v2']?.status!=='failed'||!timing||!artifact)throw Error('No completed saved edit is available to conform');
@@ -108,8 +108,8 @@ export async function singleVideoAction(s:Store,p:CreatorProject,b:Record<string
    frames.push({sampleId,fileId:file.id,version:file.version,md5:file.md5Checksum,offset,availableSeconds:file.mimeType.startsWith('video/')?Math.min(15,file.seconds-offset):15,mime:file.mimeType,previewId:preview.id,frameHash:preview.sha256});
   }
   if(!frames.length||frames.length>12)throw Error('Saved footage frame set is unavailable');
-  const edit=conformSingleVideoEdit((artifact.result as {edit:CreatorEdit}).edit,p,frames,words),editApproval=creatorHash(edit),renderApproval=creatorHash({script:p.scriptApproval,recording:p.performance!.hash,audio:p.performance!.audioHash,edit:editApproval,words,frames});
-  const saved=await s.save(p.id,p.revision,{...p,edit,editApproval,renderApproval,wordTimings:words,frames,creatorVersion:2,stage:'ready',output:null,editConformance:{sourceJob:'n06-edit-test-v2',method:'observed-word-boundaries-and-real-footage-lengths-v1',paidCalls:0}} as unknown as Record<string,unknown>) as unknown as CreatorProject;
+  const edit=conformSingleVideoEdit((artifact.result as {edit:CreatorEdit}).edit,p,frames,words),editApproval=creatorRenderHash(edit),renderApproval=creatorRenderHash({script:p.scriptApproval,recording:p.performance!.hash,audio:p.performance!.audioHash,edit:editApproval,words,frames});
+  const saved=await s.save(p.id,p.revision,{...p,edit,editApproval,renderApproval,wordTimings:words,frames,creatorVersion:2,renderHashVersion:'canonical-v1',stage:'ready',output:null,editConformance:{sourceJob:'n06-edit-test-v2',method:'observed-word-boundaries-and-real-footage-lengths-v1',paidCalls:0}} as unknown as Record<string,unknown>) as unknown as CreatorProject;
   return {...saved,creatorRenderPlan:await creatorRenderPlan(s,saved)};
  }
  if(b.action==='single-video-prepare'){
@@ -137,8 +137,8 @@ export async function singleVideoAction(s:Store,p:CreatorProject,b:Record<string
    const countRequest={model:request.model,instructions:request.instructions,input:request.input,text:request.text,reasoning:request.reasoning};const counted=JSON.parse((await boundedResponse(fetcher,'https://api.openai.com/v1/responses/input_tokens',{method:'POST',headers:jsonHeaders,body:JSON.stringify(countRequest)})).toString());if(!Number.isSafeInteger(counted.input_tokens)||counted.input_tokens>64000||counted.input_tokens<1)throw Error('Video edit exceeds its input cost bound');
    reserve();const response=JSON.parse((await boundedResponse(fetcher,'https://api.openai.com/v1/responses',{method:'POST',headers:jsonHeaders,body:JSON.stringify(request)})).toString());if(response.status!=='completed'||response.error)throw Error('AI edit did not complete');const texts=(response.output||[]).filter((x:{type:string})=>x.type==='message').flatMap((x:{content?:{type:string;text?:string}[]})=>x.content||[]).filter((x:{type:string})=>x.type==='output_text');if(texts.length!==1)throw Error('AI edit returned an invalid artifact');return {edit:JSON.parse(texts[0].text),usage:response.usage};
   });
-  const validated=conformSingleVideoEdit(edit.edit,p,frames,words),editApproval=creatorHash(validated),renderApproval=creatorHash({script:p.scriptApproval,recording:p.performance!.hash,audio:p.performance!.audioHash,edit:editApproval,words,frames});
-  return {edit:validated,editApproval,renderApproval,wordTimings:words,frames,creatorVersion:2,stage:'ready',output:null};
+  const validated=conformSingleVideoEdit(edit.edit,p,frames,words),editApproval=creatorRenderHash(validated),renderApproval=creatorRenderHash({script:p.scriptApproval,recording:p.performance!.hash,audio:p.performance!.audioHash,edit:editApproval,words,frames});
+  return {edit:validated,editApproval,renderApproval,wordTimings:words,frames,creatorVersion:2,renderHashVersion:'canonical-v1',stage:'ready',output:null};
  },5,singleVideoQuote(p,'edit')) as CreatorProject;
  return {...saved,creatorRenderPlan:await creatorRenderPlan(s,saved)};
 }
