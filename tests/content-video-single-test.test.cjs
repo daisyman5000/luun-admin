@@ -41,3 +41,9 @@ test('observed zero-width words stay within a real neighboring phrase interval; 
  assert.equal(words[1].word,'Luun.ca');assert.equal(words[1].start,.2);assert.equal(words[1].end,.5);assert.equal(words[2].start,.4);assert.equal(words[2].end,.5);
  assert.throws(()=>one.alignSingleVideoWords('See Luun.ca now.',[{word:'Luun',start:.2,end:.4},{word:'ca',start:.4,end:.5},{word:'now',start:.5,end:.6}],1),/complete/);
 });
+test('saved AI edit conforms to whole observed words and actual clip length without adding claims or generating again',()=>{
+ const script='One two three four five six seven eight nine ten eleven twelve';const p={...project(),script,scriptApproval:creatorHash(script),performance:{hash:'recording',seconds:6,scriptHash:creatorHash(script)}};
+ const words=script.split(' ').map((word,i)=>({word,start:i*.45,end:i*.45+.3})),frame={sampleId:'existing@0',fileId:'existing',version:'pinned',md5:'pinned-md5',offset:0,availableSeconds:1.8,mime:'video/mp4',previewId:'preview',frameHash:'frame'};
+ const raw={scriptHash:p.scriptApproval,recordingHash:'recording',scenes:[{in:0,out:6,sourceSampleId:frame.sampleId,layout:'broll',labels:[script,'Invented claim'],motion:'fade',connectors:false}]};const original=structuredClone(raw),edit=one.conformSingleVideoEdit(raw,p,[frame],words);
+ assert.deepEqual(raw,original);assert.ok(edit.scenes.length>1);assert.ok(edit.scenes.every(s=>s.out-s.in<=1.800001));assert.ok(edit.scenes.every(s=>s.labels.length===0));assert.deepEqual(new Set(edit.scenes.map(s=>s.sourceSampleId)),new Set([frame.sampleId]));assert.throws(()=>one.conformSingleVideoEdit({...raw,recordingHash:'wrong'},p,[frame],words),/approved/);assert.throws(()=>one.conformSingleVideoEdit(raw,p,[],words),/unsupported/);
+});

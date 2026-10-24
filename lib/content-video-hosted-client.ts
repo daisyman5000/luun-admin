@@ -69,11 +69,12 @@ export async function makeSingleVideo(project:VideoProject,onProgress?:(p:VideoP
  const {creatorVideoFrame,creatorImageFrame,renderCreatorVideo,probeCreatorEncoders}=await import('./content-video-creator-render');
  const {collectCreatorFrames}=await import('./content-video-creator-candidates');
  await probeCreatorEncoders();
- let current=project as VideoProject&{performance?:{audioId:string};renderApproval?:string};
+ let current=project as VideoProject&{performance?:{audioId:string};renderApproval?:string;jobs?:Record<string,{status:string}>};
  if(current.output)return current;
  if(!current.performance?.audioId){onStatus?.('Generating AI narration…');current=await videoJSON({action:'single-video-voice',id:current.id,revision:current.revision});onProgress?.(current);}
  let ready;
  if(current.renderApproval){ready=await videoJSON({action:'resume-render',id:current.id});}
+ else if(current.jobs?.['n06-edit-test-v2']?.status==='failed'){onStatus?.('Conforming the saved edit — no new paid call…');ready=await videoJSON({action:'single-video-recover',id:current.id,revision:current.revision});onProgress?.(ready);}
  else{
   onStatus?.('Reading Luun footage…');const prepared=await videoJSON({action:'single-video-prepare',id:current.id,revision:current.revision});current=prepared;onProgress?.(current);
   const selected=await collectCreatorFrames<string>(prepared.driveCandidates,async(file,offset)=>{

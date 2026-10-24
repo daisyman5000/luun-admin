@@ -1,4 +1,4 @@
-import {creatorHash,creatorJob,alignApprovedRecording,validateCreatorEdit,requireCreatorNarration,type CreatorState,type DriveFrame,type TimedWord} from './content-video-creator';
+import {creatorHash,creatorJob,alignApprovedRecording,creatorWordBounds,validateCreatorEdit,requireCreatorNarration,type CreatorState,type DriveFrame,type TimedWord,type CreatorEdit} from './content-video-creator';
 import {creatorWavSeconds,type CreatorCostReservation} from './content-video-creator-cost';
 import {creatorOpenAIKey,creatorOpenAIReferenceAvailable} from './content-video-creator-credentials';
 import {CreatorProviderError,editSchema} from './content-video-creator-providers';
@@ -54,6 +54,25 @@ export function alignSingleVideoWords(script:string,transcript:TimedWord[],durat
  if(at!==observed.length)throw Error('Narration timing adds words beyond the approved script');
  return alignApprovedRecording(script,aligned,duration);
 }
+// Keep the AI's footage choices, layouts and motion; conform cuts to complete observed speech and real clip lengths.
+// The raw provider response remains in providerOperations for comparison. No new generation or invented frames.
+export function conformSingleVideoEdit(value:CreatorEdit,p:CreatorState,frames:DriveFrame[],words:TimedWord[]):CreatorEdit{
+ if(!value||value.scriptHash!==p.scriptApproval||value.recordingHash!==p.performance?.hash||!Array.isArray(value.scenes)||!value.scenes.length||value.scenes.length>32)throw Error('Saved AI edit does not match the approved inputs');
+ let previous=0;
+ for(const scene of value.scenes){if(!Number.isFinite(scene.in)||!Number.isFinite(scene.out)||scene.in<previous||scene.out<=scene.in||scene.out>p.performance.seconds+.001||!['broll','concept'].includes(scene.layout)||!['fade','rise','underline'].includes(scene.motion)||!Array.isArray(scene.labels)||typeof scene.connectors!=='boolean'||!frames.some(f=>f.sampleId===scene.sourceSampleId))throw Error('Saved AI edit selected unsupported media or controls');previous=scene.out;}
+ const bounds=creatorWordBounds(words,p.performance.seconds),groups:{start:number;end:number}[]=[];
+ for(const bound of bounds){const prior=groups.at(-1);if(prior&&bound.start<prior.end-.000001)prior.end=Math.max(prior.end,bound.end);else groups.push({...bound});}
+ const scenes:CreatorEdit['scenes']=[];
+ let selected=-1,chunk:{start:number;end:number}|null=null;
+ const flush=()=>{if(!chunk)return;const ai=value.scenes[selected];scenes.push({...ai,in:chunk.start,out:chunk.end,labels:ai.labels.filter(label=>typeof label==='string'&&label.trim()&&label.length<=60&&p.script.toLowerCase().includes(label.toLowerCase())).slice(0,1)});chunk=null;};
+ for(const group of groups){let at=0;for(let i=1;i<value.scenes.length;i++)if((group.start+group.end)/2>=value.scenes[i].in)at=i;
+  const frame=frames.find(f=>f.sampleId===value.scenes[at].sourceSampleId)!,limit=Math.min(15,frame.availableSeconds);
+  if(group.end-group.start>limit+.000001)throw Error('A complete speech phrase is longer than its AI-selected footage');
+  if(at!==selected||chunk&&group.end-chunk.start>limit+.000001)flush();selected=at;
+  chunk=chunk?{start:chunk.start,end:group.end}:{...group};
+ }
+ flush();return validateCreatorEdit({scriptHash:value.scriptHash,recordingHash:value.recordingHash,scenes},p,frames,words);
+}
 async function boundedResponse(fetcher:typeof fetch,url:string,init:RequestInit,max=3000000){
  let r:Response;try{r=await fetcher(url,{...init,redirect:'error',signal:AbortSignal.timeout(120000)});}catch{throw new CreatorProviderError('Video provider result is uncertain; no automatic retry',true);}
  if(!r.ok){await r.body?.cancel();throw new CreatorProviderError(`Video provider returned HTTP ${r.status}; no automatic retry`,r.status>=500||r.status===408);}
@@ -77,6 +96,22 @@ export async function singleVideoAction(s:Store,p:CreatorProject,b:Record<string
   },3,singleVideoQuote(p,'voice'));
  }
  requireCreatorNarration(p);
+ if(b.action==='single-video-recover'){
+  if(p.renderApproval)return {...p,creatorRenderPlan:await creatorRenderPlan(s,p)};
+  if(p.revision!==b.revision||Object.values(p.jobs||{}).some(j=>j.status==='pending'||j.status==='uncertain'))throw Error('Video changed or a provider request needs reconciliation');
+  const ops=Object.values(p.providerOperations||{}),timing=ops.find(op=>op.jobKey==='n06-edit-test-v2'&&op.name==='single-video-timing'&&op.status==='complete'),artifact=ops.find(op=>op.jobKey==='n06-edit-test-v2'&&op.name==='single-video-edit'&&op.status==='complete');
+  if(p.jobs?.['n06-edit-test-v2']?.status!=='failed'||!timing||!artifact)throw Error('No completed saved edit is available to conform');
+  const words=alignSingleVideoWords(p.script,timing.result as TimedWord[],p.performance!.seconds),media=await s.listMedia(p.id),frames:DriveFrame[]=[];
+  for(const preview of media.filter(m=>m.kind==='preview'&&m.mime==='image/jpeg'&&m.metadata.sourceType==='drive')){
+   const file=p.driveCatalog?.find(f=>f.rootId==='private-upload'&&f.id===preview.metadata.sourceId&&f.version===preview.metadata.version&&f.md5Checksum===preview.metadata.md5),source=file&&media.find(m=>m.id===file.id&&m.kind==='source'&&m.sha256===file.version);if(!file||!source)continue;
+   const offset=Number(preview.metadata.offset),sampleId=file.id+'@'+offset;if(!Number.isFinite(offset)||offset<0||file.mimeType.startsWith('video/')&&offset>=file.seconds||frames.some(f=>f.sampleId===sampleId))continue;
+   frames.push({sampleId,fileId:file.id,version:file.version,md5:file.md5Checksum,offset,availableSeconds:file.mimeType.startsWith('video/')?Math.min(15,file.seconds-offset):15,mime:file.mimeType,previewId:preview.id,frameHash:preview.sha256});
+  }
+  if(!frames.length||frames.length>12)throw Error('Saved footage frame set is unavailable');
+  const edit=conformSingleVideoEdit((artifact.result as {edit:CreatorEdit}).edit,p,frames,words),editApproval=creatorHash(edit),renderApproval=creatorHash({script:p.scriptApproval,recording:p.performance!.hash,audio:p.performance!.audioHash,edit:editApproval,words,frames});
+  const saved=await s.save(p.id,p.revision,{...p,edit,editApproval,renderApproval,wordTimings:words,frames,creatorVersion:2,stage:'ready',output:null,editConformance:{sourceJob:'n06-edit-test-v2',method:'observed-word-boundaries-and-real-footage-lengths-v1',paidCalls:0}} as unknown as Record<string,unknown>) as unknown as CreatorProject;
+  return {...saved,creatorRenderPlan:await creatorRenderPlan(s,saved)};
+ }
  if(b.action==='single-video-prepare'){
   if(p.revision!==b.revision)throw Error('Video changed. Reload before selecting footage');
   const allMedia=await s.listMedia(p.id),media=allMedia.filter(m=>m.kind==='source'&&m.state==='ready'&&m.metadata.owned===true);
@@ -102,7 +137,7 @@ export async function singleVideoAction(s:Store,p:CreatorProject,b:Record<string
    const countRequest={model:request.model,instructions:request.instructions,input:request.input,text:request.text,reasoning:request.reasoning};const counted=JSON.parse((await boundedResponse(fetcher,'https://api.openai.com/v1/responses/input_tokens',{method:'POST',headers:jsonHeaders,body:JSON.stringify(countRequest)})).toString());if(!Number.isSafeInteger(counted.input_tokens)||counted.input_tokens>64000||counted.input_tokens<1)throw Error('Video edit exceeds its input cost bound');
    reserve();const response=JSON.parse((await boundedResponse(fetcher,'https://api.openai.com/v1/responses',{method:'POST',headers:jsonHeaders,body:JSON.stringify(request)})).toString());if(response.status!=='completed'||response.error)throw Error('AI edit did not complete');const texts=(response.output||[]).filter((x:{type:string})=>x.type==='message').flatMap((x:{content?:{type:string;text?:string}[]})=>x.content||[]).filter((x:{type:string})=>x.type==='output_text');if(texts.length!==1)throw Error('AI edit returned an invalid artifact');return {edit:JSON.parse(texts[0].text),usage:response.usage};
   });
-  const validated=validateCreatorEdit(edit.edit,p,frames,words),editApproval=creatorHash(validated),renderApproval=creatorHash({script:p.scriptApproval,recording:p.performance!.hash,audio:p.performance!.audioHash,edit:editApproval,words,frames});
+  const validated=conformSingleVideoEdit(edit.edit,p,frames,words),editApproval=creatorHash(validated),renderApproval=creatorHash({script:p.scriptApproval,recording:p.performance!.hash,audio:p.performance!.audioHash,edit:editApproval,words,frames});
   return {edit:validated,editApproval,renderApproval,wordTimings:words,frames,creatorVersion:2,stage:'ready',output:null};
  },5,singleVideoQuote(p,'edit')) as CreatorProject;
  return {...saved,creatorRenderPlan:await creatorRenderPlan(s,saved)};
