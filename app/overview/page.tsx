@@ -1,4 +1,5 @@
 import {canViewFinancials, requireUser} from '@/lib/auth';
+import {OverviewAutoRefresh} from '@/components/overview-auto-refresh';
 import {loadGA4Overview} from '@/lib/ga4-server';
 import {GA4_EVENTS, GA4_LABELS, validGA4Range} from '@/lib/ga4';
 
@@ -6,13 +7,14 @@ export const dynamic = 'force-dynamic';
 export default async function OverviewPage({searchParams}: {searchParams: Promise<{from?: string; through?: string}>}) {
   const {profile} = await requireUser();
   if (!canViewFinancials(profile?.role)) return <main className="p-8">Owner/admin access required.</main>;
-  const day = (at: number) => new Intl.DateTimeFormat('en-CA', {timeZone: 'America/Cancun', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date(at));
+  const day = (at: number) => new Intl.DateTimeFormat('en-CA', {timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date(at));
   const query = await searchParams, today = day(Date.now());
   const from = query.from || day(Date.now() - 28 * 86400000), through = query.through || day(Date.now() - 86400000);
   const valid = validGA4Range(from, through) && through <= today;
   const {report, connection} = valid ? await loadGA4Overview(from, through) : {report: null, connection: 'Choose up to 32 days through today.'};
   const number = (n: number) => n.toLocaleString('en-CA');
   return <main className="mx-auto max-w-6xl px-5 py-8">
+    <OverviewAutoRefresh />
     <h1 className="text-2xl font-semibold">Funnel overview</h1>
     <p className="mt-2 text-sm text-slate-600">Google Analytics · Luun</p>
     <form action="/overview" className="my-6 flex flex-wrap items-end gap-4">

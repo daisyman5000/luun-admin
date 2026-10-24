@@ -1,14 +1,18 @@
 import 'server-only';
 import {createAdminClient} from '@/lib/supabase/admin';
 import {createGA4Reader} from './ga4-client';
+import {getVercelOidcToken} from '@vercel/oidc';
+import {createKeylessGA4Token, GA4_OIDC_AUDIENCE} from './ga4-keyless';
 import {LUUN_GA4_PROPERTY, validateGA4Snapshot, type GA4Report} from './ga4';
 let reader: ReturnType<typeof createGA4Reader> | null = null;
 const cache = new Map<string, {until: number; report: GA4Report}>();
 export async function loadGA4Overview(from: string, through: string): Promise<{report: GA4Report | null; connection: string}> {
   let connection = 'Automatic GA4 connection is not configured yet.';
-  if (process.env.LUUN_GA4_SERVICE_ACCOUNT_JSON) {
+  if (process.env.LUUN_GA4_KEYLESS_ENABLED === 'true' || process.env.LUUN_GA4_SERVICE_ACCOUNT_JSON) {
     try {
-      reader ||= createGA4Reader({credential: process.env.LUUN_GA4_SERVICE_ACCOUNT_JSON});
+      reader ||= createGA4Reader(process.env.LUUN_GA4_KEYLESS_ENABLED === 'true'
+        ? {accessToken: createKeylessGA4Token({oidcToken: () => getVercelOidcToken({audience: GA4_OIDC_AUDIENCE})})}
+        : {credential: process.env.LUUN_GA4_SERVICE_ACCOUNT_JSON});
       const key = from + ':' + through, saved = cache.get(key);
       if (saved && saved.until > Date.now()) return {report: saved.report, connection: 'Connected to Google Analytics · refreshed at most every 5 minutes.'};
       const report = await reader(from, through);

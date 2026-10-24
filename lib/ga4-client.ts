@@ -2,11 +2,11 @@ import {createSign} from 'node:crypto';
 import {GA4_EVENTS, LUUN_GA4_PROPERTY, ga4Number, parseGA4Events, validGA4Range, type GA4Report} from './ga4';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
-type Options = {fetcher?: typeof fetch; credential: string; now?: () => number};
+type Options = {fetcher?: typeof fetch; credential?: string; accessToken?: () => Promise<string>; now?: () => number};
 export function createGA4Reader(options: Options) {
   const fetcher = options.fetcher || fetch, now = options.now || Date.now;
-  const credential = JSON.parse(options.credential) as {type?: string; client_email?: string; private_key?: string};
-  if (credential.type !== 'service_account' || !credential.client_email?.endsWith('.iam.gserviceaccount.com') || !credential.private_key?.includes('BEGIN PRIVATE KEY')) throw Error('Invalid Analytics connection');
+  const credential = JSON.parse(options.credential || '{}') as {type?: string; client_email?: string; private_key?: string};
+  if (!options.accessToken && (credential.type !== 'service_account' || !credential.client_email?.endsWith('.iam.gserviceaccount.com') || !credential.private_key?.includes('BEGIN PRIVATE KEY'))) throw Error('Invalid Analytics connection');
   let token: {value: string; expires: number} | null = null;
   let pendingToken: Promise<string> | null = null;
   async function readJSON(url: string, body: string, headers: Record<string, string>) {
@@ -17,6 +17,7 @@ export function createGA4Reader(options: Options) {
     return JSON.parse(raw);
   }
   async function accessToken(): Promise<string> {
+    if (options.accessToken) return options.accessToken();
     if (token && token.expires > now()) return token.value;
     if (pendingToken) return pendingToken;
     pendingToken = (async () => {
