@@ -89,3 +89,20 @@ export async function makeSingleVideo(project:VideoProject,onProgress?:(p:VideoP
  onStatus?.('Rendering MP4 — keep this tab open…');const blob=await renderCreatorVideo(ready.creatorRenderPlan,fraction=>onStatus?.(`Rendering MP4 · ${Math.round(fraction*100)}% — keep this tab open`));
  onStatus?.('Saving the finished video…');const saved=await uploadHostedVideo(new File([blob],'N06-R001-Luun.mp4',{type:'video/mp4'}),'export',ready,{approval:ready.renderApproval,renderKey:'n06-render-test-v1'});onStatus?.('Video saved. Ready to review.');return saved;
 }
+
+// Upload-only reference workflow: paid transcription is separately reserved by the server.
+export async function uploadReferenceAd(file:File,project:VideoProject,onProgress?:(p:VideoProject)=>void){
+ if(!['video/mp4','video/webm','video/quicktime'].includes(file.type)||file.size>100*1024*1024)throw Error('Choose an MP4, WebM or MOV up to 100 MB');
+ const info=await mediaInfo(file);if(info.seconds>120)throw Error('This test supports complete videos up to two minutes; nothing was uploaded or billed');
+ let current=await uploadHostedVideo(file,'source',project,{referenceAd:true});const mediaId=current.referenceMediaId;if(!mediaId)throw Error('Reference upload was not confirmed');
+ current=await videoJSON({action:'save-reference-ad',id:current.id,revision:current.revision,name:file.name,transcript:'',industry:'',performance:'',mediaId});onProgress?.(current);
+ return resumeReferenceTranscription(current,mediaId,file,onProgress);
+}
+export async function resumeReferenceTranscription(project:VideoProject,mediaId:string,file?:File,onProgress?:(p:VideoProject)=>void){
+ const current=project as VideoProject&import('./content-video-creator').CreatorState,ad=current.adReferences?.ads.find(a=>a.mediaId===mediaId);if(!ad)throw Error('Saved reference is unavailable');if(ad.transcript)return current;
+ const status=await videoJSON({action:'reference-ad-status',id:current.id});if(!status.transcriptionAuthorized)throw Error('Video saved. The one-time transcription allowance is unavailable or exhausted; no AI call ran.');
+ let audio:File;
+ if(file){const {extractOwnerAudio}=await import('./content-video-creator-render');audio=await extractOwnerAudio(file);}else{const {savedIdeaChunk}=await import('./content-video-long-note-client');if(!ad.seconds||ad.seconds>120)throw Error('This test supports complete reference videos up to two minutes');audio=(await savedIdeaChunk(`/api/content/video?id=${current.id}&referenceAd=${mediaId}`,0,ad.seconds,ad.seconds)).file;}
+ const prepared=await uploadHostedVideo(audio,'voice',current,{referenceAudio:true,referenceId:ad.id,sourceId:mediaId});
+ const completed=await videoJSON({action:'reference-ad-transcribe',id:prepared.id,revision:prepared.revision,referenceId:ad.id,audioId:prepared.referenceAudioId});onProgress?.(completed);return completed;
+}
