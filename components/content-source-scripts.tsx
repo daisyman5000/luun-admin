@@ -1,6 +1,5 @@
 'use client';
 
-import {ContentAdReferences} from './content-ad-references';
 import {ContentScriptImprovements} from './content-script-improvements';
 import {useState} from 'react';
 import {sourceScriptName} from '../lib/content-video-script-name';
@@ -11,8 +10,6 @@ type Readiness={authorized:boolean;message:string;remainingMicrousd:number;appro
 type Props={
  project:Pick<CreatorState,'id'|'revision'|'adReferences'|'sourceBank'|'scriptLab'|'sourceQuestion'|'scriptImprovements'>;
  projects:{id:string;script:string;sourceBank?:SourceBank}[];
- onReferenceProject:(p:import('../lib/content-video').VideoProject)=>void;
- onReferenceSave:(body:Record<string,unknown>)=>Promise<unknown>;
  busy:boolean;
  error:string;
  readiness:Readiness|null;
@@ -25,7 +22,7 @@ type Props={
  onPauseImprovement?:()=>void;
 };
 
-export function ContentSourceScripts({project,projects,busy,error,readiness,onReferenceSave,onReferenceProject,onGenerate,onMakeVideo,onChoose,improvementStatus,improvementProgress,onImprove,onPauseImprovement}:Props){
+export function ContentSourceScripts({project,projects,busy,error,readiness,onGenerate,onMakeVideo,onChoose,improvementStatus,improvementProgress,onImprove,onPauseImprovement}:Props){
  const [selection,setSelection]=useState({id:'',latest:''});
  const bank=project.sourceBank;
  if(!bank)return null;
@@ -58,7 +55,6 @@ export function ContentSourceScripts({project,projects,busy,error,readiness,onRe
    <p className="mt-4 whitespace-pre-wrap text-base leading-7">{selected.script}</p>
    <button className={field+' mt-4'} disabled={busy} onClick={()=>onMakeVideo({candidateId:selected.id})}>Make video from this script</button>
   </article>:<p className="mt-6 text-sm text-slate-600">Generate a script from your saved notes.</p>}
-  <ContentAdReferences project={project} busy={busy} onSave={onReferenceSave} onProject={onReferenceProject}/>
   {onImprove&&<ContentScriptImprovements bank={bank} state={project.scriptImprovements} busy={busy} progress={improvementProgress||''} status={improvementStatus||null} onMakeVideo={noteId=>onMakeVideo({noteId})} onRun={onImprove} onPause={onPauseImprovement||(()=>{})}/> }
   <details className="mt-6 text-sm text-slate-500">
    <summary>Source notes · {bank.notes.length} notes · {bank.angles.length} angles</summary>
