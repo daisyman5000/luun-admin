@@ -2,9 +2,9 @@
 import {effectiveComparison,bestAvailableImprovement,bestImprovement,improvementLedger,nextImprovementPhase,type ScriptImprovements} from '../lib/content-script-improvement-types';
 import type {SourceBank} from '../lib/content-video-source-bank';
 type Status={authorized:boolean;message:string;remainingMicrousd:number};
-type Props={bank:SourceBank;state?:ScriptImprovements;busy:boolean;progress:string;status:Status|null;onRun:(ids:string[])=>void;onPause:()=>void};
+type Props={bank:SourceBank;state?:ScriptImprovements;busy:boolean;progress:string;status:Status|null;onRun:(ids:string[])=>void;onPause:()=>void;onMakeVideo?:(noteId:string)=>void};
 const button='rounded-lg border border-line px-4 py-2.5 text-sm disabled:opacity-40';
-export function ContentScriptImprovements({bank,state,busy,progress,status,onRun,onPause}:Props){const ledger=improvementLedger(state),complete=Object.values(state?.notes||{}).filter(n=>n.comparison).length;
+export function ContentScriptImprovements({bank,state,busy,progress,status,onRun,onPause,onMakeVideo}:Props){const ledger=improvementLedger(state),complete=Object.values(state?.notes||{}).filter(n=>n.comparison).length;
  return <section aria-label="Script improvements" className="mt-8 border-t border-line pt-7">
   <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Improve the eight scripts</h2><button className={button+' bg-slate-950 text-white'} disabled={busy||!status?.authorized||complete===8} onClick={()=>onRun(bank.notes.map(n=>n.id))}>{complete===8?'Review complete':complete?'Continue all eight':'Improve all eight'}</button></div>
   <p className="mt-2 text-sm text-slate-600">Critique → two revisions → blind comparison. The original can win. Weak ideas are flagged for you; nothing is deleted.</p>
@@ -18,6 +18,7 @@ export function ContentScriptImprovements({bank,state,busy,progress,status,onRun
    {comparison&&<p className="mt-2 text-sm">{comparison.reason}</p>}
    {comparison?.missingDetail&&<p className="mt-2 text-sm font-medium">Needed: {comparison.missingDetail}</p>}
    {best&&<div className="mt-4">{verdict!=='worthwhile'&&<p className="mb-3 text-sm font-semibold">Strongest available draft · needs review</p>}<p className="font-medium">{best.coreIdea}</p><p className="mt-3 whitespace-pre-wrap leading-7">{best.script}</p>{(best.script.trim().split(/\s+/).length<130||best.script.trim().split(/\s+/).length>160)&&<p className="mt-3 text-xs text-amber-900">{best.script.trim().split(/\s+/).length} words · outside the 130–160 word target.</p>}</div>}
+   {best&&onMakeVideo&&<button className={button+' mt-4'} disabled={busy} onClick={()=>onMakeVideo(source.id)}>Make video from this script</button>}
    {note?.critique&&<details className="mt-4 text-sm"><summary className="cursor-pointer">Critique, original and alternatives</summary><p className="mt-3">{note.critique.reason}</p><p className="mt-2">Buyer benefit: {note.critique.buyerBenefit||'Missing from this source'}</p>{note.critique.weakLines.map((line,i)=><div key={i} className="mt-3 border-l-2 border-line pl-3"><p>“{line.line}”</p><p>{line.problem}</p><p>Fix: {line.fix}</p></div>)}<h4 className="mt-4 font-semibold">Original · preserved{note.originalName?' · '+note.originalName:' · first sample'}</h4><p className="mt-2 whitespace-pre-wrap leading-6">{note.critique.baseline.script}</p>{note.revisions?.map((v,i)=><div key={i} className="mt-4"><h4 className="font-semibold">Revision {i+1}</h4><p className="mt-2 font-medium">{v.coreIdea}</p><p className="mt-2 whitespace-pre-wrap leading-6">{v.script}</p></div>)}{comparison&&<p className="mt-4 text-xs text-slate-500">AI editorial comparison, not a prediction of ad performance. Winner: {comparison.winner==='none'?'none':note.blindOrder?.[['A','B','C'].indexOf(comparison.winner)]===0?'original':'revision '+note.blindOrder?.[['A','B','C'].indexOf(comparison.winner)]}.</p>}</details>}
   </article>;})}</div>
  </section>;

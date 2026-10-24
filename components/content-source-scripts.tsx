@@ -14,6 +14,7 @@ type Props={
  error:string;
  readiness:Readiness|null;
  onGenerate:()=>void;
+ onMakeVideo:(selection:{candidateId?:string;noteId?:string})=>void;
  onChoose:(id:string)=>void;
  improvementStatus?:{authorized:boolean;message:string;remainingMicrousd:number}|null;
  improvementProgress?:string;
@@ -21,7 +22,7 @@ type Props={
  onPauseImprovement?:()=>void;
 };
 
-export function ContentSourceScripts({project,projects,busy,error,readiness,onGenerate,onChoose,improvementStatus,improvementProgress,onImprove,onPauseImprovement}:Props){
+export function ContentSourceScripts({project,projects,busy,error,readiness,onGenerate,onMakeVideo,onChoose,improvementStatus,improvementProgress,onImprove,onPauseImprovement}:Props){
  const [selection,setSelection]=useState({id:'',latest:''});
  const bank=project.sourceBank;
  if(!bank)return null;
@@ -52,8 +53,9 @@ export function ContentSourceScripts({project,projects,busy,error,readiness,onGe
    <h2 className="text-lg font-semibold">{sourceScriptName(selected,bank,scripts)}</h2>
    {selected.coreIdea&&<p className="mt-4 font-medium">{selected.coreIdea}</p>}
    <p className="mt-4 whitespace-pre-wrap text-base leading-7">{selected.script}</p>
+   <button className={field+' mt-4'} disabled={busy} onClick={()=>onMakeVideo({candidateId:selected.id})}>Make video from this script</button>
   </article>:<p className="mt-6 text-sm text-slate-600">Generate a script from your saved notes.</p>}
-  {onImprove&&<ContentScriptImprovements bank={bank} state={project.scriptImprovements} busy={busy} progress={improvementProgress||''} status={improvementStatus||null} onRun={onImprove} onPause={onPauseImprovement||(()=>{})}/> }
+  {onImprove&&<ContentScriptImprovements bank={bank} state={project.scriptImprovements} busy={busy} progress={improvementProgress||''} status={improvementStatus||null} onMakeVideo={noteId=>onMakeVideo({noteId})} onRun={onImprove} onPause={onPauseImprovement||(()=>{})}/> }
   <details className="mt-6 text-sm text-slate-500">
    <summary>Source notes · {bank.notes.length} notes · {bank.angles.length} angles</summary>
    {bank.notes.map(n=><details key={n.id} className="mt-3"><summary>{n.id} — {n.name}</summary><p className="mt-2 whitespace-pre-wrap">{n.text}</p></details>)}
