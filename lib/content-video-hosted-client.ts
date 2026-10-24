@@ -77,6 +77,7 @@ export async function makeSingleVideo(project:VideoProject,onProgress?:(p:VideoP
  else{
   onStatus?.('Reading Luun footage…');const prepared=await videoJSON({action:'single-video-prepare',id:current.id,revision:current.revision});current=prepared;onProgress?.(current);
   const selected=await collectCreatorFrames<string>(prepared.driveCandidates,async(file,offset)=>{
+   const cached=prepared.privatePreviews?.find((m:{sourceId:string;version:string;md5:string;offset:number})=>m.sourceId===file.id&&m.version===file.version&&m.md5===file.md5Checksum&&m.offset===offset);if(cached)return cached.id;
    const blob=file.mimeType.startsWith('video/')?await creatorVideoFrame(file.url,offset):await creatorImageFrame(file.url);
    await uploadHostedVideo(new File([blob],'luun-frame.jpg',{type:'image/jpeg'}),'preview',prepared,{sourceType:'drive',sourceId:file.id,version:file.version,md5:file.md5Checksum,offset});
    const r=await fetch(`/api/content/video?context=${prepared.id}`,{cache:'no-store'}),context=await r.json();if(!r.ok)throw Error(context.error||'Saved frame is unavailable');
