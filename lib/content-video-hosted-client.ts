@@ -63,3 +63,27 @@ export async function transcribeSavedIdea(project:IdeaProject,onProgress?:(p:typ
 }
 
 export async function generateScriptFromIdea(project:IdeaProject,idea:string,onProgress?:(p:IdeaProject)=>void){const current=await transcribeSavedIdea(project,onProgress);return videoJSON({action:'generate-script',id:current.id,revision:current.revision,key:crypto.randomUUID(),idea,debug:!!current.scriptApproval});}
+
+// One explicitly approved test. Provider jobs use fixed keys server-side; reloads resume saved work.
+export async function makeSingleVideo(project:VideoProject,onProgress?:(p:VideoProject)=>void,onStatus?:(s:string)=>void){
+ const {creatorVideoFrame,creatorImageFrame,renderCreatorVideo,probeCreatorEncoders}=await import('./content-video-creator-render');
+ const {collectCreatorFrames}=await import('./content-video-creator-candidates');
+ await probeCreatorEncoders();
+ let current=project as VideoProject&{performance?:{audioId:string};renderApproval?:string};
+ if(current.output)return current;
+ if(!current.performance?.audioId){onStatus?.('Generating AI narration…');current=await videoJSON({action:'single-video-voice',id:current.id,revision:current.revision});onProgress?.(current);}
+ let ready;
+ if(current.renderApproval){ready=await videoJSON({action:'resume-render',id:current.id});}
+ else{
+  onStatus?.('Reading Luun footage…');const prepared=await videoJSON({action:'single-video-prepare',id:current.id,revision:current.revision});current=prepared;onProgress?.(current);
+  const selected=await collectCreatorFrames<string>(prepared.driveCandidates,async(file,offset)=>{
+   const blob=file.mimeType.startsWith('video/')?await creatorVideoFrame(file.url,offset):await creatorImageFrame(file.url);
+   await uploadHostedVideo(new File([blob],'luun-frame.jpg',{type:'image/jpeg'}),'preview',prepared,{sourceType:'drive',sourceId:file.id,version:file.version,md5:file.md5Checksum,offset});
+   const r=await fetch(`/api/content/video?context=${prepared.id}`,{cache:'no-store'}),context=await r.json();if(!r.ok)throw Error(context.error||'Saved frame is unavailable');
+   const found=context.media.find((m:{kind:string;metadata:Record<string,unknown>})=>m.kind==='preview'&&m.metadata.sourceId===file.id&&m.metadata.offset===offset&&m.metadata.version===file.version);if(!found)throw Error('Footage frame was not saved');return found.id;
+  });
+  onStatus?.('Timing narration and editing…');ready=await videoJSON({action:'single-video-edit',id:prepared.id,revision:prepared.revision,previewIds:selected.frames});onProgress?.(ready);
+ }
+ onStatus?.('Rendering MP4 — keep this tab open…');const blob=await renderCreatorVideo(ready.creatorRenderPlan,fraction=>onStatus?.(`Rendering MP4 · ${Math.round(fraction*100)}% — keep this tab open`));
+ onStatus?.('Saving the finished video…');return uploadHostedVideo(new File([blob],'N06-R001-Luun.mp4',{type:'video/mp4'}),'export',ready,{approval:ready.renderApproval,renderKey:'n06-render-test-v1'});
+}
