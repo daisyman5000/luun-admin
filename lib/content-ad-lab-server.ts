@@ -12,7 +12,7 @@ const PRICE_VERIFIED='2026-10-23',PER_CALL=120000;
 type Grant={id:string;owner:string;project:string;sourceHash:string;totalMicrousd:number;perCallMicrousd:number;approvedAt:string;expires:string};
 // No default grant. Earlier script, reference, RSI and voice allowances cannot fund this workflow.
 export function adLabAllowance(actor:string,p:CreatorState,env:NodeJS.ProcessEnv=process.env){let g:Grant|undefined;try{g=JSON.parse(env.LUUN_AD_LAB_AI_GRANT||'null');}catch{}const work=adLabWork(p),used=work.runs.flatMap(r=>r.jobs).filter(j=>j.grantId===g?.id).reduce((n,j)=>n+j.reservedMicrousd,0),now=Date.now();let message='';
- if(!g)message='AI is off. Ad lab has no separate spending allowance. Saved drafts and local video exports are free of AI charges.';
+ if(!g)message='Paid script AI is off. Ad lab has no separate spending allowance. Saved drafts and local video exports are free of AI charges.';
  else if(g.owner!==actor||g.project!==p.id||g.sourceHash!==adLabSourceHash(p)||!/^adlab-[a-zA-Z0-9_-]{8,90}$/.test(g.id))message='The allowance does not cover this owner, collection and source version.';
  else if(!Number.isSafeInteger(g.totalMicrousd)||!Number.isSafeInteger(g.perCallMicrousd)||g.perCallMicrousd!==PER_CALL||g.totalMicrousd<PER_CALL*2||!Number.isFinite(Date.parse(g.approvedAt))||Date.parse(g.approvedAt)>now||!(Date.parse(g.expires)>now)||Date.parse(g.expires)-Date.parse(g.approvedAt)>7*86400000)message='The one-time allowance is invalid or expired. It never renews automatically.';
  else if(now-Date.parse(PRICE_VERIFIED+'T00:00:00Z')>7*86400000||now<Date.parse(PRICE_VERIFIED+'T00:00:00Z'))message='Provider price verification expired. No paid call was started.';

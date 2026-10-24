@@ -3,9 +3,9 @@ import {adBeatTimes,type AdFinal} from './content-ad-lab';
 
 export type AdPhotos=Partial<Record<'frame'|'base'|'cushion',CanvasImageSource>>;
 // A fixed renderer, not AI-generated code. It cannot fetch, execute, publish or animate a product.
-export function adComposition(final:AdFinal,duration:number,photos:AdPhotos={}){
+export function adComposition(final:AdFinal,duration:number,photos:AdPhotos={},durations?:number[]){
  if(!final.script||!final.beats.length)throw Error('Choose a retained script with a complete animation plan');
- const beats=adBeatTimes(final.beats,duration),states=beats.map(()=>({reveal:0,change:0})),timeline=gsap.timeline({paused:true});
+ const beats=adBeatTimes(final.beats,duration);if(durations){if(durations.length!==beats.length||durations.some(d=>!Number.isFinite(d)||d<=0)||Math.abs(durations.reduce((a,b)=>a+b,0)-duration)>.05)throw Error('Voice timing must cover every animation beat');let at=0;beats.forEach((b,i)=>{b.start=at;at+=durations[i];b.end=i===beats.length-1?duration:at;});}const states=beats.map(()=>({reveal:0,change:0})),timeline=gsap.timeline({paused:true});
  beats.forEach((b,i)=>{const seconds=b.end-b.start;timeline.to(states[i],{reveal:1,duration:Math.min(.35,seconds*.2),ease:'power2.out'},b.start);timeline.to(states[i],{change:1,duration:Math.max(.1,seconds*.65),ease:'none'},b.start+seconds*.15);});
  const label=(ctx:CanvasRenderingContext2D,text:string,x:number,y:number,size:number,color='#f8f5ed')=>{ctx.font=`600 ${size}px Arial`;while(ctx.measureText(text).width>600&&size>24){size-=2;ctx.font=`600 ${size}px Arial`;}ctx.fillStyle=color;ctx.fillText(text,x,y);};
  function draw(ctx:CanvasRenderingContext2D,time:number){timeline.seek(Math.max(0,Math.min(duration,time)),false);const index=Math.max(0,beats.findIndex(b=>time>=b.start&&time<b.end)),b=beats[time>=duration?beats.length-1:index],state=states[time>=duration?beats.length-1:index];ctx.save();ctx.fillStyle='#111b20';ctx.fillRect(0,0,720,1280);ctx.textAlign='center';ctx.textBaseline='middle';
