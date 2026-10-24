@@ -1,3 +1,4 @@
+import {referenceScriptIssues} from './content-ad-script-checks';
 import {createHash} from 'node:crypto';
 import type {CreatorState} from './content-video-creator';
 import {sourceScriptName} from './content-video-script-name';
@@ -8,7 +9,7 @@ export function videoScriptHandoff(p:CreatorState,selection:{candidateId?:unknow
  if(p.revision!==revision)throw Error('Scripts changed. Reload before choosing a video script');
  if(!p.sourceBank)throw Error('Choose a saved source-note collection');
  let script='',name='',selectionId='';
- if(typeof selection.referenceResultId==='string'&&!selection.noteId&&!selection.candidateId){const r=p.adReferences?.results.find(r=>r.id===selection.referenceResultId);if(!r||!r.script)throw Error('Saved reference script is unavailable');script=r.script;name=r.name;selectionId='reference:'+r.id;
+ if(typeof selection.referenceResultId==='string'&&!selection.noteId&&!selection.candidateId){const r=p.adReferences?.results.find(r=>r.id===selection.referenceResultId);if(!r||!r.script)throw Error('Saved reference script is unavailable');if(referenceScriptIssues(r.script).length)throw Error('Reference script needs correction before making a video');script=r.script;name=r.name;selectionId='reference:'+r.id;
  }else if(typeof selection.candidateId==='string'&&!selection.noteId&&!selection.referenceResultId){
   const c=p.scriptLab?.candidates.find(c=>c.id===selection.candidateId&&c.sourceBankDigest===p.sourceBank!.digest);
   if(!c)throw Error('Saved script is unavailable');
