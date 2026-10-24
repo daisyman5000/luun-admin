@@ -20,6 +20,7 @@
     "test:video": "node --test tests/content-video.test.cjs tests/content-video-hosted.test.cjs tests/content-video-creator.test.cjs tests/content-video-script-debug.test.cjs tests/content-video-audio-debug.test.cjs tests/content-video-recording.test.cjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "1.1.1",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.47.10",
     "@vercel/oidc": "4.0.3",

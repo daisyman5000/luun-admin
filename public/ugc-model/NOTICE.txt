@@ -1,0 +1,6 @@
+Presenter segmentation runs locally in the browser using Google MediaPipe.
+Library: @mediapipe/tasks-vision 1.1.1 (Apache-2.0).
+Model source: https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite
+Documentation/model card: https://developers.google.com/edge/mediapipe/solutions/vision/image_segmenter
+The model and matching WASM runtime are bundled locally. No user media is sent to Google for inference.
+Model SHA-256 is pinned by the checked-in asset, rather than downloaded at runtime.
