@@ -23,6 +23,17 @@ with input as (
  select r.* from public.finance_actual_runs r cross join input i
  where r.from_day<=i.report_day+1 and r.through_day>=i.report_day-1 and r.observed_at<=i.cutoff
  order by r.observed_at desc,r.id limit 1001
+), daily_orders as (
+ select o.shopify_order_id as id,o.created_at,o.updated_at,
+ o.raw_shopify_json->'test' as test,o.raw_shopify_json->'cancelledAt' as cancelled_at,
+ (o.raw_shopify_json ? 'cancelledAt') as cancellation_known,
+ o.raw_shopify_json->'currentTotalPriceSet'->'shopMoney' as shop_money,
+ o.raw_shopify_json->'currentTotalPriceSet'->'presentmentMoney' as presentment_money
+ from public.shopify_orders o cross join input i
+ where o.created_at >= (i.report_day::timestamp at time zone i.report_zone)
+ and o.created_at < ((i.report_day+1)::timestamp at time zone i.report_zone)
+ and o.updated_at<=i.cutoff
+ order by o.shopify_order_id limit 1001
 ), sources as (
  select source,scope,status,last_attempt_at,last_success_at,source_updated_at,coverage_from,coverage_to,read_complete,last_run_count
  from public.operator_source_state order by source,scope limit 101
@@ -34,11 +45,12 @@ select jsonb_build_object(
  'contract_version',2,'report_day',i.report_day,'report_time_zone',i.report_zone,'cutoff',i.cutoff,
  'original_plan',(select jsonb_build_object('id',s.id,'title',s.title,'fingerprint',s.fingerprint,'created_at',s.created_at,'source_at',s.package->>'sourceAt','time_zone',s.package->>'timeZone','target',(select d from jsonb_array_elements(s.package->'days') d where d->>'day'=i.report_day::text limit 1)) from chosen_plan s),
  'actual_records',coalesce((select jsonb_agg(to_jsonb(a)) from records a),'[]'::jsonb),
+ 'synced_daily_orders',coalesce((select jsonb_agg(to_jsonb(o)) from daily_orders o),'[]'::jsonb),
  'coverage_runs',coalesce((select jsonb_agg(to_jsonb(r)) from runs r),'[]'::jsonb),
  'actual_day_legacy_time_zone','America/Vancouver',
  'source_states',coalesce((select jsonb_agg(to_jsonb(s)) from sources s),'[]'::jsonb),
  'current_bank_context',(select jsonb_build_object('status',b.status,'last_success_at',b.last_success_at,'retrieved_at',b.payload->'sources'->'balances'->>'retrievedAt','balances',(select jsonb_agg(jsonb_build_object('amount',v->'amount','currency',v->>'currency','profile_type',v->>'profileType')) from jsonb_array_elements(case when jsonb_typeof(b.payload->'balances')='array' then b.payload->'balances' else '[]'::jsonb end) v where v->>'currency'='CAD' and lower(v->>'profileType') in('business','personal'))) from bank b),
- 'limits_exceeded',jsonb_build_object('actual_records',(select count(*)>1000 from records),'coverage_runs',(select count(*)>1000 from runs),'source_states',(select count(*)>100 from sources)),
+ 'limits_exceeded',jsonb_build_object('actual_records',(select count(*)>1000 from records),'coverage_runs',(select count(*)>1000 from runs),'source_states',(select count(*)>100 from sources),'synced_daily_orders',(select count(*)>1000 from daily_orders)),
  'settled_bank_collections',null,'daily_ad_delivery',null,
  'notes',jsonb_build_array('Current source-state/bank rows are current context, not immutable prior-day observations.','Vancouver historical day aggregates are not Cancun day aggregates; withhold incompatible variance.','No record, complete-day zero, bank settlement or ad delivery is invented.')
 ) as scorecard_input from input i;

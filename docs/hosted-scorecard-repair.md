@@ -102,3 +102,25 @@ evidence/instagram-external-approval-scope.json.blockedConfigurationAccess recor
 Production environment metadata/settings for the SAME project/team denied by
 service403 scope authorization. It does not retain an exact HTTP method/path, so
 none is invented here. Neither operation was retried or bypassed.
+
+## Activation correction — observation-only revision
+
+The reporting source worker no longer imports or upserts shopify_orders. It queries
+previous Cancun-day orders read-only and appends immutable orders:v1 observations
+to existing finance_actual_runs (category collections, complete=false; package kind
+and scanComplete distinguish order evidence from collection coverage). It updates
+only its own operator_source_state scope shopify_orders/scorecard_daily. Legacy
+incremental cache state is untouched. Legacy actual readers exclude orders:v1.
+Existing order import/webhook workflows and schedules are not changed or invoked.
+No reservation or inventory trigger is reached by this reporting worker. Paid
+expense and Shopify capture/refund observations remain partial finance evidence.
+Morning SQL additionally reads bounded synced order cache records without PII;
+order/sales count and shop/presentment currency totals are distinct from captures.
+The earlier evidence-only description of the full importer was incorrect: do not
+invoke that broader importer as part of this rollout.
+
+Approved Cancun baseline was inserted once at 2026-10-29T16:48:22.813872Z,
+id 62cd49c8-8101-4c15-90fb-a86b2edfecd1; exact package readback matched. Existing
+owner profile/old baseline creator 913c334c-7c7c-4aed-9ffa-7c8d225a95b0 was used as
+created_by. Owner role was verified, but connector authenticated identity was not
+verified as this UUID; retain this attribution limitation rather than inventing it.

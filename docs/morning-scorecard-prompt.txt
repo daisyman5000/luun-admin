@@ -4,6 +4,8 @@ For dates before2026-10-30 use only saved owner plan bf90834b-8ae1-458d-87f5-c78
 Deduplicate actual records by stable transaction ID. Preserve currency separation and show known partial CAD evidence only as partial observations. Legacy actual-day records use America/Vancouver; do not relabel them as Cancun. Where an immutable coverage package provides the original UTC recordTimes entry for a transaction ID, convert that instant to America/Cancun and count it only in its actual Cancun day, as partial evidence. Adjacent Vancouver days are returned for this reason. Records without a usable original instant remain legacy-day evidence, not Cancun actuals. Conflicting timestamp evidence is withheld. Use only history:v1 coverage runs for immutable cutoff selection, choose the latest qualifying run per category with its original observed_at and timezone, and retain legacy mutable checkpoints as diagnostics only. Any truncation, conflicting ID/currency, timezone mismatch or incomplete coverage suppresses complete-day variance. No records means unavailable, not zero, unless matching immutable complete coverage explicitly establishes zero. Categories ad_payment and ad_spend are different; receipt/bank billing is not ad delivery. Order payment/fulfillment status is not cash; successful captures/refunds are not bank-settled payouts. Test orders are excluded by source ingestion; cancellation itself never invents or erases actual captured/refunded transactions.
 Keep it brief: source-health warning; explicitly labelled original target if available; observed amounts with completeness/timezone; variance only when compatible and complete; next existing commitments from approved records when available. State that bank settlement and daily ad delivery remain unavailable where no verified source exists. No action, budget change, order, payment or message is executed. Preserve the original baseline and historical evidence. Do not claim automation configuration or production setup changed merely because this report ran.
 
+Report daily Shopify order count and booked order sales separately from payment captures. For the previous Cancun day, prefer a matching immutable orders:v1 coverage row whose package.kind=daily_order_observation, package.day matches, package.timeZone=America/Cancun, and observed_at is within cutoff; choose the latest eligible row without merging different observations. Deduplicate package.orders by stable id, exclude test=true and cancelledAt non-null, and require known boolean test and known cancellation state. Sum shopMoney by currency and presentmentMoney separately by currency; never combine the two views or CAD/USD. Totals are current order values including returned tax/shipping after discounts, not pretax merchandise revenue, finance captures or bank settlement. Missing/invalid money or conflicting IDs make that currency total incomplete. A scanComplete=false, unknown coverage or truncation makes counts/totals partial; explicit matching complete zero-order scan may establish zero. If no matching archived observation exists, use synced_daily_orders only as labelled partial cache evidence with the same exclusions and currency rules; missing test/cancellation/amount fields remain unknown. Synced cache updated_at is ingestion time, not original provider retrieval time; retain actual source poll metadata. Do not call stale cache a freshly observed complete daily ledger. Show unknown/omitted-order counts where applicable. The observation-only worker does not update this order cache or any reservations/inventory; independent existing business workflows may update it.
+
 BEGIN APPROVED READ-ONLY SQL
 -- READ ONLY. Existing connected Supabase project pgoxvqziybtasivqiymw.
 -- Run once per report; generated_at is a query cutoff, NEVER source freshness.
@@ -30,6 +32,17 @@ with input as (
  select r.* from public.finance_actual_runs r cross join input i
  where r.from_day<=i.report_day+1 and r.through_day>=i.report_day-1 and r.observed_at<=i.cutoff
  order by r.observed_at desc,r.id limit 1001
+), daily_orders as (
+ select o.shopify_order_id as id,o.created_at,o.updated_at,
+ o.raw_shopify_json->'test' as test,o.raw_shopify_json->'cancelledAt' as cancelled_at,
+ (o.raw_shopify_json ? 'cancelledAt') as cancellation_known,
+ o.raw_shopify_json->'currentTotalPriceSet'->'shopMoney' as shop_money,
+ o.raw_shopify_json->'currentTotalPriceSet'->'presentmentMoney' as presentment_money
+ from public.shopify_orders o cross join input i
+ where o.created_at >= (i.report_day::timestamp at time zone i.report_zone)
+ and o.created_at < ((i.report_day+1)::timestamp at time zone i.report_zone)
+ and o.updated_at<=i.cutoff
+ order by o.shopify_order_id limit 1001
 ), sources as (
  select source,scope,status,last_attempt_at,last_success_at,source_updated_at,coverage_from,coverage_to,read_complete,last_run_count
  from public.operator_source_state order by source,scope limit 101
@@ -41,11 +54,12 @@ select jsonb_build_object(
  'contract_version',2,'report_day',i.report_day,'report_time_zone',i.report_zone,'cutoff',i.cutoff,
  'original_plan',(select jsonb_build_object('id',s.id,'title',s.title,'fingerprint',s.fingerprint,'created_at',s.created_at,'source_at',s.package->>'sourceAt','time_zone',s.package->>'timeZone','target',(select d from jsonb_array_elements(s.package->'days') d where d->>'day'=i.report_day::text limit 1)) from chosen_plan s),
  'actual_records',coalesce((select jsonb_agg(to_jsonb(a)) from records a),'[]'::jsonb),
+ 'synced_daily_orders',coalesce((select jsonb_agg(to_jsonb(o)) from daily_orders o),'[]'::jsonb),
  'coverage_runs',coalesce((select jsonb_agg(to_jsonb(r)) from runs r),'[]'::jsonb),
  'actual_day_legacy_time_zone','America/Vancouver',
  'source_states',coalesce((select jsonb_agg(to_jsonb(s)) from sources s),'[]'::jsonb),
  'current_bank_context',(select jsonb_build_object('status',b.status,'last_success_at',b.last_success_at,'retrieved_at',b.payload->'sources'->'balances'->>'retrievedAt','balances',(select jsonb_agg(jsonb_build_object('amount',v->'amount','currency',v->>'currency','profile_type',v->>'profileType')) from jsonb_array_elements(case when jsonb_typeof(b.payload->'balances')='array' then b.payload->'balances' else '[]'::jsonb end) v where v->>'currency'='CAD' and lower(v->>'profileType') in('business','personal'))) from bank b),
- 'limits_exceeded',jsonb_build_object('actual_records',(select count(*)>1000 from records),'coverage_runs',(select count(*)>1000 from runs),'source_states',(select count(*)>100 from sources)),
+ 'limits_exceeded',jsonb_build_object('actual_records',(select count(*)>1000 from records),'coverage_runs',(select count(*)>1000 from runs),'source_states',(select count(*)>100 from sources),'synced_daily_orders',(select count(*)>1000 from daily_orders)),
  'settled_bank_collections',null,'daily_ad_delivery',null,
  'notes',jsonb_build_array('Current source-state/bank rows are current context, not immutable prior-day observations.','Vancouver historical day aggregates are not Cancun day aggregates; withhold incompatible variance.','No record, complete-day zero, bank settlement or ad delivery is invented.')
 ) as scorecard_input from input i;
