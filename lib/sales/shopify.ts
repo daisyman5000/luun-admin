@@ -36,7 +36,7 @@ function tierInput(sale:SaleState,index:number,enabled:boolean){
  const tier=SALE_TIERS[index];
  return {title:TITLE+' · '+tier.min+'+ modules',startsAt:enabled?sale.starts_at:new Date(Date.now()-60000).toISOString(),endsAt:enabled?sale.ends_at:new Date().toISOString(),
  customerGets:{value:{percentage:tier.bps/10000},items:{products:{productVariantsToAdd:variantIds()}}},minimumRequirement:{quantity:{greaterThanOrEqualToQuantity:String(tier.min)}},
- combinesWith:{productDiscounts:false,orderDiscounts:false,shippingDiscounts:false}};
+ combinesWith:{productDiscounts:false,orderDiscounts:true,shippingDiscounts:false}};
 }
 export async function prepareShopifySale(sale:SaleState){
  const existing=discountIds(sale);if(existing.length)return JSON.stringify(existing);
